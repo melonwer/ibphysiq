@@ -95,14 +95,6 @@ This project is perfect for learning about:
 - **Progress Tracking** - Monitor improvement over time
 - **Multi-language Support** - Translate for international schools
 
-## 🎉 Success Stories
-
-*"I used this to practice kinematic problems before my IB exam. The questions felt just like the real thing!"* - Sarah, IB Physics HL student
-
-*"My students love that they can get new practice questions anytime. It's become part of our regular study routine."* - Mr. Johnson, IB Physics Teacher
-
-*"Contributing to this project taught me more about web development than any tutorial. Plus, I'm helping other students learn physics!"* - Alex, Computer Science student
-
 ## 🤔 Need Help?
 
 - **Questions about physics?** Ask your teacher or classmates
