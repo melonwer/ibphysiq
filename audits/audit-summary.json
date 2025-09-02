@@ -1,0 +1,159 @@
+{
+  "base": "http://localhost:3000",
+  "startedAt": "2025-08-25T21:39:26.027Z",
+  "pages": [
+    {
+      "path": "/",
+      "url": "http://localhost:3000/",
+      "themes": {
+        "light": {
+          "screenshots": {
+            "full": "screenshots/root-light-full.png",
+            "main": "screenshots/root-light-main.png"
+          },
+          "logs": {
+            "console": [
+              "[info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold",
+              "[error] Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+              "[log] [Fast Refresh] rebuilding",
+              "[log] [Fast Refresh] done in 84ms"
+            ],
+            "runtimeErrors": [],
+            "requestFailed": []
+          },
+          "audit": {
+            "counts": {
+              "checked": 76,
+              "failingUnder4_5": 0,
+              "failingUnder3_0": 0
+            },
+            "top12": []
+          }
+        },
+        "dark": {
+          "screenshots": {
+            "full": "screenshots/root-dark-full.png",
+            "main": "screenshots/root-dark-main.png"
+          },
+          "logs": {
+            "console": [],
+            "runtimeErrors": [],
+            "requestFailed": []
+          },
+          "audit": {
+            "counts": {
+              "checked": 76,
+              "failingUnder4_5": 0,
+              "failingUnder3_0": 0
+            },
+            "top12": []
+          }
+        }
+      }
+    },
+    {
+      "path": "/demo",
+      "url": "http://localhost:3000/demo",
+      "themes": {
+        "light": {
+          "screenshots": {
+            "full": "screenshots/demo-light-full.png",
+            "main": "screenshots/demo-light-main.png"
+          },
+          "logs": {
+            "console": [
+              "[info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold",
+              "[log] [Fast Refresh] rebuilding",
+              "[log] [Fast Refresh] done in 49ms"
+            ],
+            "runtimeErrors": [],
+            "requestFailed": []
+          },
+          "audit": {
+            "counts": {
+              "checked": 74,
+              "failingUnder4_5": 0,
+              "failingUnder3_0": 0
+            },
+            "top12": []
+          }
+        },
+        "dark": {
+          "screenshots": {
+            "full": "screenshots/demo-dark-full.png",
+            "main": "screenshots/demo-dark-main.png"
+          },
+          "logs": {
+            "console": [],
+            "runtimeErrors": [],
+            "requestFailed": []
+          },
+          "audit": {
+            "counts": {
+              "checked": 74,
+              "failingUnder4_5": 0,
+              "failingUnder3_0": 0
+            },
+            "top12": []
+          }
+        }
+      }
+    },
+    {
+      "path": "/test",
+      "url": "http://localhost:3000/test",
+      "themes": {
+        "light": {
+          "screenshots": {
+            "full": "screenshots/test-light-full.png",
+            "main": "screenshots/test-light-main.png"
+          },
+          "logs": {
+            "console": [
+              "[info] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold",
+              "[log] [Fast Refresh] rebuilding",
+              "[log] [Fast Refresh] done in 40ms"
+            ],
+            "runtimeErrors": [],
+            "requestFailed": []
+          },
+          "audit": {
+            "counts": {
+              "checked": 57,
+              "failingUnder4_5": 0,
+              "failingUnder3_0": 0
+            },
+            "top12": []
+          }
+        },
+        "dark": {
+          "screenshots": {
+            "full": "screenshots/test-dark-full.png",
+            "main": "screenshots/test-dark-main.png"
+          },
+          "logs": {
+            "console": [],
+            "runtimeErrors": [],
+            "requestFailed": []
+          },
+          "audit": {
+            "counts": {
+              "checked": 59,
+              "failingUnder4_5": 0,
+              "failingUnder3_0": 0
+            },
+            "top12": []
+          }
+        }
+      }
+    }
+  ],
+  "aggregate": {
+    "counts": {
+      "checked": 416,
+      "failingUnder4_5": 0,
+      "failingUnder3_0": 0
+    },
+    "top12": []
+  }
+}

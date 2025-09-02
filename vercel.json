@@ -1,0 +1,104 @@
+{
+  "version": 2,
+  "name": "ibphysiq",
+  "alias": ["ibphysiq.vercel.app", "ibphysiq.com"],
+  "build": {
+    "env": {
+      "NODE_ENV": "production",
+      "NEXT_TELEMETRY_DISABLED": "1"
+    }
+  },
+  "env": {
+    "NODE_ENV": "production",
+    "NEXT_TELEMETRY_DISABLED": "1",
+    "LIT_API_URL": "@lit_api_url",
+    "LIT_API_TOKEN": "@lit_api_token",
+    "HUGGINGFACE_API_KEY": "@huggingface_api_key",
+    "GOOGLE_API_KEY": "@google_api_key",
+    "LOCAL_TGI_URL": "@local_tgi_url",
+    "ENABLE_REFINEMENT": "@enable_refinement",
+    "FALLBACK_TO_ORIGINAL": "@fallback_to_original",
+    "REQUIRE_MINIMUM_QUALITY": "@require_minimum_quality"
+  },
+  "functions": {
+    "app/api/**/*.ts": {
+      "maxDuration": 30
+    },
+    "app/api/generate-question/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/generate-explanation/route.ts": {
+      "maxDuration": 45
+    }
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "X-Requested-With, Content-Type, Authorization"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/static/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/(.*).css",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/(.*).js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/health",
+      "destination": "/api/generate-question?action=health"
+    }
+  ],
+  "regions": ["iad1", "fra1", "syd1"],
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "installCommand": "npm ci --frozen-lockfile",
+  "devCommand": "npm run dev",
+  "outputDirectory": ".next",
+  "public": false,
+  "github": {
+    "enabled": true,
+    "autoAlias": true,
+    "autoJobCancelation": true,
+    "deploymentProtection": false,
+    "silent": false
+  }
+}
