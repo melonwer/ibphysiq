@@ -27,7 +27,7 @@ Hi there! This is a special AI that's been trained specifically to help IB Physi
 ## 🔬 How We Trained This AI
 
 ### The Learning Process
-We fed this AI thousands of IB Physics questions from:
+We fed this AI a thousand of IB Physics questions from:
 - Official IB curriculum documents
 - Past exam papers (the good stuff!)
 - Physics textbooks
