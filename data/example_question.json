@@ -1,0 +1,5 @@
+{
+  "instruction": "Generate an IB Physics Paper 1 style multiple-choice question.",
+  "input": "Topic: Forces and Dynamics",
+  "output": "A force acts on a cube of mass m that accelerates upwards along a vertical frictionless surface.\nThe magnitude of the force is F and it acts at θ to the vertical.\n[IMAGE: A diagram showing a cube next to a vertical surface. A force F is applied to the cube, directed upwards and at an angle θ to the vertical. The cube is shown with mass m labeled, and the vertical surface is clearly marked as frictionless.]\nWhat is the magnitude of the acceleration of the cube?\nA. (Fcosθ - mg) / m\nB. (Fsinθ - mg) / m\nC. (Fcosθ - g) / m\nD. (Fsinθ - g) / m"
+}

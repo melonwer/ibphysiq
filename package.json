@@ -1,0 +1,159 @@
+{
+  "name": "ibphysiq",
+  "version": "1.0.0",
+  "description": "An AI-powered web application for generating IB Physics practice questions using advanced language models. Supports multiple AI providers including Lightning AI, Hugging Face, and local model deployment.",
+  "main": "./lib/index.ts",
+  "module": "./lib/index.ts",
+  "types": "./lib/types/index.ts",
+  "exports": {
+    ".": {
+      "import": "./lib/index.ts",
+      "require": "./lib/index.ts",
+      "types": "./lib/types/index.ts"
+    },
+    "./types": {
+      "import": "./lib/types/index.ts",
+      "require": "./lib/types/index.ts",
+      "types": "./lib/types/index.ts"
+    },
+    "./services": {
+      "import": "./lib/services/index.ts",
+      "require": "./lib/services/index.ts"
+    },
+    "./components": {
+      "import": "./components/index.ts",
+      "require": "./components/index.ts"
+    }
+  },
+  "files": [
+    "lib/**/*",
+    "components/**/*",
+    "public/**/*",
+    "app/**/*",
+    "data/settings.json",
+    "README.md",
+    "LICENSE.md",
+    "RELEASE_NOTES.md",
+    "package.json",
+    "next.config.ts",
+    "tailwind.config.ts",
+    "postcss.config.mjs",
+    "components.json",
+    ".env.example"
+  ],
+  "keywords": [
+    "ib-physics",
+    "physics",
+    "education",
+    "ai",
+    "question-generator",
+    "practice-questions",
+    "nextjs",
+    "typescript",
+    "llama",
+    "openrouter",
+    "deepseek",
+    "machine-learning",
+    "educational-tool",
+    "physics-problems",
+    "ib-curriculum",
+    "study-aid",
+    "academic",
+    "lightning-ai",
+    "huggingface"
+  ],
+  "author": {
+    "name": "melonwer",
+    "url": "https://github.com/melonwer"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/melonwer/ibphysiq.git"
+  },
+  "bugs": {
+    "url": "https://github.com/melonwer/ibphysiq/issues"
+  },
+  "homepage": "https://github.com/melonwer/ibphysiq#readme",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "test": "jest --runInBand --color",
+    "test:watch": "jest --watch --runInBand --color",
+    "test:coverage": "jest --coverage --runInBand --color",
+    "lint": "next lint",
+    "lint:fix": "next lint --fix",
+    "type-check": "tsc --noEmit",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run test && npm run lint && npm run type-check",
+    "postinstall": "npm run prepare"
+  },
+  "dependencies": {
+    "@huggingface/inference": "^4.7.1",
+    "@radix-ui/react-collapsible": "^1.1.12",
+    "@radix-ui/react-progress": "^1.1.7",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-separator": "^1.1.7",
+    "@radix-ui/react-slot": "^1.2.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "geist": "^1.4.2",
+    "lucide-react": "^0.539.0",
+    "next": "^15.5.2",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0",
+    "react-markdown": "^10.1.0",
+    "tailwind-merge": "^3.3.1",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.3.0",
+    "@types/puppeteer": "^5.4.7",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/uuid": "^10.0.0",
+    "eslint": "^9",
+    "eslint-config-next": "15.2.4",
+    "identity-obj-proxy": "^3.0.0",
+    "jest": "^30.0.5",
+    "puppeteer": "^24.17.1",
+    "tailwindcss": "^4.1.12",
+    "ts-jest": "^29.4.1",
+    "tw-animate-css": "^1.3.7",
+    "typescript": "^5"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "tag": "latest"
+  },
+  "release": {
+    "branches": [
+      "main",
+      {
+        "name": "develop",
+        "prerelease": "beta"
+      },
+      {
+        "name": "alpha",
+        "prerelease": true
+      }
+    ]
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/melonwer"
+  }
+}

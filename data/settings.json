@@ -1,0 +1,10 @@
+{
+  "litUrl": "https://8000-dep-01k3m70zjy9sat5he7x29dkvjq-d.cloudspaces.litng.ai/predict",
+  "litToken": "1816a8fa-5ce1-4b14-8a45-2d9c576fbc7b",
+  "litProxyUrl": "http://localhost:3000/api/predict-proxy",
+  "huggingfaceApiKey": "",
+  "llamaModelId": "valid-model-id",
+  "useOwnerCredits": true,
+  "openRouterApiKey": "sk-or-test-key-1234",
+  "refinementProvider": "openrouter"
+}
