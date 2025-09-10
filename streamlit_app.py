@@ -238,36 +238,38 @@ def initialize_session_state():
         st.session_state.lit_api_token = ""
     if 'generation_count' not in st.session_state:
         st.session_state.generation_count = 0
+    if 'first_lit_request' not in st.session_state:
+        st.session_state.first_lit_request = True
 
 # LIT API Client for fine-tuned Llama model
 def call_lit_api(prompt: str, api_url: str = None, api_token: str = None) -> Optional[str]:
     """Call the Lightning AI (LIT) API for the fine-tuned Llama model"""
     import requests
     import re
-    
+
     # Use configured values or defaults
     url = api_url or st.secrets.get("LIT_API_URL", LIT_API_URL)
     token = api_token or st.secrets.get("LIT_API_TOKEN", LIT_API_TOKEN)
-    
+
     try:
         headers = {
             "Content-Type": "application/json"
         }
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        
+
         payload = {
             "inputs": prompt,
             "max_new_tokens": 500,
             "temperature": 0.7,
             "top_p": 0.9
         }
-        
+
         response = requests.post(url, headers=headers, json=payload, timeout=30)
-        
+
         if response.ok:
             data = response.json()
-            
+
             # Handle various response formats from LIT API
             if isinstance(data, dict):
                 if 'response' in data:
@@ -288,13 +290,19 @@ def call_lit_api(prompt: str, api_url: str = None, api_token: str = None) -> Opt
                     return data['generated_text']
                 elif 'output' in data:
                     return data['output']
-            
+
             # Fallback to raw response
             return response.text
         else:
             st.error(f"LIT API error: {response.status_code} - {response.text}")
             return None
-            
+
+    except requests.exceptions.Timeout:
+        # Return special value to indicate timeout for cold start handling
+        return "__LIT_TIMEOUT__"
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error calling LIT API: {str(e)}")
+        return None
     except Exception as e:
         st.error(f"Error calling LIT API: {str(e)}")
         return None
@@ -617,11 +625,38 @@ def render_topic_selector():
     st.markdown('</div>', unsafe_allow_html=True)
     return None, None
 
+def render_cold_start_message():
+    """Render user-friendly cold start message for LIT API"""
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+                padding: 2rem;
+                border-radius: 10px;
+                border: 2px solid #2196f3;
+                margin: 1rem 0;
+                text-align: center;">
+        <h3 style="color: #1565c0; margin-bottom: 1rem;">⏳ LIT API Cold Start Detected</h3>
+        <p style="font-size: 1.1rem; margin-bottom: 1rem;">
+            The LIT API service is starting up due to inactivity. This is normal and typically takes about <strong>300 seconds</strong> for the first request.
+        </p>
+        <p style="color: #424242;">
+            Subsequent requests will be much faster (usually under 30 seconds).
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Countdown timer and retry button
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col2:
+        if st.button("🔄 Retry Generation", key="retry_after_cold_start", help="Try generating the question again"):
+            st.session_state.first_lit_request = False  # Mark that we've handled the first request
+            st.rerun()
+
 def render_progress_indicator():
     """Render the multi-stage progress indicator"""
     if st.session_state.progress_stage == ProgressStage.IDLE:
         return
-    
+
     st.markdown('<div class="progress-container">', unsafe_allow_html=True)
     
     # Progress bar
@@ -906,19 +941,25 @@ def main():
                     
                     # Call generation function
                     question = generate_question_with_progress(topic_id, topic_name, api_key)
-                    
+
                     if question:
                         st.session_state.current_question = question
                         st.session_state.question_history.insert(0, question)
                         st.session_state.generation_count += 1
                         st.session_state.user_answer = None
                         st.session_state.show_explanation = False
-                        
+
                         progress_placeholder.empty()
                         st.success(f"✅ Question generated successfully in {question.processing_time/1000:.1f}s!")
                         st.rerun()
                     else:
-                        st.error("❌ Failed to generate question. Please try again.")
+                        progress_placeholder.empty()
+                        # Check if this is a cold start scenario
+                        if (st.session_state.progress_stage == ProgressStage.ERROR and
+                            st.session_state.progress_message == "LIT API cold start detected"):
+                            render_cold_start_message()
+                        else:
+                            st.error("❌ Failed to generate question. Please try again.")
                         
                 except Exception as e:
                     st.error(f"❌ Error generating question: {str(e)}")
@@ -965,9 +1006,19 @@ def generate_question_with_progress(topic: str, topic_name: str, openrouter_api_
         
         # Call LIT API for Llama generation
         llama_response = call_lit_api(llama_prompt)
-        
+
         if not llama_response:
             raise Exception("Failed to get response from Llama model")
+
+        # Check for LIT API timeout (cold start)
+        if llama_response == "__LIT_TIMEOUT__":
+            if st.session_state.first_lit_request:
+                # This is likely a cold start timeout
+                st.session_state.progress_stage = ProgressStage.ERROR
+                st.session_state.progress_message = "LIT API cold start detected"
+                return None  # Return None to trigger cold start message display
+            else:
+                raise Exception("LIT API timeout - please try again later")
         
         # Parse Llama response
         raw_question = parse_llama_response(llama_response, topic)
