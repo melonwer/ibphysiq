@@ -13,9 +13,9 @@ We currently support security updates for the following versions:
 If you discover a security vulnerability, please report it responsibly:
 
 1. **Do NOT open a public issue** for security vulnerabilities
-2. Email the maintainer directly at [your-email@domain.com] (replace with actual contact)
+2. Email the maintainer directly at [dmitrii.burkov@proton.me]
 3. Include a clear description of the vulnerability and steps to reproduce
-4. We will respond within 48 hours to acknowledge receipt
+4. I will respond within 48 hours to acknowledge receipt
 
 ## Security Best Practices
 

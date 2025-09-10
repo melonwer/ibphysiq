@@ -1,0 +1,472 @@
+name: 📦 NPM Publish
+
+on:
+  repository_dispatch:
+    types: [deploy-npm]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+        type: string
+      tag:
+        description: 'NPM dist tag'
+        required: false
+        type: choice
+        options:
+          - latest
+          - next
+          - beta
+          - alpha
+        default: latest
+      dry_run:
+        description: 'Dry run (do not actually publish)'
+        required: false
+        type: boolean
+        default: false
+  release:
+    types: [published]
+
+env:
+  NODE_VERSION: '18'
+  REGISTRY_URL: 'https://registry.npmjs.org/'
+
+jobs:
+  validate:
+    name: 🔍 Validate Package
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should_publish: ${{ steps.version.outputs.should_publish }}
+      dry_run: ${{ steps.version.outputs.dry_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version and tag
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            TAG="${{ github.event.inputs.tag }}"
+            DRY_RUN="${{ github.event.inputs.dry_run }}"
+            SHOULD_PUBLISH="true"
+          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+            VERSION="${VERSION#v}" # Remove 'v' prefix if present
+            if [[ "$VERSION" =~ -[a-zA-Z] ]]; then
+              TAG="next"
+            else
+              TAG="latest"
+            fi
+            DRY_RUN="false"
+            SHOULD_PUBLISH="true"
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}" # Remove 'v' prefix if present
+            if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+              TAG="next"
+            else
+              TAG="latest"
+            fi
+            DRY_RUN="false"
+            SHOULD_PUBLISH="true"
+          else
+            VERSION="0.0.0"
+            TAG="latest"
+            DRY_RUN="true"
+            SHOULD_PUBLISH="false"
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "should_publish=${SHOULD_PUBLISH}" >> $GITHUB_OUTPUT
+          echo "dry_run=${DRY_RUN}" >> $GITHUB_OUTPUT
+          
+          echo "📦 Version: $VERSION"
+          echo "🏷️ Tag: $TAG"
+          echo "🚀 Should Publish: $SHOULD_PUBLISH"
+          echo "🧪 Dry Run: $DRY_RUN"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          registry-url: ${{ env.REGISTRY_URL }}
+
+      - name: Install dependencies
+        run: |
+          npm ci --frozen-lockfile
+          echo "✅ Dependencies installed"
+
+      - name: Validate package.json
+        run: |
+          # Check if package.json has required fields
+          node -e "
+            const pkg = require('./package.json');
+            const required = ['name', 'version', 'description', 'main', 'author', 'license'];
+            const missing = required.filter(field => !pkg[field]);
+            if (missing.length > 0) {
+              console.error('❌ Missing required fields:', missing.join(', '));
+              process.exit(1);
+            }
+            console.log('✅ Package.json validation passed');
+          "
+
+      - name: Check if version already exists
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          
+          if npm view "$PACKAGE_NAME@$VERSION" version 2>/dev/null; then
+            echo "❌ Version $VERSION already exists on NPM"
+            echo "Available versions:"
+            npm view "$PACKAGE_NAME" versions --json | jq -r '.[-10:][]' || true
+            exit 1
+          else
+            echo "✅ Version $VERSION is available"
+          fi
+
+  test:
+    name: 🧪 Test Package
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.should_publish == 'true'
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          registry-url: ${{ env.REGISTRY_URL }}
+
+      - name: Install dependencies
+        run: |
+          npm ci --frozen-lockfile
+          echo "✅ Dependencies installed"
+
+      - name: Type checking
+        run: |
+          npm run type-check
+          echo "✅ TypeScript compilation successful"
+
+      - name: Lint code
+        run: |
+          npm run lint
+          echo "✅ Linting passed"
+
+      - name: Run tests
+        run: |
+          npm run test
+          echo "✅ Tests passed"
+
+      - name: Build package
+        run: |
+          npm run build
+          echo "✅ Build successful"
+
+      - name: Test package installation
+        run: |
+          # Pack the package
+          npm pack
+          
+          # Create a test directory
+          mkdir -p /tmp/npm-install-test
+          cd /tmp/npm-install-test
+          npm init -y
+          
+          # Install the packed package
+          PACKAGE_FILE=$(ls $GITHUB_WORKSPACE/*.tgz | head -1)
+          npm install "$PACKAGE_FILE"
+          
+          # Test basic import
+          node -e "
+            try {
+              const pkg = require('ibphysiq');
+              console.log('✅ Package import successful');
+              
+              // Test types import
+              const types = require('ibphysiq/types');
+              console.log('✅ Types import successful');
+              
+              // Test services import
+              const services = require('ibphysiq/services');
+              console.log('✅ Services import successful');
+              
+            } catch (error) {
+              console.error('❌ Package import failed:', error.message);
+              process.exit(1);
+            }
+          "
+          
+          echo "✅ Package installation test passed"
+
+  security-audit:
+    name: 🔒 Security Audit
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.should_publish == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: Run security audit
+        run: |
+          npm audit --audit-level moderate
+          echo "✅ Security audit passed"
+
+      - name: Check for known vulnerabilities
+        run: |
+          # Check package-lock.json for known vulnerabilities
+          if [ -f package-lock.json ]; then
+            echo "🔍 Checking package-lock.json for vulnerabilities..."
+            
+            # Use npm audit in JSON format for detailed analysis
+            npm audit --json > audit-results.json || true
+            
+            HIGH_VULNS=$(cat audit-results.json | jq '.metadata.vulnerabilities.high // 0')
+            CRITICAL_VULNS=$(cat audit-results.json | jq '.metadata.vulnerabilities.critical // 0')
+            
+            if [ "$HIGH_VULNS" -gt 0 ] || [ "$CRITICAL_VULNS" -gt 0 ]; then
+              echo "❌ Found high/critical vulnerabilities:"
+              echo "Critical: $CRITICAL_VULNS"
+              echo "High: $HIGH_VULNS"
+              npm audit --audit-level high
+              exit 1
+            else
+              echo "✅ No high/critical vulnerabilities found"
+            fi
+          fi
+
+  build-and-pack:
+    name: 🏗️ Build & Pack
+    runs-on: ubuntu-latest
+    needs: [validate, test, security-audit]
+    if: needs.validate.outputs.should_publish == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          registry-url: ${{ env.REGISTRY_URL }}
+
+      - name: Install dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: Update version
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "📦 Updated version to $VERSION"
+
+      - name: Build package
+        run: |
+          npm run build
+          echo "✅ Build completed"
+
+      - name: Create package
+        run: |
+          npm pack
+          
+          # Get the generated tarball name
+          TARBALL=$(ls *.tgz)
+          echo "📦 Created package: $TARBALL"
+          
+          # Upload as artifact
+          echo "TARBALL_NAME=$TARBALL" >> $GITHUB_ENV
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: ${{ env.TARBALL_NAME }}
+          retention-days: 30
+
+      - name: Analyze package contents
+        run: |
+          echo "## 📦 Package Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show package contents
+          echo "### 📄 Package Contents" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          tar -tzf ${{ env.TARBALL_NAME }} | head -20 >> $GITHUB_STEP_SUMMARY
+          if [ $(tar -tzf ${{ env.TARBALL_NAME }} | wc -l) -gt 20 ]; then
+            echo "... (truncated)" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Show package size
+          PACKAGE_SIZE=$(du -h ${{ env.TARBALL_NAME }} | cut -f1)
+          echo "### 📊 Package Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Package Size | $PACKAGE_SIZE |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | ${{ needs.validate.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | ${{ needs.validate.outputs.tag }} |" >> $GITHUB_STEP_SUMMARY
+
+  publish:
+    name: 🚀 Publish to NPM
+    runs-on: ubuntu-latest
+    needs: [validate, build-and-pack]
+    if: needs.validate.outputs.should_publish == 'true' && needs.validate.outputs.dry_run == 'false'
+    environment: npm-production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          registry-url: ${{ env.REGISTRY_URL }}
+
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+
+      - name: Publish to NPM
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          TARBALL=$(ls *.tgz)
+          TAG="${{ needs.validate.outputs.tag }}"
+          
+          echo "🚀 Publishing $TARBALL with tag '$TAG'"
+          
+          # Publish the package
+          npm publish "$TARBALL" --tag "$TAG" --access public
+          
+          echo "✅ Package published successfully"
+          
+          # Get package info
+          PACKAGE_NAME=$(tar -xzf "$TARBALL" -O package/package.json | jq -r '.name')
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          echo "📦 Package: $PACKAGE_NAME@$VERSION"
+          echo "🏷️ Tag: $TAG"
+          echo "🔗 NPM: https://www.npmjs.com/package/$PACKAGE_NAME"
+
+      - name: Verify publication
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PACKAGE_NAME=$(tar -xzf *.tgz -O package/package.json | jq -r '.name')
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          echo "🔍 Verifying publication..."
+          
+          # Wait a bit for NPM to propagate
+          sleep 10
+          
+          # Check if the version is available
+          if npm view "$PACKAGE_NAME@$VERSION" version; then
+            echo "✅ Package verification successful"
+          else
+            echo "❌ Package verification failed"
+            exit 1
+          fi
+
+      - name: Update package summary
+        run: |
+          PACKAGE_NAME=$(tar -xzf *.tgz -O package/package.json | jq -r '.name')
+          VERSION="${{ needs.validate.outputs.version }}"
+          TAG="${{ needs.validate.outputs.tag }}"
+          
+          echo "## 🎉 NPM Publication Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | [\`$PACKAGE_NAME\`](https://www.npmjs.com/package/$PACKAGE_NAME) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | \`$VERSION\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | \`$TAG\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Installation Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Install latest version" >> $GITHUB_STEP_SUMMARY
+          echo "npm install $PACKAGE_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Install specific version" >> $GITHUB_STEP_SUMMARY
+          echo "npm install $PACKAGE_NAME@$VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  dry-run:
+    name: 🧪 Dry Run
+    runs-on: ubuntu-latest
+    needs: [validate, build-and-pack]
+    if: needs.validate.outputs.should_publish == 'true' && needs.validate.outputs.dry_run == 'true'
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+
+      - name: Simulate publish
+        run: |
+          TARBALL=$(ls *.tgz)
+          TAG="${{ needs.validate.outputs.tag }}"
+          
+          echo "🧪 DRY RUN: Would publish $TARBALL with tag '$TAG'"
+          
+          # Show what would be published
+          tar -tzf "$TARBALL" | head -10
+          
+          # Get package info
+          PACKAGE_NAME=$(tar -xzf "$TARBALL" -O package/package.json | jq -r '.name')
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          echo "📦 Would publish: $PACKAGE_NAME@$VERSION"
+          echo "🏷️ With tag: $TAG"
+          echo "✅ Dry run completed successfully"
+
+  notification:
+    name: 📢 Send Notifications
+    runs-on: ubuntu-latest
+    needs: [validate, publish, dry-run]
+    if: always() && needs.validate.outputs.should_publish == 'true'
+    steps:
+      - name: Notify on success
+        if: needs.publish.result == 'success' || needs.dry-run.result == 'success'
+        run: |
+          if [ "${{ needs.validate.outputs.dry_run }}" = "true" ]; then
+            echo "🧪 NPM dry run completed successfully!"
+          else
+            echo "🎉 NPM package published successfully!"
+            echo "📦 Package: ibphysiq@${{ needs.validate.outputs.version }}"
+            echo "🏷️ Tag: ${{ needs.validate.outputs.tag }}"
+            echo "🔗 NPM: https://www.npmjs.com/package/ibphysiq"
+          fi
+
+      - name: Notify on failure
+        if: needs.publish.result == 'failure' || needs.dry-run.result == 'failure'
+        run: |
+          echo "❌ NPM publish failed!"
+          echo "Please check the workflow logs for details."

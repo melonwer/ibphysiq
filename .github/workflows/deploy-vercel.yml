@@ -1,0 +1,334 @@
+name: 🌐 Deploy to Vercel
+
+on:
+  repository_dispatch:
+    types: [deploy-vercel]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        type: choice
+        options:
+          - production
+          - preview
+          - development
+        default: production
+      branch:
+        description: 'Branch to deploy'
+        required: false
+        type: string
+        default: 'main'
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'public/**'
+      - 'package.json'
+      - 'next.config.ts'
+      - 'tailwind.config.ts'
+      - 'postcss.config.mjs'
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  NODE_VERSION: '18'
+
+jobs:
+  determine-environment:
+    name: 🎯 Determine Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      vercel_args: ${{ steps.env.outputs.vercel_args }}
+      should_deploy: ${{ steps.env.outputs.should_deploy }}
+      deployment_url: ${{ steps.env.outputs.deployment_url }}
+    steps:
+      - name: Determine deployment environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+            SHOULD_DEPLOY="true"
+          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            ENVIRONMENT="production"
+            SHOULD_DEPLOY="true"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              ENVIRONMENT="production"
+              SHOULD_DEPLOY="true"
+            elif [ "${{ github.ref }}" = "refs/heads/develop" ]; then
+              ENVIRONMENT="preview"
+              SHOULD_DEPLOY="true"
+            else
+              ENVIRONMENT="development"
+              SHOULD_DEPLOY="false"
+            fi
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            ENVIRONMENT="preview"
+            SHOULD_DEPLOY="true"
+          else
+            ENVIRONMENT="development"
+            SHOULD_DEPLOY="false"
+          fi
+
+          # Set Vercel CLI arguments based on environment
+          case $ENVIRONMENT in
+            "production")
+              VERCEL_ARGS="--prod"
+              ;;
+            "preview")
+              VERCEL_ARGS=""
+              ;;
+            "development")
+              VERCEL_ARGS=""
+              ;;
+          esac
+
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          echo "vercel_args=${VERCEL_ARGS}" >> $GITHUB_OUTPUT
+          echo "should_deploy=${SHOULD_DEPLOY}" >> $GITHUB_OUTPUT
+          
+          echo "🎯 Environment: $ENVIRONMENT"
+          echo "🔧 Vercel Args: $VERCEL_ARGS"
+          echo "🚀 Should Deploy: $SHOULD_DEPLOY"
+
+  test:
+    name: 🧪 Pre-deployment Tests
+    runs-on: ubuntu-latest
+    needs: determine-environment
+    if: needs.determine-environment.outputs.should_deploy == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci --frozen-lockfile
+          echo "✅ Dependencies installed"
+
+      - name: Run type checking
+        run: |
+          npm run type-check
+          echo "✅ Type checking passed"
+
+      - name: Run linting
+        run: |
+          npm run lint
+          echo "✅ Linting passed"
+
+      - name: Run tests
+        run: |
+          npm run test
+          echo "✅ Tests passed"
+
+      - name: Build for production
+        run: |
+          npm run build
+          echo "✅ Build successful"
+
+  deploy:
+    name: 🚀 Deploy to Vercel
+    runs-on: ubuntu-latest
+    needs: [determine-environment, test]
+    if: needs.determine-environment.outputs.should_deploy == 'true'
+    environment: 
+      name: ${{ needs.determine-environment.outputs.environment }}
+      url: ${{ steps.deploy.outputs.preview-url || steps.deploy.outputs.url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@canary
+
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=${{ needs.determine-environment.outputs.environment }} --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build Project Artifacts
+        run: vercel build ${{ needs.determine-environment.outputs.vercel_args }} --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy Project Artifacts to Vercel
+        id: deploy
+        run: |
+          DEPLOYMENT_URL=$(vercel deploy --prebuilt ${{ needs.determine-environment.outputs.vercel_args }} --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=${DEPLOYMENT_URL}" >> $GITHUB_OUTPUT
+          echo "preview-url=${DEPLOYMENT_URL}" >> $GITHUB_OUTPUT
+          
+          echo "🌐 Deployed to: $DEPLOYMENT_URL"
+          
+          # Set deployment status
+          if [ "${{ needs.determine-environment.outputs.environment }}" = "production" ]; then
+            echo "deployment_type=production" >> $GITHUB_OUTPUT
+          else
+            echo "deployment_type=preview" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create deployment summary
+        run: |
+          echo "## 🌐 Vercel Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ needs.determine-environment.outputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deployment URL | ${{ steps.deploy.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit SHA | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
+          echo "- [Visit Deployment](${{ steps.deploy.outputs.url }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [Vercel Dashboard](https://vercel.com/dashboard)" >> $GITHUB_STEP_SUMMARY
+
+  health-check:
+    name: 🏥 Health Check
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy]
+    if: needs.determine-environment.outputs.should_deploy == 'true'
+    steps:
+      - name: Wait for deployment
+        run: |
+          echo "⏳ Waiting 30 seconds for deployment to be ready..."
+          sleep 30
+
+      - name: Health check
+        run: |
+          DEPLOYMENT_URL="${{ needs.deploy.outputs.url }}"
+          
+          echo "🏥 Running health check on: $DEPLOYMENT_URL"
+          
+          # Try multiple endpoints
+          HEALTH_CHECK_PASSED=true
+          
+          # Check main page
+          if ! curl -f --max-time 30 --retry 3 --retry-delay 10 "$DEPLOYMENT_URL" > /dev/null 2>&1; then
+            echo "❌ Main page health check failed"
+            HEALTH_CHECK_PASSED=false
+          else
+            echo "✅ Main page is accessible"
+          fi
+          
+          # Check API health endpoint if it exists
+          if curl -f --max-time 30 --retry 3 --retry-delay 10 "$DEPLOYMENT_URL/api/generate-question?action=health" > /dev/null 2>&1; then
+            echo "✅ API health endpoint is accessible"
+          else
+            echo "⚠️ API health endpoint not accessible (may be expected)"
+          fi
+          
+          if [ "$HEALTH_CHECK_PASSED" = false ]; then
+            echo "❌ Health check failed"
+            exit 1
+          fi
+          
+          echo "✅ All health checks passed"
+
+  update-pr:
+    name: 💬 Update PR Comment
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy, health-check]
+    if: github.event_name == 'pull_request' && needs.determine-environment.outputs.should_deploy == 'true'
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deploymentUrl = '${{ needs.deploy.outputs.url }}';
+            
+            const comment = `## 🌐 Vercel Preview Deployment
+            
+            **✅ Deployment successful!**
+            
+            | Property | Value |
+            |----------|--------|
+            | Environment | Preview |
+            | URL | [${deploymentUrl}](${deploymentUrl}) |
+            | Commit | ${context.sha.substring(0, 7)} |
+            | Branch | ${context.ref.replace('refs/heads/', '')} |
+            
+            ### 🔗 Quick Actions
+            - [🌐 Visit Preview](${deploymentUrl})
+            - [📊 View Logs](${context.payload.repository.html_url}/actions/runs/${context.runId})
+            
+            ---
+            *This comment will be updated on subsequent pushes.*`;
+            
+            // Find existing comment
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const existingComment = comments.data.find(
+              comment => comment.body.includes('Vercel Preview Deployment')
+            );
+            
+            if (existingComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: comment
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+
+  cleanup:
+    name: 🧹 Cleanup
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy]
+    if: always() && needs.determine-environment.outputs.should_deploy == 'true'
+    steps:
+      - name: Clean up old deployments
+        run: |
+          echo "🧹 Cleanup step - in a real implementation, this would:"
+          echo "- Remove old preview deployments"
+          echo "- Clean up temporary files"
+          echo "- Update deployment status"
+
+  notification:
+    name: 📢 Send Notifications
+    runs-on: ubuntu-latest
+    needs: [determine-environment, deploy, health-check]
+    if: always() && needs.determine-environment.outputs.should_deploy == 'true'
+    steps:
+      - name: Notify on success
+        if: needs.health-check.result == 'success'
+        run: |
+          echo "🎉 Deployment to ${{ needs.determine-environment.outputs.environment }} successful!"
+          echo "🌐 URL: ${{ needs.deploy.outputs.url }}"
+
+      - name: Notify on failure
+        if: needs.deploy.result == 'failure' || needs.health-check.result == 'failure'
+        run: |
+          echo "❌ Deployment to ${{ needs.determine-environment.outputs.environment }} failed!"
+          echo "Please check the workflow logs for details."

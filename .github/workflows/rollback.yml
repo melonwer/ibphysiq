@@ -1,0 +1,474 @@
+name: 🔄 Rollback Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to rollback'
+        required: true
+        type: choice
+        options:
+          - all
+          - vercel
+          - docker
+          - npm
+        default: all
+      target_version:
+        description: 'Target version to rollback to (e.g., v1.0.0, latest-1)'
+        required: false
+        type: string
+        default: 'latest-1'
+      reason:
+        description: 'Reason for rollback'
+        required: true
+        type: string
+      emergency:
+        description: 'Emergency rollback (skip confirmations)'
+        required: false
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Dry run (show what would be done)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  validate-rollback:
+    name: 🔍 Validate Rollback Request
+    runs-on: ubuntu-latest
+    outputs:
+      target_version: ${{ steps.validate.outputs.target_version }}
+      current_version: ${{ steps.validate.outputs.current_version }}
+      rollback_vercel: ${{ steps.validate.outputs.rollback_vercel }}
+      rollback_docker: ${{ steps.validate.outputs.rollback_docker }}
+      rollback_npm: ${{ steps.validate.outputs.rollback_npm }}
+      is_emergency: ${{ steps.validate.outputs.is_emergency }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Validate rollback parameters
+        id: validate
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+          TARGET_VERSION="${{ github.event.inputs.target_version }}"
+          EMERGENCY="${{ github.event.inputs.emergency }}"
+          
+          # Get current version from package.json
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          
+          # Determine target version
+          if [ "$TARGET_VERSION" = "latest-1" ]; then
+            # Get the previous version from git tags
+            TARGET_VERSION=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -2 | tail -1)
+          fi
+          
+          # Remove 'v' prefix if present
+          TARGET_VERSION=${TARGET_VERSION#v}
+          
+          # Validate target version exists
+          if ! git tag | grep -q "v$TARGET_VERSION"; then
+            echo "❌ Target version v$TARGET_VERSION not found in git tags"
+            exit 1
+          fi
+          
+          # Determine what to rollback
+          ROLLBACK_VERCEL="false"
+          ROLLBACK_DOCKER="false"
+          ROLLBACK_NPM="false"
+          
+          case $ENVIRONMENT in
+            "all")
+              ROLLBACK_VERCEL="true"
+              ROLLBACK_DOCKER="true"
+              ROLLBACK_NPM="true"
+              ;;
+            "vercel")
+              ROLLBACK_VERCEL="true"
+              ;;
+            "docker")
+              ROLLBACK_DOCKER="true"
+              ;;
+            "npm")
+              ROLLBACK_NPM="true"
+              ;;
+          esac
+          
+          echo "target_version=${TARGET_VERSION}" >> $GITHUB_OUTPUT
+          echo "current_version=${CURRENT_VERSION}" >> $GITHUB_OUTPUT
+          echo "rollback_vercel=${ROLLBACK_VERCEL}" >> $GITHUB_OUTPUT
+          echo "rollback_docker=${ROLLBACK_DOCKER}" >> $GITHUB_OUTPUT
+          echo "rollback_npm=${ROLLBACK_NPM}" >> $GITHUB_OUTPUT
+          echo "is_emergency=${EMERGENCY}" >> $GITHUB_OUTPUT
+          
+          echo "🎯 Target Version: $TARGET_VERSION"
+          echo "📦 Current Version: $CURRENT_VERSION"
+          echo "🌐 Rollback Vercel: $ROLLBACK_VERCEL"
+          echo "🐳 Rollback Docker: $ROLLBACK_DOCKER"
+          echo "📦 Rollback NPM: $ROLLBACK_NPM"
+          echo "🚨 Emergency: $EMERGENCY"
+
+      - name: Create rollback summary
+        run: |
+          echo "## 🔄 Rollback Plan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | \`${{ github.event.inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Current Version | \`${{ steps.validate.outputs.current_version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Target Version | \`${{ steps.validate.outputs.target_version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Reason | ${{ github.event.inputs.reason }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Emergency | ${{ github.event.inputs.emergency }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dry Run | ${{ github.event.inputs.dry_run }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Rollback Scope" >> $GITHUB_STEP_SUMMARY
+          echo "- Vercel: ${{ steps.validate.outputs.rollback_vercel == 'true' && '✅ Yes' || '❌ No' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker: ${{ steps.validate.outputs.rollback_docker == 'true' && '✅ Yes' || '❌ No' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- NPM: ${{ steps.validate.outputs.rollback_npm == 'true' && '✅ Yes' || '❌ No' }}" >> $GITHUB_STEP_SUMMARY
+
+  confirm-rollback:
+    name: ⚠️ Confirm Rollback
+    runs-on: ubuntu-latest
+    needs: validate-rollback
+    if: needs.validate-rollback.outputs.is_emergency == 'false' && github.event.inputs.dry_run == 'false'
+    environment: rollback-confirmation
+    steps:
+      - name: Manual confirmation required
+        run: |
+          echo "⚠️ ROLLBACK CONFIRMATION REQUIRED"
+          echo ""
+          echo "This workflow will rollback:"
+          echo "- From version: ${{ needs.validate-rollback.outputs.current_version }}"
+          echo "- To version: ${{ needs.validate-rollback.outputs.target_version }}"
+          echo "- Environment: ${{ github.event.inputs.environment }}"
+          echo "- Reason: ${{ github.event.inputs.reason }}"
+          echo ""
+          echo "This action cannot be easily undone. Please ensure you have:"
+          echo "1. ✅ Verified the target version is stable"
+          echo "2. ✅ Notified relevant stakeholders"
+          echo "3. ✅ Prepared for potential data loss/inconsistency"
+          echo "4. ✅ Have a plan to fix the original issue"
+          echo ""
+          echo "If you are sure, approve this environment to continue."
+
+  rollback-vercel:
+    name: 🌐 Rollback Vercel
+    runs-on: ubuntu-latest
+    needs: [validate-rollback, confirm-rollback]
+    if: always() && needs.validate-rollback.outputs.rollback_vercel == 'true' && (needs.confirm-rollback.result == 'success' || needs.validate-rollback.outputs.is_emergency == 'true')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.validate-rollback.outputs.target_version }}
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@canary
+
+      - name: Get current deployment
+        if: github.event.inputs.dry_run == 'false'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          echo "🔍 Getting current Vercel deployment..."
+          CURRENT_DEPLOYMENT=$(vercel ls --token=${{ secrets.VERCEL_TOKEN }} | grep production | head -1 | awk '{print $1}')
+          echo "CURRENT_DEPLOYMENT=$CURRENT_DEPLOYMENT" >> $GITHUB_ENV
+          echo "📍 Current deployment: $CURRENT_DEPLOYMENT"
+
+      - name: Find target deployment
+        if: github.event.inputs.dry_run == 'false'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          echo "🎯 Finding deployment for version ${{ needs.validate-rollback.outputs.target_version }}..."
+          
+          # List deployments and find one matching the target version
+          TARGET_DEPLOYMENT=$(vercel ls --token=${{ secrets.VERCEL_TOKEN }} | grep "${{ needs.validate-rollback.outputs.target_version }}" | head -1 | awk '{print $1}')
+          
+          if [ -z "$TARGET_DEPLOYMENT" ]; then
+            echo "⚠️ No existing deployment found for version ${{ needs.validate-rollback.outputs.target_version }}"
+            echo "Will create new deployment from target version"
+            TARGET_DEPLOYMENT="new"
+          fi
+          
+          echo "TARGET_DEPLOYMENT=$TARGET_DEPLOYMENT" >> $GITHUB_ENV
+          echo "🎯 Target deployment: $TARGET_DEPLOYMENT"
+
+      - name: Rollback or deploy target version
+        if: github.event.inputs.dry_run == 'false'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ "$TARGET_DEPLOYMENT" = "new" ]; then
+            echo "🚀 Creating new deployment from target version..."
+            vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+            vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+            ROLLBACK_URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          else
+            echo "🔄 Promoting existing deployment..."
+            ROLLBACK_URL=$(vercel promote $TARGET_DEPLOYMENT --token=${{ secrets.VERCEL_TOKEN }})
+          fi
+          
+          echo "ROLLBACK_URL=$ROLLBACK_URL" >> $GITHUB_ENV
+          echo "✅ Vercel rollback completed: $ROLLBACK_URL"
+
+      - name: Verify Vercel rollback
+        if: github.event.inputs.dry_run == 'false'
+        run: |
+          echo "🏥 Verifying Vercel rollback..."
+          sleep 15
+          
+          if curl -f --max-time 30 "$ROLLBACK_URL" > /dev/null 2>&1; then
+            echo "✅ Vercel rollback verification successful"
+          else
+            echo "❌ Vercel rollback verification failed"
+            exit 1
+          fi
+
+      - name: Dry run summary
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          echo "🧪 DRY RUN: Vercel Rollback"
+          echo "Would rollback Vercel from current deployment to version ${{ needs.validate-rollback.outputs.target_version }}"
+
+  rollback-docker:
+    name: 🐳 Rollback Docker
+    runs-on: ubuntu-latest
+    needs: [validate-rollback, confirm-rollback]
+    if: always() && needs.validate-rollback.outputs.rollback_docker == 'true' && (needs.confirm-rollback.result == 'success' || needs.validate-rollback.outputs.is_emergency == 'true')
+    steps:
+      - name: Login to Docker Hub
+        if: github.event.inputs.dry_run == 'false'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Rollback Docker tags
+        if: github.event.inputs.dry_run == 'false'
+        run: |
+          IMAGE_NAME="melonwer/ibphysiq"
+          TARGET_VERSION="${{ needs.validate-rollback.outputs.target_version }}"
+          
+          echo "🐳 Rolling back Docker tags..."
+          
+          # Pull the target version
+          docker pull $IMAGE_NAME:$TARGET_VERSION
+          
+          # Tag it as latest
+          docker tag $IMAGE_NAME:$TARGET_VERSION $IMAGE_NAME:latest
+          
+          # Push the new latest tag
+          docker push $IMAGE_NAME:latest
+          
+          # Create rollback tag
+          ROLLBACK_TAG="rollback-$(date +%s)"
+          docker tag $IMAGE_NAME:$TARGET_VERSION $IMAGE_NAME:$ROLLBACK_TAG
+          docker push $IMAGE_NAME:$ROLLBACK_TAG
+          
+          echo "✅ Docker rollback completed"
+          echo "🏷️ Rollback tag: $ROLLBACK_TAG"
+
+      - name: Verify Docker rollback
+        if: github.event.inputs.dry_run == 'false'
+        run: |
+          echo "🏥 Verifying Docker rollback..."
+          
+          IMAGE_NAME="melonwer/ibphysiq"
+          TARGET_VERSION="${{ needs.validate-rollback.outputs.target_version }}"
+          
+          # Test the rolled back image
+          docker run -d --name rollback-test -p 3001:3000 $IMAGE_NAME:latest
+          
+          sleep 15
+          
+          if docker exec rollback-test curl -f http://localhost:3000 > /dev/null 2>&1; then
+            echo "✅ Docker rollback verification successful"
+          else
+            echo "❌ Docker rollback verification failed"
+            docker logs rollback-test
+            exit 1
+          fi
+          
+          docker stop rollback-test
+          docker rm rollback-test
+
+      - name: Dry run summary
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          echo "🧪 DRY RUN: Docker Rollback"
+          echo "Would rollback Docker latest tag to version ${{ needs.validate-rollback.outputs.target_version }}"
+
+  rollback-npm:
+    name: 📦 Rollback NPM
+    runs-on: ubuntu-latest
+    needs: [validate-rollback, confirm-rollback]
+    if: always() && needs.validate-rollback.outputs.rollback_npm == 'true' && (needs.confirm-rollback.result == 'success' || needs.validate-rollback.outputs.is_emergency == 'true')
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: 'https://registry.npmjs.org/'
+
+      - name: Rollback NPM package
+        if: github.event.inputs.dry_run == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PACKAGE_NAME="ibphysiq"
+          CURRENT_VERSION="${{ needs.validate-rollback.outputs.current_version }}"
+          TARGET_VERSION="${{ needs.validate-rollback.outputs.target_version }}"
+          
+          echo "📦 Rolling back NPM package..."
+          
+          # Deprecate current version
+          echo "⚠️ Deprecating current version $CURRENT_VERSION..."
+          npm deprecate "$PACKAGE_NAME@$CURRENT_VERSION" "Rolled back due to issues. Use version $TARGET_VERSION instead." --registry=https://registry.npmjs.org/
+          
+          # Tag target version as latest
+          echo "🏷️ Promoting version $TARGET_VERSION to latest..."
+          npm dist-tag add "$PACKAGE_NAME@$TARGET_VERSION" latest --registry=https://registry.npmjs.org/
+          
+          echo "✅ NPM rollback completed"
+
+      - name: Verify NPM rollback
+        if: github.event.inputs.dry_run == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "🏥 Verifying NPM rollback..."
+          
+          PACKAGE_NAME="ibphysiq"
+          TARGET_VERSION="${{ needs.validate-rollback.outputs.target_version }}"
+          
+          # Check that latest points to target version
+          LATEST_VERSION=$(npm view $PACKAGE_NAME@latest version --registry=https://registry.npmjs.org/)
+          
+          if [ "$LATEST_VERSION" = "$TARGET_VERSION" ]; then
+            echo "✅ NPM rollback verification successful"
+            echo "📦 Latest version is now: $LATEST_VERSION"
+          else
+            echo "❌ NPM rollback verification failed"
+            echo "Expected: $TARGET_VERSION"
+            echo "Got: $LATEST_VERSION"
+            exit 1
+          fi
+
+      - name: Dry run summary
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          echo "🧪 DRY RUN: NPM Rollback"
+          echo "Would deprecate version ${{ needs.validate-rollback.outputs.current_version }}"
+          echo "Would promote version ${{ needs.validate-rollback.outputs.target_version }} to latest"
+
+  post-rollback:
+    name: 📋 Post-Rollback Tasks
+    runs-on: ubuntu-latest
+    needs: [validate-rollback, rollback-vercel, rollback-docker, rollback-npm]
+    if: always() && (needs.rollback-vercel.result == 'success' || needs.rollback-docker.result == 'success' || needs.rollback-npm.result == 'success')
+    steps:
+      - name: Create rollback report
+        run: |
+          echo "## 🔄 Rollback Execution Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Rollback completed on:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Rollback Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Status | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|---------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Vercel | ${{ needs.rollback-vercel.result == 'success' && '✅ Success' || needs.rollback-vercel.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | ${{ needs.rollback-vercel.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker | ${{ needs.rollback-docker.result == 'success' && '✅ Success' || needs.rollback-docker.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | ${{ needs.rollback-docker.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| NPM | ${{ needs.rollback-npm.result == 'success' && '✅ Success' || needs.rollback-npm.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | ${{ needs.rollback-npm.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Rollback Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Version:** ${{ needs.validate-rollback.outputs.target_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Previous Version:** ${{ needs.validate-rollback.outputs.current_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Reason:** ${{ github.event.inputs.reason }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Emergency:** ${{ github.event.inputs.emergency }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚠️ Post-Rollback Checklist" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Verify all services are functioning correctly" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Monitor logs for any errors" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Check database consistency (if applicable)" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Notify stakeholders of rollback completion" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Create incident report" >> $GITHUB_STEP_SUMMARY
+          echo "- [ ] Plan fix for original issue" >> $GITHUB_STEP_SUMMARY
+
+      - name: Create incident issue
+        if: github.event.inputs.dry_run == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 Incident: Rollback to v${{ needs.validate-rollback.outputs.target_version }}`;
+            const body = `## Incident Report
+            
+            **Rollback executed on:** ${new Date().toISOString()}
+            
+            ### Details
+            - **From Version:** ${{ needs.validate-rollback.outputs.current_version }}
+            - **To Version:** ${{ needs.validate-rollback.outputs.target_version }}
+            - **Environment:** ${{ github.event.inputs.environment }}
+            - **Reason:** ${{ github.event.inputs.reason }}
+            - **Emergency:** ${{ github.event.inputs.emergency }}
+            
+            ### Services Rolled Back
+            - Vercel: ${{ needs.rollback-vercel.result }}
+            - Docker: ${{ needs.rollback-docker.result }}
+            - NPM: ${{ needs.rollback-npm.result }}
+            
+            ### Next Steps
+            - [ ] Verify all services are operational
+            - [ ] Monitor for any issues
+            - [ ] Root cause analysis
+            - [ ] Fix original issue
+            - [ ] Plan re-deployment
+            
+            ### Links
+            - [Rollback Workflow Run](${context.payload.repository.html_url}/actions/runs/${context.runId})
+            `;
+            
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['incident', 'rollback', 'urgent']
+            });
+
+  notification:
+    name: 📢 Send Notifications
+    runs-on: ubuntu-latest
+    needs: [validate-rollback, rollback-vercel, rollback-docker, rollback-npm, post-rollback]
+    if: always()
+    steps:
+      - name: Notify on success
+        if: needs.post-rollback.result == 'success'
+        run: |
+          echo "🎉 Rollback completed successfully!"
+          echo "🔄 Rolled back from v${{ needs.validate-rollback.outputs.current_version }} to v${{ needs.validate-rollback.outputs.target_version }}"
+          echo "📋 Reason: ${{ github.event.inputs.reason }}"
+
+      - name: Notify on failure
+        if: contains(needs.*.result, 'failure')
+        run: |
+          echo "❌ Rollback failed or partially completed!"
+          echo "Please check the workflow logs and take manual action if necessary."
+          echo "🚨 This may require immediate attention."
+          exit 1
