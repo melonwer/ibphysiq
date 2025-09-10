@@ -1,3 +1,16 @@
+---
+title: IB Physics Practice Generator
+emoji: 🎓
+colorFrom: blue
+colorTo: green
+sdk: gradio
+sdk_version: 4.44.0
+app_file: app.py
+pinned: false
+license: mit
+short_description: IB-Styled Physics MCQ Generatoc
+---
+
 # 🎓 IB Physics Practice Generator
 
 [![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](RELEASE_NOTES.md)

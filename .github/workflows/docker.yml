@@ -1,0 +1,386 @@
+name: 🐳 Docker Build & Push
+
+on:
+  repository_dispatch:
+    types: [deploy-docker]
+  workflow_dispatch:
+    inputs:
+      push_to_registry:
+        description: 'Push to Docker Hub'
+        required: false
+        type: boolean
+        default: true
+      tag:
+        description: 'Custom tag (optional)'
+        required: false
+        type: string
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - 'v*.*.*'
+    paths:
+      - 'Dockerfile'
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'public/**'
+      - 'package.json'
+      - 'next.config.ts'
+      - '.dockerignore'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'public/**'
+      - 'package.json'
+      - 'next.config.ts'
+      - '.dockerignore'
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: melonwer/ibphysiq
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  prepare:
+    name: 🎯 Prepare Build Context
+    runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      should_push: ${{ steps.context.outputs.should_push }}
+      version: ${{ steps.context.outputs.version }}
+      dockerfile_changed: ${{ steps.changes.outputs.dockerfile }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for Dockerfile changes
+        id: changes
+        run: |
+          if git diff --name-only HEAD~1 | grep -q "Dockerfile\|\.dockerignore"; then
+            echo "dockerfile=true" >> $GITHUB_OUTPUT
+          else
+            echo "dockerfile=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine build context
+        id: context
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SHOULD_PUSH="${{ github.event.inputs.push_to_registry }}"
+            VERSION="${{ github.event.inputs.tag }}"
+          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            SHOULD_PUSH="true"
+            VERSION="${{ github.event.client_payload.version }}"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+              SHOULD_PUSH="true"
+              VERSION="${{ github.ref_name }}"
+            elif [[ "${{ github.ref }}" == refs/heads/main ]]; then
+              SHOULD_PUSH="true"
+              VERSION="latest"
+            elif [[ "${{ github.ref }}" == refs/heads/develop ]]; then
+              SHOULD_PUSH="true"
+              VERSION="develop"
+            else
+              SHOULD_PUSH="false"
+              VERSION="test"
+            fi
+          else
+            SHOULD_PUSH="false"
+            VERSION="pr-${{ github.event.number }}"
+          fi
+
+          # Default version if not set
+          if [ -z "$VERSION" ]; then
+            VERSION="sha-$(echo ${{ github.sha }} | cut -c1-7)"
+          fi
+
+          echo "should_push=${SHOULD_PUSH}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          
+          echo "🏷️ Version: $VERSION"
+          echo "🚀 Should Push: $SHOULD_PUSH"
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.context.outputs.version }}
+            type=sha,prefix={{branch}}-
+          labels: |
+            org.opencontainers.image.title=IB PhysIQ
+            org.opencontainers.image.description=AI-powered IB Physics practice question generator
+            org.opencontainers.image.vendor=melonwer
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.source=https://github.com/melonwer/ibphysiq
+            org.opencontainers.image.documentation=https://github.com/melonwer/ibphysiq#readme
+
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner on filesystem
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-results.sarif'
+
+      - name: Run Dockerfile linter
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          format: sarif
+          output-file: hadolint-results.sarif
+
+      - name: Upload Hadolint scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: hadolint-results.sarif
+
+  build:
+    name: 🏗️ Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [prepare, security-scan]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: ${{ env.PLATFORMS }}
+
+      - name: Log in to Docker Hub
+        if: needs.prepare.outputs.should_push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and export for testing
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: ${{ needs.prepare.outputs.labels }}
+
+      - name: Test Docker image
+        run: |
+          echo "🧪 Testing Docker image..."
+          
+          # Start container
+          docker run -d \
+            --name ibphysiq-test \
+            -p 3000:3000 \
+            -e NODE_ENV=production \
+            ${{ env.IMAGE_NAME }}:test
+          
+          # Wait for container to be ready
+          echo "⏳ Waiting for container to start..."
+          for i in {1..30}; do
+            if docker exec ibphysiq-test curl -f http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Container is responding"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Container failed to start"
+              docker logs ibphysiq-test
+              exit 1
+            fi
+            sleep 2
+          done
+          
+          # Run health checks
+          echo "🏥 Running health checks..."
+          
+          # Check if the application is running
+          if ! docker exec ibphysiq-test curl -f http://localhost:3000 > /dev/null 2>&1; then
+            echo "❌ Health check failed"
+            docker logs ibphysiq-test
+            exit 1
+          fi
+          
+          # Check container logs for any errors
+          if docker logs ibphysiq-test 2>&1 | grep -i error; then
+            echo "⚠️ Errors found in logs (may be expected)"
+          else
+            echo "✅ No errors in logs"
+          fi
+          
+          # Cleanup
+          docker stop ibphysiq-test
+          docker rm ibphysiq-test
+          
+          echo "✅ Docker image tests passed"
+
+      - name: Run Trivy vulnerability scanner on image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:test
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+
+      - name: Upload Trivy image scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-image-results.sarif'
+
+      - name: Build and push multi-platform image
+        if: needs.prepare.outputs.should_push == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: ${{ needs.prepare.outputs.tags }}
+          labels: ${{ needs.prepare.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Generate build summary
+        if: needs.prepare.outputs.should_push == 'true'
+        run: |
+          echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | \`${{ env.IMAGE_NAME }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | \`${{ needs.prepare.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platforms | \`${{ env.PLATFORMS }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Registry | \`${{ env.REGISTRY }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
+          echo "- [Docker Hub Repository](https://hub.docker.com/r/${{ env.IMAGE_NAME }})" >> $GITHUB_STEP_SUMMARY
+          echo "- [Pull Command](https://hub.docker.com/r/${{ env.IMAGE_NAME }}/tags)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Pull Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Latest version" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Specific version" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  test-deployed-image:
+    name: 🧪 Test Deployed Image
+    runs-on: ubuntu-latest
+    needs: [prepare, build]
+    if: needs.prepare.outputs.should_push == 'true'
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Test multi-platform image
+        run: |
+          PLATFORM="${{ matrix.platform }}"
+          echo "🧪 Testing ${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version }} on $PLATFORM"
+          
+          # For ARM64 on AMD64 runners, we can only verify the image exists
+          if [ "$PLATFORM" = "linux/arm64" ]; then
+            echo "🔍 Verifying ARM64 image exists..."
+            docker buildx imagetools inspect ${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version }} --format '{{json .}}' | jq -r '.manifests[] | select(.platform.architecture=="arm64") | .platform'
+            echo "✅ ARM64 image verified"
+          else
+            echo "🧪 Running integration test on AMD64..."
+            
+            # Pull and run the actual deployed image
+            docker run -d \
+              --name ibphysiq-integration-test \
+              --platform $PLATFORM \
+              -p 3001:3000 \
+              -e NODE_ENV=production \
+              ${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version }}
+            
+            # Wait and test
+            sleep 10
+            
+            if curl -f http://localhost:3001 > /dev/null 2>&1; then
+              echo "✅ Integration test passed"
+            else
+              echo "❌ Integration test failed"
+              docker logs ibphysiq-integration-test
+              exit 1
+            fi
+            
+            # Cleanup
+            docker stop ibphysiq-integration-test
+            docker rm ibphysiq-integration-test
+          fi
+
+  cleanup:
+    name: 🧹 Cleanup
+    runs-on: ubuntu-latest
+    needs: [prepare, build, test-deployed-image]
+    if: always()
+    steps:
+      - name: Clean up old images
+        if: needs.prepare.outputs.should_push == 'true'
+        run: |
+          echo "🧹 Cleanup step - in a real implementation, this would:"
+          echo "- Remove old/unused Docker images from registry"
+          echo "- Clean up temporary build artifacts"
+          echo "- Update deployment status"
+
+  notification:
+    name: 📢 Send Notifications
+    runs-on: ubuntu-latest
+    needs: [prepare, build, test-deployed-image]
+    if: always() && needs.prepare.outputs.should_push == 'true'
+    steps:
+      - name: Notify on success
+        if: needs.test-deployed-image.result == 'success'
+        run: |
+          echo "🎉 Docker image build and push successful!"
+          echo "🐳 Image: ${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version }}"
+          echo "📋 Pull: docker pull ${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version }}"
+
+      - name: Notify on failure
+        if: needs.build.result == 'failure' || needs.test-deployed-image.result == 'failure'
+        run: |
+          echo "❌ Docker build/push failed!"
+          echo "Please check the workflow logs for details."

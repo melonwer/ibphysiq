@@ -1,0 +1,247 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Production builds
+/.next/
+/out/
+/build
+/dist
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Grunt intermediate storage
+.grunt
+
+# Bower dependency directory
+bower_components
+
+# Environment variables (IMPORTANT! - API Keys and secrets)
+.env
+.env*.local
+.env.production
+.env.development
+.env.test
+*.env
+
+# API Keys and sensitive data files
+api-keys.json
+secrets.json
+config/secrets.*
+config/production.*
+
+# IDE and OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# VSCode
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# JetBrains IDEs
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Logs and debugging
+*.log
+logs/
+
+# Testing
+/coverage
+/.nyc_output
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Temporary folders
+tmp/
+temp/
+
+# Lock files (choose one strategy)
+# Option 1: If using npm, ignore yarn.lock
+yarn.lock
+# Option 2: If using yarn, ignore package-lock.json  
+# package-lock.json
+
+# Local development databases
+*.db
+*.sqlite
+*.sqlite3
+
+# AI/ML model files and data (if any)
+models/
+training_data/
+*.model
+*.pkl
+*.pt
+*.pth
+
+# Backup files
+*.backup
+*.bak
+*.orig
+*.rej
+
+# Cache directories
+.cache/
+.parcel-cache/
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# yarn v2
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# Storybook build outputs
+.out
+.storybook-out
+storybook-static/
+
+# Temporary folders
+tmp/
+temp/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Project specific
+# Add any project-specific files to ignore
+data/api-keys/
+data/secrets/
+data/private/
+data/gemini-batch/
+data/*.jsonl
+data/responses/
+data/training/
+
+# Hugging Face and AI model caches
+.cache/huggingface/
+.cache/transformers/
+models/cache/
+
+# Local development files
+docs/TESTING_REPORT.md
+.env
+.env.local
+dev-notes.md
+todo.md
+local-config.json
+
+# Vercel deployment config (if contains sensitive data)
+# Uncomment if your vercel.json contains actual API keys instead of references
+# vercel.json
+
+# Any files containing actual API keys or tokens
+*api-key*
+*secret*
+*token*
+*.pem
+*.p12
+*.pfx
+
+# Local SQLite databases
+*.db
+*.sqlite
+*.sqlite3

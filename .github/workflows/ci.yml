@@ -1,0 +1,542 @@
+name: 🔄 Continuous Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'screenshots/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'screenshots/**'
+  workflow_dispatch:
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  NODE_VERSION: '18'
+  CACHE_VERSION: v1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: 🔍 Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+      dependencies: ${{ steps.changes.outputs.dependencies }}
+      docker: ${{ steps.changes.outputs.docker }}
+      tests: ${{ steps.changes.outputs.tests }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for changes
+        uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            code:
+              - 'app/**'
+              - 'components/**'
+              - 'lib/**'
+              - 'public/**'
+              - '*.ts'
+              - '*.tsx'
+              - '*.js'
+              - '*.jsx'
+            dependencies:
+              - 'package.json'
+              - 'package-lock.json'
+              - 'npm-shrinkwrap.json'
+            docker:
+              - 'Dockerfile'
+              - '.dockerignore'
+            tests:
+              - '__tests__/**'
+              - '**/*.test.*'
+              - '**/*.spec.*'
+              - 'jest.config.*'
+
+  lint-and-format:
+    name: 🧹 Lint & Format
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci --frozen-lockfile --prefer-offline
+          echo "✅ Dependencies installed"
+
+      - name: Run ESLint
+        run: |
+          npm run lint -- --format=json --output-file=eslint-report.json || true
+          npm run lint
+          echo "✅ ESLint checks completed"
+
+      - name: Run Prettier check
+        run: |
+          npx prettier --check . --ignore-path .gitignore
+          echo "✅ Prettier formatting checks completed"
+
+      - name: Type checking
+        run: |
+          npm run type-check
+          echo "✅ TypeScript compilation successful"
+
+      - name: Upload ESLint results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eslint-report
+          path: eslint-report.json
+          retention-days: 7
+
+  test:
+    name: 🧪 Test Suite
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.tests == 'true' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci --frozen-lockfile --prefer-offline
+          echo "✅ Dependencies installed"
+
+      - name: Run unit tests
+        run: |
+          npm run test:coverage
+          echo "✅ Unit tests completed"
+
+      - name: Upload coverage to Codecov
+        if: matrix.node-version == 18
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always() && matrix.node-version == 18
+        with:
+          name: test-results
+          path: |
+            coverage/
+            jest-results.xml
+          retention-days: 7
+
+      - name: Test build
+        run: |
+          npm run build
+          echo "✅ Build test successful"
+
+  security-scan:
+    name: 🔒 Security Scan
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.dependencies == 'true' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci --frozen-lockfile --prefer-offline
+          echo "✅ Dependencies installed"
+
+      - name: Run npm audit
+        run: |
+          npm audit --audit-level moderate --json > npm-audit.json || true
+          npm audit --audit-level moderate
+          echo "✅ NPM audit completed"
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=medium --json > snyk-report.json
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-results.sarif'
+
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+      - name: Upload security artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            npm-audit.json
+            snyk-report.json
+            trivy-fs-results.sarif
+          retention-days: 30
+
+  dependency-check:
+    name: 📦 Dependency Analysis
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.dependencies == 'true' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Analyze dependencies
+        run: |
+          # Check for outdated packages
+          echo "🔍 Checking for outdated packages..."
+          npm outdated --json > outdated-packages.json || true
+          
+          # Check package sizes
+          echo "📦 Analyzing package sizes..."
+          npx bundle-phobia-cli --json package.json > bundle-analysis.json || true
+          
+          # Check for duplicate dependencies
+          echo "🔄 Checking for duplicate dependencies..."
+          npm ls --all --json > dependency-tree.json || true
+          
+          # License check
+          echo "📄 Checking licenses..."
+          npx license-checker --json > license-report.json || true
+          
+          echo "✅ Dependency analysis completed"
+
+      - name: Upload dependency reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-reports
+          path: |
+            outdated-packages.json
+            bundle-analysis.json
+            dependency-tree.json
+            license-report.json
+          retention-days: 7
+
+  build-test:
+    name: 🏗️ Build Verification
+    runs-on: ubuntu-latest
+    needs: [lint-and-format, test]
+    if: always() && (needs.lint-and-format.result == 'success' && needs.test.result == 'success')
+    strategy:
+      matrix:
+        build-type: [development, production]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci --frozen-lockfile --prefer-offline
+          echo "✅ Dependencies installed"
+
+      - name: Build for ${{ matrix.build-type }}
+        env:
+          NODE_ENV: ${{ matrix.build-type }}
+        run: |
+          if [ "${{ matrix.build-type }}" = "development" ]; then
+            NODE_ENV=development npm run build
+          else
+            NODE_ENV=production npm run build
+          fi
+          echo "✅ ${{ matrix.build-type }} build successful"
+
+      - name: Analyze build output
+        run: |
+          echo "📊 Build analysis for ${{ matrix.build-type }}:"
+          
+          # Check .next directory size
+          if [ -d ".next" ]; then
+            BUILD_SIZE=$(du -sh .next | cut -f1)
+            echo "Build size: $BUILD_SIZE"
+            
+            # List largest files
+            echo "Largest build files:"
+            find .next -type f -size +1M -exec ls -lh {} \; | sort -k5 -hr | head -10 || true
+          fi
+          
+          # Check for potential issues
+          if [ -d ".next/server/pages" ]; then
+            echo "Server-side pages found - good for SSR"
+          fi
+          
+          if [ -d ".next/static" ]; then
+            echo "Static assets found - good for CDN"
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: matrix.build-type == 'production'
+        with:
+          name: production-build
+          path: .next/
+          retention-days: 7
+
+  docker-build-test:
+    name: 🐳 Docker Build Test
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docker == 'true' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: ibphysiq:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Test Docker image
+        run: |
+          echo "🧪 Testing Docker image..."
+          
+          # Start container
+          docker run -d \
+            --name ibphysiq-ci-test \
+            -p 3000:3000 \
+            ibphysiq:ci-test
+          
+          # Wait for startup
+          sleep 15
+          
+          # Test health
+          if docker exec ibphysiq-ci-test curl -f http://localhost:3000 > /dev/null 2>&1; then
+            echo "✅ Docker container test passed"
+          else
+            echo "❌ Docker container test failed"
+            docker logs ibphysiq-ci-test
+            exit 1
+          fi
+          
+          # Cleanup
+          docker stop ibphysiq-ci-test
+          docker rm ibphysiq-ci-test
+
+  performance-test:
+    name: ⚡ Performance Test
+    runs-on: ubuntu-latest
+    needs: [build-test]
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci --frozen-lockfile --prefer-offline
+          npm install -g lighthouse-ci
+          echo "✅ Dependencies installed"
+
+      - name: Build application
+        run: |
+          npm run build
+          echo "✅ Build completed"
+
+      - name: Start application
+        run: |
+          npm start &
+          sleep 10
+          echo "✅ Application started"
+
+      - name: Run Lighthouse CI
+        run: |
+          lighthouse-ci --upload.target=temporary-public-storage || true
+          echo "✅ Lighthouse CI completed"
+
+  accessibility-test:
+    name: ♿ Accessibility Test
+    runs-on: ubuntu-latest
+    needs: [build-test]
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci --frozen-lockfile --prefer-offline
+          echo "✅ Dependencies installed"
+
+      - name: Run accessibility tests
+        run: |
+          npm run test -- __tests__/accessibility/
+          echo "✅ Accessibility tests completed"
+
+  summary:
+    name: 📊 CI Summary
+    runs-on: ubuntu-latest
+    needs: [lint-and-format, test, security-scan, build-test]
+    if: always()
+    steps:
+      - name: Generate CI Summary
+        run: |
+          echo "## 🔄 Continuous Integration Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|---------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Lint & Format | ${{ needs.lint-and-format.result == 'success' && '✅ Passed' || needs.lint-and-format.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | Code style and formatting |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Suite | ${{ needs.test.result == 'success' && '✅ Passed' || needs.test.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | Unit and integration tests |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Scan | ${{ needs.security-scan.result == 'success' && '✅ Passed' || needs.security-scan.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | Vulnerability and security analysis |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Test | ${{ needs.build-test.result == 'success' && '✅ Passed' || needs.build-test.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | Production build verification |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Overall status
+          if [[ "${{ needs.lint-and-format.result }}" == "success" && "${{ needs.test.result }}" == "success" && "${{ needs.build-test.result }}" == "success" ]]; then
+            echo "### ✅ Overall Status: PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "All critical checks have passed. The code is ready for review/deployment." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Overall Status: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "One or more critical checks have failed. Please review and fix the issues." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const lintStatus = '${{ needs.lint-and-format.result }}';
+            const testStatus = '${{ needs.test.result }}';
+            const securityStatus = '${{ needs.security-scan.result }}';
+            const buildStatus = '${{ needs.build-test.result }}';
+            
+            const getStatusIcon = (status) => {
+              switch(status) {
+                case 'success': return '✅';
+                case 'failure': return '❌';
+                case 'skipped': return '⏭️';
+                default: return '🔄';
+              }
+            };
+            
+            const comment = `## 🔄 CI Results
+            
+            | Check | Status |
+            |-------|--------|
+            | Lint & Format | ${getStatusIcon(lintStatus)} ${lintStatus} |
+            | Tests | ${getStatusIcon(testStatus)} ${testStatus} |
+            | Security | ${getStatusIcon(securityStatus)} ${securityStatus} |
+            | Build | ${getStatusIcon(buildStatus)} ${buildStatus} |
+            
+            **Action Required:** ${lintStatus === 'success' && testStatus === 'success' && buildStatus === 'success' ? '✅ Ready for review!' : '❌ Please fix failing checks.'}
+            
+            [View full results](${context.payload.repository.html_url}/actions/runs/${context.runId})`;
+            
+            // Find existing comment
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const existingComment = comments.data.find(
+              comment => comment.body.includes('🔄 CI Results')
+            );
+            
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }

@@ -44,7 +44,7 @@
 
 ### Configuration
 **Environment Variables:**
-- `GOOGLE_API_KEY` - Google Gemini API key (required for full functionality)
+- `OPENROUTER_API_KEY` - OpenRouter API key (required for full functionality)
 - `LIT_API_URL` - Lightning AI endpoint URL (optional)
 - `LIT_API_TOKEN` - Lightning AI API token (optional)
 - `HUGGINGFACE_API_KEY` - Hugging Face API token (optional)

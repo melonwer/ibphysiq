@@ -23,7 +23,7 @@ http://localhost:3000/api
 Nope! You can start experimenting immediately without any keys. The system will use demo questions so you can learn how everything works. When you're ready to generate unlimited new questions, you can add:
 
 - **OpenRouter API Key** (free!) - For AI question refinement
-- **Lightning AI Token** - For advanced model hosting
+- **Lightning AI Token** - (freemium) For advanced model hosting
 - **Hugging Face Token** - For alternative AI models
 
 ## 🎯 Your First API Call

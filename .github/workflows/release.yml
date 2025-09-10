@@ -1,0 +1,305 @@
+name: 🚀 Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  NODE_VERSION: '18'
+  REGISTRY_URL: 'https://registry.npmjs.org/'
+
+jobs:
+  validate:
+    name: 🔍 Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version info
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            PRERELEASE="${{ github.event.inputs.prerelease }}"
+          else
+            VERSION="${{ github.ref_name }}"
+            if [[ "$VERSION" =~ -[a-zA-Z] ]]; then
+              PRERELEASE="true"
+            else
+              PRERELEASE="false"
+            fi
+          fi
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=${VERSION}" >> $GITHUB_OUTPUT
+          echo "prerelease=${PRERELEASE}" >> $GITHUB_OUTPUT
+          
+          echo "🏷️ Version: $VERSION"
+          echo "🔢 Tag: $VERSION"
+          echo "🚧 Pre-release: $PRERELEASE"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+            echo "❌ Invalid version format: $VERSION"
+            echo "Expected format: v1.0.0 or v1.0.0-alpha.1"
+            exit 1
+          fi
+          echo "✅ Version format is valid"
+
+  test:
+    name: 🧪 Test & Security Scan
+    runs-on: ubuntu-latest
+    needs: validate
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          registry-url: ${{ env.REGISTRY_URL }}
+
+      - name: Install dependencies
+        run: |
+          npm ci --frozen-lockfile
+          echo "✅ Dependencies installed"
+
+      - name: Type checking
+        run: |
+          npm run type-check
+          echo "✅ TypeScript compilation successful"
+
+      - name: Lint code
+        run: |
+          npm run lint
+          echo "✅ Linting passed"
+
+      - name: Run tests
+        run: |
+          npm run test:coverage
+          echo "✅ Tests passed"
+
+      - name: Upload coverage reports
+        if: matrix.node-version == 18
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+
+      - name: Security audit
+        run: |
+          npm audit --audit-level high
+          echo "✅ Security audit passed"
+
+      - name: Build application
+        run: |
+          npm run build
+          echo "✅ Build successful"
+
+  build:
+    name: 🏗️ Build Assets
+    runs-on: ubuntu-latest
+    needs: [validate, test]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          registry-url: ${{ env.REGISTRY_URL }}
+
+      - name: Install dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: Build for production
+        run: |
+          npm run build
+          echo "✅ Production build completed"
+
+      - name: Create release archive
+        run: |
+          tar -czf ibphysiq-${{ needs.validate.outputs.version }}.tar.gz \
+            --exclude=node_modules \
+            --exclude=.git \
+            --exclude=.next \
+            --exclude=coverage \
+            .
+          echo "✅ Release archive created"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-assets-${{ needs.validate.outputs.version }}
+          path: |
+            .next/
+            ibphysiq-${{ needs.validate.outputs.version }}.tar.gz
+          retention-days: 30
+
+  create-release:
+    name: 📦 Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate, test, build]
+    permissions:
+      contents: write
+      discussions: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-assets-${{ needs.validate.outputs.version }}
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          
+          # Extract version without 'v' prefix
+          VERSION_NUMBER=${VERSION#v}
+          
+          # Try to extract release notes from RELEASE_NOTES.md
+          if [ -f "RELEASE_NOTES.md" ]; then
+            # Extract notes for this version
+            RELEASE_NOTES=$(awk "/^## \[?${VERSION_NUMBER}\]?|^## \[?${VERSION}\]?/{flag=1; next} /^## /{flag=0} flag" RELEASE_NOTES.md)
+            
+            if [ -n "$RELEASE_NOTES" ]; then
+              echo "📝 Using release notes from RELEASE_NOTES.md"
+            else
+              echo "📝 No specific release notes found, using default"
+              RELEASE_NOTES="Release $VERSION of IB PhysIQ - AI-powered IB Physics practice question generator."
+            fi
+          else
+            echo "📝 No RELEASE_NOTES.md found, generating from commits"
+            # Generate from recent commits
+            RELEASE_NOTES=$(git log --pretty=format:"- %s" --since="1 week ago" | head -20)
+            if [ -z "$RELEASE_NOTES" ]; then
+              RELEASE_NOTES="Release $VERSION of IB PhysIQ - AI-powered IB Physics practice question generator."
+            fi
+          fi
+          
+          # Save release notes to file
+          echo "$RELEASE_NOTES" > release_notes.txt
+          
+          # Also set as output (first 1000 chars to avoid GitHub limits)
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_NOTES" | head -c 1000 >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.validate.outputs.tag }}
+          release_name: 🚀 Release ${{ needs.validate.outputs.version }}
+          body_path: release_notes.txt
+          draft: false
+          prerelease: ${{ needs.validate.outputs.prerelease == 'true' }}
+
+      - name: Upload Release Archive
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./ibphysiq-${{ needs.validate.outputs.version }}.tar.gz
+          asset_name: ibphysiq-${{ needs.validate.outputs.version }}.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Update package.json version
+        if: needs.validate.outputs.prerelease == 'false'
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          VERSION_NUMBER=${VERSION#v}
+          
+          # Update package.json version
+          npm version $VERSION_NUMBER --no-git-tag-version --allow-same-version
+          
+          # Commit version update
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add package.json package-lock.json
+          git commit -m "chore: bump version to $VERSION_NUMBER [skip ci]" || echo "No changes to commit"
+
+  trigger-deployments:
+    name: 🚀 Trigger Deployments
+    runs-on: ubuntu-latest
+    needs: [validate, create-release]
+    if: needs.validate.outputs.prerelease == 'false'
+    steps:
+      - name: Trigger Vercel deployment
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: deploy-vercel
+          client-payload: '{"version": "${{ needs.validate.outputs.version }}"}'
+
+      - name: Trigger Docker Hub deployment
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: deploy-docker
+          client-payload: '{"version": "${{ needs.validate.outputs.version }}"}'
+
+      - name: Trigger NPM deployment
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: deploy-npm
+          client-payload: '{"version": "${{ needs.validate.outputs.version }}"}'
+
+  notification:
+    name: 📢 Send Notifications
+    runs-on: ubuntu-latest
+    needs: [validate, create-release, trigger-deployments]
+    if: always()
+    steps:
+      - name: Notify on success
+        if: needs.create-release.result == 'success'
+        run: |
+          echo "🎉 Release ${{ needs.validate.outputs.version }} created successfully!"
+          echo "📦 GitHub Release: https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.tag }}"
+
+      - name: Notify on failure
+        if: needs.create-release.result == 'failure'
+        run: |
+          echo "❌ Release ${{ needs.validate.outputs.version }} failed!"
+          echo "Please check the workflow logs for details."
+          exit 1
