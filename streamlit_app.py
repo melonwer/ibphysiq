@@ -9,7 +9,7 @@ Usage:
 
 import streamlit as st
 import os
-import openai
+from openai import OpenAI
 from typing import Optional
 
 
@@ -18,15 +18,15 @@ def get_api_key() -> Optional[str]:
 
 
 def generate_with_openai(prompt: str, api_key: str, model: str = "gpt-3.5-turbo") -> str:
-    openai.api_key = api_key
+    client = OpenAI(api_key=api_key)
     try:
-        resp = openai.ChatCompletion.create(
+        resp = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=500,
             temperature=0.7,
         )
-        return resp["choices"][0]["message"]["content"].strip()
+        return resp.choices[0].message.content.strip()
     except Exception as e:
         return f"Error: {e}"
 
