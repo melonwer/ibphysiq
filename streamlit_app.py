@@ -240,6 +240,10 @@ def initialize_session_state():
         st.session_state.generation_count = 0
     if 'first_lit_request' not in st.session_state:
         st.session_state.first_lit_request = True
+    if 'cold_start_detected' not in st.session_state:
+        st.session_state.cold_start_detected = False
+    if 'generation_start_time' not in st.session_state:
+        st.session_state.generation_start_time = None
 
 # LIT API Client for fine-tuned Llama model
 def call_lit_api(prompt: str, api_url: str = None, api_token: str = None) -> Optional[str]:
@@ -626,30 +630,51 @@ def render_topic_selector():
     return None, None
 
 def render_cold_start_message():
-    """Render user-friendly cold start message for LIT API"""
-    st.markdown("""
+    """Render user-friendly cold start message for LIT API with timer"""
+    import time
+
+    # Calculate elapsed time
+    elapsed_time = 0
+    if st.session_state.generation_start_time:
+        elapsed_time = time.time() - st.session_state.generation_start_time
+
+    st.markdown(f"""
     <div style="background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
                 padding: 2rem;
                 border-radius: 10px;
                 border: 2px solid #2196f3;
                 margin: 1rem 0;
                 text-align: center;">
-        <h3 style="color: #1565c0; margin-bottom: 1rem;">⏳ LIT API Cold Start Detected</h3>
+        <h3 style="color: #1565c0; margin-bottom: 1rem;">⏳ LIT API Cold Start In Progress</h3>
+        <div style="font-size: 1.5rem; font-weight: bold; color: #1976d2; margin: 1rem 0;">
+            ⏱️ Elapsed: {elapsed_time:.1f}s
+        </div>
         <p style="font-size: 1.1rem; margin-bottom: 1rem;">
             The LIT API service is starting up due to inactivity. This is normal and typically takes about <strong>300 seconds</strong> for the first request.
         </p>
         <p style="color: #424242;">
-            Subsequent requests will be much faster (usually under 30 seconds).
+            Subsequent requests will be much faster (usually under 30 seconds). You can continue using other features while waiting.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Countdown timer and retry button
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # Action buttons
+    col1, col2, col3 = st.columns([1, 1, 1])
+
+    with col1:
+        if st.button("🔄 Retry Now", key="retry_after_cold_start", help="Try generating the question again immediately"):
+            st.session_state.first_lit_request = False  # Mark that we've handled the first request
+            st.session_state.cold_start_detected = False
+            st.rerun()
 
     with col2:
-        if st.button("🔄 Retry Generation", key="retry_after_cold_start", help="Try generating the question again"):
-            st.session_state.first_lit_request = False  # Mark that we've handled the first request
+        if st.button("📊 Check Status", key="check_lit_status", help="Check if LIT API is ready"):
+            # This would trigger a quick status check
+            st.info("Checking LIT API status...")
+
+    with col3:
+        if st.button("❌ Dismiss", key="dismiss_cold_start", help="Hide this message"):
+            st.session_state.cold_start_detected = False
             st.rerun()
 
 def render_progress_indicator():
@@ -954,20 +979,19 @@ def main():
                         st.rerun()
                     else:
                         progress_placeholder.empty()
-                        # Check if this is a cold start scenario
-                        if (st.session_state.progress_stage == ProgressStage.ERROR and
-                            st.session_state.progress_message == "LIT API cold start detected"):
-                            render_cold_start_message()
-                        else:
-                            st.error("❌ Failed to generate question. Please try again.")
+                        st.error("❌ Failed to generate question. Please try again.")
                         
                 except Exception as e:
                     st.error(f"❌ Error generating question: {str(e)}")
                     st.session_state.progress_stage = ProgressStage.ERROR
         
+        # Show cold start message if detected
+        if st.session_state.cold_start_detected:
+            render_cold_start_message()
+
         # Show progress indicator
         render_progress_indicator()
-        
+
         # Question display
         st.markdown("---")
         result = render_question_display()
@@ -994,6 +1018,7 @@ def main():
 def generate_question_with_progress(topic: str, topic_name: str, openrouter_api_key: str) -> Optional[GeneratedQuestion]:
     """Generate question using the full two-stage pipeline: Llama → DeepSeek refinement"""
     start_time = time.time()
+    st.session_state.generation_start_time = start_time
     
     try:
         # Stage 1: Generating with Fine-tuned Llama
@@ -1013,10 +1038,12 @@ def generate_question_with_progress(topic: str, topic_name: str, openrouter_api_
         # Check for LIT API timeout (cold start)
         if llama_response == "__LIT_TIMEOUT__":
             if st.session_state.first_lit_request:
-                # This is likely a cold start timeout
-                st.session_state.progress_stage = ProgressStage.ERROR
-                st.session_state.progress_message = "LIT API cold start detected"
-                return None  # Return None to trigger cold start message display
+                # This is likely a cold start timeout - set flag and continue
+                st.session_state.cold_start_detected = True
+                st.session_state.progress_stage = ProgressStage.GENERATING
+                st.session_state.progress_message = "Waiting for LIT API cold start..."
+                # Don't return None - continue with fallback or wait
+                raise Exception("LIT API cold start detected - please wait and retry")
             else:
                 raise Exception("LIT API timeout - please try again later")
         
