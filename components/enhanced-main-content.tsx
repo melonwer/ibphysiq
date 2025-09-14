@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, AlertCircle, RefreshCw, Settings, BarChart3 } from "lucide-react"
+import { Loader2, AlertCircle, RefreshCw, Settings, BarChart } from "lucide-react"
 import { TopicSelector } from "./topic-selector"
 import { QuestionDisplay } from "./question-display"
 import { GenerationProgress } from "./generation-progress"
@@ -288,7 +288,7 @@ export function EnhancedMainContent() {
                     className="hover:bg-primary/10 hover:text-primary transition-all duration-200 rounded-lg"
                     title="Quick Settings"
                   >
-                    <BarChart3 className="h-4 w-4" />
+                    <BarChart className="h-4 w-4" />
                   </Button>
                   <ServiceStatus health={serviceHealth} onRefresh={checkServiceHealth} />
                 </div>
@@ -508,7 +508,7 @@ export function EnhancedMainContent() {
           <Card className="card-gradient border-border/20 shadow-lg">
             <CardHeader className="bg-gradient-to-r from-card/50 to-card/30 rounded-t-lg">
               <CardTitle className="text-lg flex items-center gap-2 text-foreground">
-                <BarChart3 className="h-5 w-5 text-primary" />
+                <BarChart className="h-5 w-5 text-primary" />
                 Session Stats
               </CardTitle>
             </CardHeader>

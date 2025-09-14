@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { 
-  CheckCircle, 
+  Check,
   AlertTriangle, 
   XCircle, 
   RefreshCw, 
@@ -26,7 +26,7 @@ interface ServiceStatusProps {
 }
 
 const STATUS_ICONS = {
-  healthy: CheckCircle,
+  healthy: Check,
   degraded: AlertTriangle,
   unhealthy: XCircle
 }

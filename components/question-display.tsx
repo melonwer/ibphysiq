@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { 
   BookOpen, 
   Clock, 
-  CheckCircle, 
+  Check,
   RefreshCw, 
   Copy, 
   Download,
@@ -261,7 +261,7 @@ export function QuestionDisplay({ question, isLoading = false, onRegenerate }: Q
                           <strong>{optionLetter})</strong> {option.replace(/^[A-D]\)\s*/, '')}
                         </span>
                         {showCorrectness && isCorrect && (
-                          <CheckCircle className="h-4 w-4 text-green-600" />
+                          <Check className="h-4 w-4 text-green-600" />
                         )}
                       </div>
                     </button>
