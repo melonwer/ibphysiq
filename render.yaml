@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ibphysiq
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: PORT
+        value: "3000"
+    healthCheckPath: /api/generate-question?action=health
+    plan: free
