@@ -82,8 +82,9 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
-    "build:wasmer": "npm run build && cp -r public .next/standalone/public && cp -r .next/static .next/standalone/.next/static",
+    "build:wasmer": "npm run build && mkdir -p .next/standalone && cp -r public .next/standalone/public && cp -r .next/static .next/standalone/.next/static",
     "start": "next start",
+    "start:standalone": "node .next/standalone/server.js",
     "test": "jest --runInBand --color",
     "test:watch": "jest --watch --runInBand --color",
     "test:coverage": "jest --coverage --runInBand --color",
