@@ -1,0 +1,7 @@
+# Ignore Python files for Wasmer deployment
+app.py
+streamlit_app.py
+requirements.txt
+notebooks/
+*.ipynb
+.devcontainer/
