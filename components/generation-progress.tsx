@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { Progress } from "@/components/ui/progress"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { CheckCircle, Clock, Loader2, AlertCircle, Zap, Brain, Shield } from "lucide-react"
+import { Check, Clock, Loader2, AlertCircle, Zap, Brain } from "lucide-react"
 
 interface GenerationState {
   stage: 'idle' | 'generating' | 'refining' | 'validating' | 'complete' | 'error'
@@ -20,8 +20,8 @@ interface GenerationProgressProps {
 const STAGE_ICONS = {
   generating: Brain,
   refining: Zap,
-  validating: Shield,
-  complete: CheckCircle,
+  validating: Check,
+  complete: Check,
   error: AlertCircle,
   idle: Clock
 }
@@ -163,7 +163,7 @@ export function GenerationProgress({ state }: GenerationProgressProps) {
                 <span className="text-muted-foreground font-medium">{state.progress}% complete</span>
                 {state.stage === 'complete' && (
                   <span className="text-green-600 font-semibold flex items-center gap-1">
-                    <CheckCircle className="h-4 w-4" />
+                    <Check className="h-4 w-4" />
                     Generated successfully
                   </span>
                 )}
@@ -190,7 +190,7 @@ export function GenerationProgress({ state }: GenerationProgressProps) {
                 {state.stage === 'generating' ? (
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 ) : (
-                  <CheckCircle className={`h-4 w-4 ${
+                  <Check className={`h-4 w-4 ${
                     ['generating', 'refining', 'validating', 'complete'].includes(state.stage)
                       ? 'text-primary' : 'text-muted-foreground'
                   }`} />
@@ -213,7 +213,7 @@ export function GenerationProgress({ state }: GenerationProgressProps) {
                 {state.stage === 'refining' ? (
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 ) : ['validating', 'complete'].includes(state.stage) ? (
-                  <CheckCircle className="h-4 w-4 text-primary" />
+                  <Check className="h-4 w-4 text-primary" />
                 ) : (
                   <Clock className="h-4 w-4 text-muted-foreground" />
                 )}
@@ -235,7 +235,7 @@ export function GenerationProgress({ state }: GenerationProgressProps) {
                 {state.stage === 'validating' ? (
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 ) : state.stage === 'complete' ? (
-                  <CheckCircle className="h-4 w-4 text-primary" />
+                  <Check className="h-4 w-4 text-primary" />
                 ) : (
                   <Clock className="h-4 w-4 text-muted-foreground" />
                 )}
