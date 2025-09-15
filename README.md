@@ -22,6 +22,8 @@ short_description: IB-Styled Physics MCQ Generatoc
 
 This AI-powered tool creates unlimited, curriculum-aligned IB Physics questions instantly. Perfect for students cramming for exams, teachers preparing lessons, or anyone curious about educational AI.
 
+![pipeline](pipeline.png)
+
 ## ✨ What Makes This Special?
 
 ### 🎯 **Built for IB Students**
