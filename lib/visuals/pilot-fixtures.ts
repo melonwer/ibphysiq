@@ -62,6 +62,7 @@ function plot(
   },
   hasSeries = true,
   showGrid = true,
+  aspectRatio?: number,
 ): VisualSpec<"cartesian_plot"> {
   return {
     schemaVersion: VISUAL_SCHEMA_VERSION,
@@ -116,6 +117,7 @@ function plot(
       labelMode: "allowlist",
       altTextMode: "student-safe",
     },
+    layoutHints: aspectRatio === undefined ? undefined : { aspectRatio },
     provenance: { rendererVersion: "cartesian-svg/0.1.0" },
   };
 }
@@ -154,6 +156,9 @@ export const CARTESIAN_PILOT_FIXTURES: readonly PilotFixture[] = [
         ticks: [0, 2, 4, 6, 8, 10],
         minor: 0.4,
       },
+      true,
+      true,
+      1,
     ),
     data: {
       "may25-tz1-hl-1a-q2-data": [
@@ -185,7 +190,7 @@ export const CARTESIAN_PILOT_FIXTURES: readonly PilotFixture[] = [
         unit: "s",
         domain: [0, 6],
         ticks: [0, 2, 4, 6],
-        minor: 0.2,
+        minor: 0.4,
       },
       {
         label: "a",
@@ -194,6 +199,9 @@ export const CARTESIAN_PILOT_FIXTURES: readonly PilotFixture[] = [
         ticks: [0, 1, 2, 3, 4, 5],
         minor: 0.2,
       },
+      true,
+      true,
+      0.6,
     ),
     data: {
       "nov25-tz3-hl-1a-q3-data": [

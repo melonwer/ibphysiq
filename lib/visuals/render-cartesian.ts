@@ -134,6 +134,27 @@ export function renderCartesianPlot(
     throw new Error("Invalid SVG dimensions");
   }
   const frame = { left: 112, top: 38, right: width - 80, bottom: height - 84 };
+  const aspectRatio = spec.layoutHints?.aspectRatio;
+  if (aspectRatio !== undefined) {
+    if (
+      !Number.isFinite(aspectRatio) ||
+      aspectRatio < 0.25 ||
+      aspectRatio > 4
+    ) {
+      throw new Error("Invalid plot aspect ratio");
+    }
+    const availableWidth = frame.right - frame.left;
+    const availableHeight = frame.bottom - frame.top;
+    if (aspectRatio < availableWidth / availableHeight) {
+      const plotWidth = availableHeight * aspectRatio;
+      frame.left += (availableWidth - plotWidth) / 2;
+      frame.right = frame.left + plotWidth;
+    } else {
+      const plotHeight = availableWidth / aspectRatio;
+      frame.top += (availableHeight - plotHeight) / 2;
+      frame.bottom = frame.top + plotHeight;
+    }
+  }
   const plotWidth = frame.right - frame.left;
   const plotHeight = frame.bottom - frame.top;
   const projectX = (value: number) =>
@@ -216,7 +237,7 @@ export function renderCartesianPlot(
     `<text x="${formatNumber((frame.left + frame.right) / 2)}" y="${height - 20}" text-anchor="middle" font-size="20" font-family="Arial, sans-serif">${escapeXml(displayLabel(xAxis))}</text>`,
   );
   parts.push(
-    `<text transform="translate(28 ${formatNumber((frame.top + frame.bottom) / 2)}) rotate(-90)" text-anchor="middle" font-size="20" font-family="Arial, sans-serif">${escapeXml(displayLabel(yAxis))}</text>`,
+    `<text transform="translate(${formatNumber(frame.left - 84)} ${formatNumber((frame.top + frame.bottom) / 2)}) rotate(-90)" text-anchor="middle" font-size="20" font-family="Arial, sans-serif">${escapeXml(displayLabel(yAxis))}</text>`,
   );
   parts.push("</svg>");
   return parts.join("");

@@ -34,6 +34,12 @@ numerical scale; the SVG therefore uses a normalized internal ordinate but shows
 no numeric y ticks. For the May 2026 Paper 2 sketching task, the expected
 kinetic-energy curve is checked privately and never rendered in the student view.
 
+The first two source graphs need different drawing-area shapes: May 2025 Paper 1A
+Q2 has equal 0–10 ranges and a square plot, while November 2025 Paper 1A Q3 is
+tall and narrow, with 0.4 s horizontal minor steps and 0.2 m s⁻² vertical minor
+steps. Both now have square printed grid cells. The source-specific frame ratio
+is a layout hint; it does not change the data or any physics result.
+
 The current renderer accepts linear axes and bounded polyline data only. It does
 not yet support error bars, log scales, bars, shaded areas, tangent constructions,
 multiple styled series, or arbitrary figure composition. The eight checks show

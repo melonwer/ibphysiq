@@ -56,6 +56,39 @@ describe("eight-question Cartesian reconstruction pilot", () => {
     expect(kineticEnergyFraction(Math.PI / 15.7, 15.7)).toBeCloseTo(0);
   });
 
+  it.each(CARTESIAN_PILOT_FIXTURES.slice(0, 2))(
+    "renders square source-grid cells for $id",
+    (fixture) => {
+      const svg = renderCartesianPlot(fixture.spec, fixture.data);
+      const rect = svg.match(
+        /<clipPath id="[^"]+"><rect x="[^"]+" y="[^"]+" width="([^"]+)" height="([^"]+)"\/><\/clipPath>/,
+      );
+      expect(rect).not.toBeNull();
+      const plotWidth = Number(rect![1]);
+      const plotHeight = Number(rect![2]);
+      expect(plotWidth / plotHeight).toBeCloseTo(
+        fixture.spec.layoutHints!.aspectRatio!,
+      );
+      const { xAxis, yAxis } = fixture.spec.payload;
+      const horizontalCell =
+        (plotWidth * xAxis.minorTickStep!) /
+        (xAxis.domain[1] - xAxis.domain[0]);
+      const verticalCell =
+        (plotHeight * yAxis.minorTickStep!) /
+        (yAxis.domain[1] - yAxis.domain[0]);
+      expect(horizontalCell).toBeCloseTo(verticalCell);
+    },
+  );
+
+  it("rejects an invalid source aspect ratio", () => {
+    const fixture = CARTESIAN_PILOT_FIXTURES[0];
+    const spec = structuredClone(fixture.spec);
+    spec.layoutHints!.aspectRatio = -1;
+    expect(() => renderCartesianPlot(spec, fixture.data)).toThrow(
+      "Invalid plot aspect ratio",
+    );
+  });
+
   it("rejects private series data and out-of-bounds points", () => {
     const fixture = CARTESIAN_PILOT_FIXTURES[0];
     const privateSpec = structuredClone(fixture.spec);
