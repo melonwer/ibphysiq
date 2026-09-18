@@ -1,6 +1,7 @@
 // Main library exports
 export * from './types';
 export * from './utils';
+export * from './visuals';
 
 // Re-export commonly used types (avoiding duplicates from above export *)
 export type {
