@@ -66,10 +66,8 @@ describe("eight-question Cartesian reconstruction pilot", () => {
       expect(rect).not.toBeNull();
       const plotWidth = Number(rect![1]);
       const plotHeight = Number(rect![2]);
-      expect(plotWidth / plotHeight).toBeCloseTo(
-        fixture.spec.layoutHints!.aspectRatio!,
-      );
       const { xAxis, yAxis } = fixture.spec.payload;
+      expect(fixture.spec.payload.squareGridCells).toBe(true);
       const horizontalCell =
         (plotWidth * xAxis.minorTickStep!) /
         (xAxis.domain[1] - xAxis.domain[0]);
@@ -80,12 +78,24 @@ describe("eight-question Cartesian reconstruction pilot", () => {
     },
   );
 
-  it("rejects an invalid source aspect ratio", () => {
+  it("rejects an invalid square-grid configuration", () => {
     const fixture = CARTESIAN_PILOT_FIXTURES[0];
     const spec = structuredClone(fixture.spec);
-    spec.layoutHints!.aspectRatio = -1;
+    spec.payload.xAxis.minorTickStep = undefined;
     expect(() => renderCartesianPlot(spec, fixture.data)).toThrow(
-      "Invalid plot aspect ratio",
+      "Square grid requires visible x and y minor ticks",
+    );
+  });
+
+  it("rejects crowded tick labels before emitting an unreadable graph", () => {
+    const fixture = CARTESIAN_PILOT_FIXTURES[0];
+    const spec = structuredClone(fixture.spec);
+    spec.payload.xAxis.tickLabels = {
+      "2": "overlong-label-one",
+      "4": "overlong-label-two",
+    };
+    expect(() => renderCartesianPlot(spec, fixture.data)).toThrow(
+      "Overlapping x-axis tick labels",
     );
   });
 

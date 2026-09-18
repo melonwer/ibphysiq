@@ -29,6 +29,9 @@ const {
 } = require("../../lib/visuals/pilot-fixtures.ts");
 const { computePilotMetric } = require("../../lib/visuals/pilot-physics.ts");
 const {
+  generatePilotVariants,
+} = require("../../lib/visuals/pilot-variants.ts");
+const {
   renderCartesianPlot,
 } = require("../../lib/visuals/render-cartesian.ts");
 
@@ -149,4 +152,71 @@ fs.writeFileSync(
 );
 process.stdout.write(
   `Generated ${receipt.length} checked reconstructions in ${path.relative(repository, outputDirectory)}\n`,
+);
+
+const variantReceipt = [];
+for (const variant of generatePilotVariants()) {
+  if (!questions.has(variant.sourceQuestionId)) {
+    throw new Error(`Synthetic variant lacks source lineage: ${variant.id}`);
+  }
+  const actual = computePilotMetric(variant);
+  const passed =
+    Math.abs(actual - variant.solution.value) <= variant.check.tolerance;
+  if (!passed) throw new Error(`Synthetic physics check failed: ${variant.id}`);
+  const svg = renderCartesianPlot(variant.spec, variant.data);
+  if (
+    svg.includes(`${variant.id}-answer`) ||
+    svg.includes(variant.solution.method)
+  ) {
+    throw new Error(`Synthetic answer leaked into student SVG: ${variant.id}`);
+  }
+  const svgName = `${variant.id}.svg`;
+  fs.writeFileSync(path.join(outputDirectory, svgName), svg);
+  variantReceipt.push({
+    id: variant.id,
+    sourceFixtureId: variant.sourceFixtureId,
+    sourceQuestionId: variant.sourceQuestionId,
+    paper: variant.paper,
+    scenario: variant.scenario,
+    studentPrompt: variant.studentPrompt,
+    plot: {
+      xDomain: variant.spec.payload.xAxis.domain,
+      yDomain: variant.spec.payload.yAxis.domain,
+      xMinorTickStep: variant.spec.payload.xAxis.minorTickStep,
+      yMinorTickStep: variant.spec.payload.yAxis.minorTickStep,
+      squareGridCells: variant.spec.payload.squareGridCells,
+    },
+    renderedSvg: svgName,
+    studentVisibleSeries: variant.spec.payload.series.length,
+    solution: variant.solution,
+    check: { actual, tolerance: variant.check.tolerance, passed },
+  });
+}
+if (variantReceipt.length !== 24)
+  throw new Error("Expected exactly 24 synthetic variants");
+const variationCards = variantReceipt
+  .map(
+    (item) =>
+      `<article><h3>${escapeHtml(item.id)}</h3><p>${escapeHtml(item.studentPrompt)}</p><img src="${escapeHtml(item.renderedSvg)}" alt="Student-facing graph for ${escapeHtml(item.id)}"><details><summary>Checked solution</summary><p>${escapeHtml(item.solution.method)}: <strong>${escapeHtml(item.solution.value.toPrecision(4))} ${escapeHtml(item.solution.unit)}</strong></p></details><p class="source">Derived from ${escapeHtml(item.sourceFixtureId)} · ${escapeHtml(item.paper)}</p></article>`,
+  )
+  .join("\n");
+const variationsHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>24 parameterized graph exercises</title><style>
+body{font:16px/1.5 system-ui,sans-serif;max-width:1500px;margin:auto;padding:24px;color:#1c242b;background:#f5f7f8}h1{margin:0 0 8px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(390px,1fr));gap:18px}article{background:white;border:1px solid #ccd4d8;border-radius:12px;padding:18px;min-width:0}h3{font-size:18px;overflow-wrap:anywhere}img{width:100%;height:auto;border:1px solid #dce1e4;background:white}details{margin-top:12px}summary{cursor:pointer;font-weight:650}.source{font-size:13px;color:#59656c}
+</style></head><body><h1>24 parameterized graph exercises</h1><p>Three variations of each source-backed graph case. Each plot, prompt and checked answer comes from one scenario. Solutions are collapsed for review; the SVG files themselves contain no answers. These are engineering exercises, not full exam packages or cleared training data.</p><div class="cards">${variationCards}</div></body></html>`;
+fs.writeFileSync(path.join(outputDirectory, "variants.html"), variationsHtml);
+fs.writeFileSync(
+  path.join(outputDirectory, "variants-manifest.json"),
+  JSON.stringify(
+    {
+      schemaVersion: "visual-pilot-variants/0.1.0",
+      status: "engineering-only-not-training-ready",
+      generatedAt: new Date().toISOString(),
+      variants: variantReceipt,
+    },
+    null,
+    2,
+  ) + "\n",
+);
+process.stdout.write(
+  `Generated ${variantReceipt.length} checked parameter variations\n`,
 );

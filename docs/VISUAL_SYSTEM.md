@@ -87,8 +87,10 @@ The typed contract and registry are in `lib/visuals/`. A specification contains:
 ### Cartesian plots
 
 The pilot renderer handles linear axes, source-matched ticks, grids, bounded
-polyline curves, and deliberately blank student axes. The eight source-linked
-reconstructions and physics checks are documented in [VISUAL_PILOT.md](VISUAL_PILOT.md).
+polyline curves, and deliberately blank student axes. It derives square grid
+cells from axis ranges and minor-tick increments when requested, and rejects
+overlapping tick labels. Eight source-linked reconstructions and 24 checked
+parameter variations are documented in [VISUAL_PILOT.md](VISUAL_PILOT.md).
 The broader renderer should cover quantitative and qualitative curves, measured points,
 uncertainties, multiple series, histograms, waveforms, tangents, intercepts, and
 shaded regions. It must record whether a graph is quantitative, qualitative, or

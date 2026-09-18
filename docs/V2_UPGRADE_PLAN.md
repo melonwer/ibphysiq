@@ -248,6 +248,15 @@ Open choices: extraction tooling, renderer libraries, solver implementation, com
 
 The first reproducible corpus pass now inventories all 80 PDFs, links duplicate donated copies, extracts sequential question records from 33 canonical English question papers, crops born-digital vector figures, OCRs the unmatched scan, and emits review-gated visual plans. The typed visual contract and 16-family template registry are documented in `docs/VISUAL_SYSTEM.md`. The first 287-item safety queue was regenerated after fixing false question boundaries, recognizing graphical A-D choices, applying unambiguous question context to low-text crops, splitting mechanics, electromagnetic, and thermal scenes from generic geometry, and tightening graph/energy-level/optics cues; 124 gated records remain. A private local reviewer now supplies the question, visual evidence, original page, and exact decision, with a representative 20-record default sample, instead of relying on context-free thumbnail sheets. These are catalogue/schema deliverables only: unresolved records are not accepted training data, mark-scheme answers have not yet been converted into verified solutions, and deterministic renderer implementations still need reconstruction tests.
 
+The subsequent Cartesian pilot reconstructed eight source-backed plots and verified
+their assessed results against linked schemes. It now produces 24 synthetic
+parameter variations with scenario-driven figures, short prompts and checked
+results. Grid proportions, tick readability, valid physical domains and answer
+visibility have focused tests. This proves only a narrow graph-family workflow:
+the variants are not complete question packages, human review and source-use
+rights remain open, and the planned circuit/field and broader-data pilots have
+not begun. See `docs/VISUAL_PILOT.md`.
+
 ## 8. Reference material
 
 - [Qwen3-8B model card](https://huggingface.co/Qwen/Qwen3-8B)

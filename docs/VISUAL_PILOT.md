@@ -1,7 +1,8 @@
 # Eight-question graph reconstruction pilot
 
-Status: engineering pilot complete; human acceptance, full question-package review,
-and source-material rights clearance remain open. This is not training-ready data.
+Status: reconstruction and parameter-variation engineering pilot complete;
+human acceptance, full question-package review, and source-material rights
+clearance remain open. This is not training-ready data.
 
 The pilot selected eight distinct, readable source questions with matching mark
 schemes: four Paper 1A multiple-choice items and four Paper 2 multipart items. It
@@ -26,6 +27,14 @@ source/result pairs are in the local generated
 with `node scripts/visual-pilot/generate.cjs`. No copyrighted source image or
 question text is copied into tracked pilot fixtures.
 
+The same command writes `variants.html` and `variants-manifest.json` with three
+new parameter sets for each of the eight cases. These 24 exercises are synthetic
+derivatives with source lineage, not copies of the source questions. One scenario
+drives each SVG, short student prompt, and independently checked numerical
+result. The solution is collapsed on the local review page and absent from the
+SVG. These are not yet four-option Paper 1A items or complete multipart Paper 2
+packages.
+
 The source and reconstructed figures were visually compared for graph shape,
 axis quantities, critical coordinates, and whether a line should be absent. The
 renderer intentionally does not reproduce the exam's font, page layout, or arrowhead
@@ -37,13 +46,21 @@ kinetic-energy curve is checked privately and never rendered in the student view
 The first two source graphs need different drawing-area shapes: May 2025 Paper 1A
 Q2 has equal 0–10 ranges and a square plot, while November 2025 Paper 1A Q3 is
 tall and narrow, with 0.4 s horizontal minor steps and 0.2 m s⁻² vertical minor
-steps. Both now have square printed grid cells. The source-specific frame ratio
-is a layout hint; it does not change the data or any physics result.
+steps. Both have square printed grid cells. The renderer now derives the frame
+ratio from axis ranges and minor-grid increments whenever square cells are
+requested, including after parameters change; it does not change the data or
+any physics result.
+
+The synthetic oil-drop cases use small droplets in a viscous liquid and reject
+cases with Reynolds number at or above 0.1, so the Stokes-drag model is used
+within its intended low-speed regime. Invalid times, masses, buoyancy and
+spring extensions are rejected in focused tests.
 
 The current renderer accepts linear axes and bounded polyline data only. It does
 not yet support error bars, log scales, bars, shaded areas, tangent constructions,
-multiple styled series, or arbitrary figure composition. The eight checks show
-semantic reconstruction for these examples, not complete coverage of the 119
-automatically plot-labelled questions. Before scaling, a human should accept or
-correct the eight source matches, run parameter-variation tests, and confirm the
-intended use of source material.
+multiple styled series, or arbitrary figure composition. The eight
+reconstructions and 24 variations show semantic consistency for these examples,
+not complete coverage of the 119 automatically plot-labelled questions. Before
+training or publication, a human should accept or correct the eight source
+matches, review synthetic exercises as complete question packages, and confirm
+the intended use of source material.

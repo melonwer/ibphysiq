@@ -40,7 +40,9 @@ export function kineticEnergyFraction(
   return Math.sin(angularFrequency * time) ** 2;
 }
 
-export function computePilotMetric(fixture: PilotFixture): number {
+export function computePilotMetric(
+  fixture: Pick<PilotFixture, "check" | "data">,
+): number {
   const { kind, inputs } = fixture.check;
   const points = Object.values(fixture.data)[0];
   const area = () => {

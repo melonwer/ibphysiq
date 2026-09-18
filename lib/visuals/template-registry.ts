@@ -40,6 +40,8 @@ export const VISUAL_TEMPLATE_REGISTRY = {
       "axis-domain-valid",
       "series-within-domain",
       "tick-precision-sufficient",
+      "square-grid-cell-aspect",
+      "tick-label-spacing",
     ],
     implementationStatus: "pilot",
   },

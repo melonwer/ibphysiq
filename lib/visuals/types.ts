@@ -114,6 +114,7 @@ export interface CartesianPlotPayload {
   yAxis: AxisSpec;
   series: PlotSeriesSpec[];
   showGrid?: boolean;
+  squareGridCells?: boolean;
   constructions?: Array<{
     kind: "tangent" | "intercept" | "shaded-region" | "threshold";
     targetSeriesId: string;

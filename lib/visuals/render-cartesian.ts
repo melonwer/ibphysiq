@@ -40,7 +40,11 @@ function validateAxis(axis: AxisSpec): void {
   }
   if (
     axis.tickValues?.some(
-      (value) => !Number.isFinite(value) || value < minimum || value > maximum,
+      (value, index, values) =>
+        !Number.isFinite(value) ||
+        value < minimum ||
+        value > maximum ||
+        (index > 0 && value <= values[index - 1]),
     )
   ) {
     throw new Error(`Tick outside axis domain: ${axis.id}`);
@@ -79,6 +83,10 @@ function displayLabel(axis: AxisSpec): string {
   return axis.unit ? `${axis.label} / ${axis.unit}` : axis.label;
 }
 
+function tickLabel(axis: AxisSpec, value: number): string {
+  return axis.tickLabels?.[formatNumber(value)] ?? formatNumber(value);
+}
+
 /** Deterministic, student-safe SVG from validated semantic plot data. */
 export function renderCartesianPlot(
   spec: VisualSpec<"cartesian_plot">,
@@ -89,7 +97,13 @@ export function renderCartesianPlot(
   if (!validation.valid) {
     throw new Error(validation.issues.map((issue) => issue.message).join("; "));
   }
-  const { xAxis, yAxis, series, showGrid = true } = spec.payload;
+  const {
+    xAxis,
+    yAxis,
+    series,
+    showGrid = true,
+    squareGridCells = false,
+  } = spec.payload;
   validateAxis(xAxis);
   validateAxis(yAxis);
   const publicIds = new Set(spec.visibility.publicParameterIds);
@@ -134,7 +148,20 @@ export function renderCartesianPlot(
     throw new Error("Invalid SVG dimensions");
   }
   const frame = { left: 112, top: 38, right: width - 80, bottom: height - 84 };
-  const aspectRatio = spec.layoutHints?.aspectRatio;
+  if (
+    squareGridCells &&
+    (!showGrid || !xAxis.minorTickStep || !yAxis.minorTickStep)
+  ) {
+    throw new Error("Square grid requires visible x and y minor ticks");
+  }
+  if (squareGridCells && spec.layoutHints?.aspectRatio !== undefined) {
+    throw new Error("Square grid cannot have a fixed aspect ratio");
+  }
+  const aspectRatio = squareGridCells
+    ? (xAxis.domain[1] - xAxis.domain[0]) /
+      xAxis.minorTickStep! /
+      ((yAxis.domain[1] - yAxis.domain[0]) / yAxis.minorTickStep!)
+    : spec.layoutHints?.aspectRatio;
   if (aspectRatio !== undefined) {
     if (
       !Number.isFinite(aspectRatio) ||
@@ -165,6 +192,17 @@ export function renderCartesianPlot(
     frame.bottom -
     ((value - yAxis.domain[0]) / (yAxis.domain[1] - yAxis.domain[0])) *
       plotHeight;
+  let previousLabelRight = -Infinity;
+  for (const value of tickValues(xAxis)) {
+    const label = tickLabel(xAxis, value);
+    const centre = projectX(value);
+    const estimatedWidth = Array.from(label).length * 17 * 0.58;
+    const labelLeft = centre - estimatedWidth / 2;
+    if (labelLeft < previousLabelRight + 3) {
+      throw new Error(`Overlapping x-axis tick labels: ${xAxis.id}`);
+    }
+    previousLabelRight = centre + estimatedWidth / 2;
+  }
   const xAxisY = projectY(
     Math.max(yAxis.domain[0], Math.min(0, yAxis.domain[1])),
   );
@@ -208,16 +246,14 @@ export function renderCartesianPlot(
   );
   for (const value of tickValues(xAxis)) {
     const x = formatNumber(projectX(value));
-    const label =
-      xAxis.tickLabels?.[formatNumber(value)] ?? formatNumber(value);
+    const label = tickLabel(xAxis, value);
     parts.push(
       `<path d="M${x} ${formatNumber(xAxisY - 5)}v10" stroke="#202429"/><text x="${x}" y="${formatNumber(xAxisY + 26)}" text-anchor="middle" font-size="17" font-family="Arial, sans-serif">${escapeXml(label)}</text>`,
     );
   }
   for (const value of tickValues(yAxis)) {
     const y = formatNumber(projectY(value));
-    const label =
-      yAxis.tickLabels?.[formatNumber(value)] ?? formatNumber(value);
+    const label = tickLabel(yAxis, value);
     parts.push(
       `<path d="M${formatNumber(yAxisX - 5)} ${y}h10" stroke="#202429"/><text x="${formatNumber(yAxisX - 12)}" y="${formatNumber(Number(y) + 6)}" text-anchor="end" font-size="17" font-family="Arial, sans-serif">${escapeXml(label)}</text>`,
     );

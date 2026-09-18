@@ -13,6 +13,11 @@ result against the scheme target, renders the student-facing SVG, and writes a
 private side-by-side review page and provenance manifest to
 `dataset/_derived/visual-pilot-v0.1/`.
 
+The same command also generates `variants.html` and `variants-manifest.json`
+there: three synthetic parameter variations per source case (24 total). Each
+variant's prompt, graph and result come from one scenario. The checked solution
+is shown only in the private review page, never in the student-facing SVG.
+
 Fixtures and independent calculations live in `lib/visuals/pilot-fixtures.ts` and
 `lib/visuals/pilot-physics.ts`. The figures and PDF inputs remain under the ignored
 `dataset/` boundary. The script does not edit source captures or promote any question
