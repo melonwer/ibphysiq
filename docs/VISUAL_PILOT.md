@@ -31,9 +31,12 @@ The same command writes `variants.html` and `variants-manifest.json` with three
 new parameter sets for each of the eight cases. These 24 exercises are synthetic
 derivatives with source lineage, not copies of the source questions. One scenario
 drives each SVG, short student prompt, and independently checked numerical
-result. The solution is collapsed on the local review page and absent from the
-SVG. These are not yet four-option Paper 1A items or complete multipart Paper 2
-packages.
+result. Calculated answers are displayed to three significant figures. The
+solution is collapsed on the local review page and absent from the student SVG.
+The manifest and every variant explicitly set training eligibility to `blocked`;
+these engineering test cases must not be copied raw into a training dataset.
+They are not yet four-option Paper 1A items or complete multipart Paper 2
+packages, and must first be converted into reviewed packages.
 
 The source and reconstructed figures were visually compared for graph shape,
 axis quantities, critical coordinates, and whether a line should be absent. The
@@ -42,6 +45,11 @@ style. For the November 2025 oil-droplet graph, the source gives no vertical
 numerical scale; the SVG therefore uses a normalized internal ordinate but shows
 no numeric y ticks. For the May 2026 Paper 2 sketching task, the expected
 kinetic-energy curve is checked privately and never rendered in the student view.
+Each loudspeaker variant has a separate teacher-only solution SVG and worked
+explanation: because `v = −Aω sin(ωt)`, kinetic energy is proportional to
+`sin²(ωt)`, begins at zero, reaches `Eₜ` at equilibrium, and repeats every `π/ω`.
+Its angular-frequency givens are short three-significant-figure values such as
+`15.7`, never raw floating-point expansions.
 
 The first two source graphs need different drawing-area shapes: May 2025 Paper 1A
 Q2 has equal 0–10 ranges and a square plot, while November 2025 Paper 1A Q3 is

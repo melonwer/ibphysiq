@@ -29,6 +29,7 @@ const {
 } = require("../../lib/visuals/pilot-fixtures.ts");
 const { computePilotMetric } = require("../../lib/visuals/pilot-physics.ts");
 const {
+  formatToSignificantFigures,
   generatePilotVariants,
 } = require("../../lib/visuals/pilot-variants.ts");
 const {
@@ -128,7 +129,7 @@ const cards = receipt
   .map(
     (item) => `<section>
   <h2>${escapeHtml(item.id)}</h2>
-  <p>${escapeHtml(item.sourceNote)} Physics check: <strong>${item.check.actual.toPrecision(4)} ${escapeHtml(item.check.unit)}</strong> (scheme target ${item.check.expected} ${escapeHtml(item.check.unit)}).</p>
+  <p>${escapeHtml(item.sourceNote)} Physics check: <strong>${formatToSignificantFigures(item.check.actual)} ${escapeHtml(item.check.unit)}</strong> (scheme target ${item.check.expected} ${escapeHtml(item.check.unit)}).</p>
   <div class="pair"><figure><figcaption>Original exam figure</figcaption><img src="${relativeUrl(path.join(repository, item.sourceCrop))}" alt="Source crop for ${escapeHtml(item.id)}"></figure><figure><figcaption>Reconstructed student-facing SVG</figcaption><img src="${escapeHtml(item.renderedSvg)}" alt="Reconstructed graph for ${escapeHtml(item.id)}"></figure></div>
   <p class="source">Question ${escapeHtml(item.sourceQuestionId)} · source PDF page ${item.sourcePage} · mark scheme PDF page ${item.markschemePage}</p>
 </section>`,
@@ -172,6 +173,21 @@ for (const variant of generatePilotVariants()) {
   }
   const svgName = `${variant.id}.svg`;
   fs.writeFileSync(path.join(outputDirectory, svgName), svg);
+  let expectedGraph;
+  if (variant.solution.expectedGraph) {
+    const solutionSvgName = `${variant.id}-solution.svg`;
+    fs.writeFileSync(
+      path.join(outputDirectory, solutionSvgName),
+      renderCartesianPlot(
+        variant.solution.expectedGraph.spec,
+        variant.solution.expectedGraph.data,
+      ),
+    );
+    expectedGraph = {
+      description: variant.solution.expectedGraph.description,
+      renderedSvg: solutionSvgName,
+    };
+  }
   variantReceipt.push({
     id: variant.id,
     sourceFixtureId: variant.sourceFixtureId,
@@ -188,7 +204,15 @@ for (const variant of generatePilotVariants()) {
     },
     renderedSvg: svgName,
     studentVisibleSeries: variant.spec.payload.series.length,
-    solution: variant.solution,
+    solution: {
+      displayValue: variant.solution.displayValue,
+      significantFigures: variant.solution.significantFigures,
+      unit: variant.solution.unit,
+      method: variant.solution.method,
+      parts: variant.solution.parts,
+      expectedGraph,
+    },
+    trainingEligibility: variant.trainingEligibility,
     check: { actual, tolerance: variant.check.tolerance, passed },
   });
 }
@@ -196,13 +220,23 @@ if (variantReceipt.length !== 24)
   throw new Error("Expected exactly 24 synthetic variants");
 const variationCards = variantReceipt
   .map(
-    (item) =>
-      `<article><h3>${escapeHtml(item.id)}</h3><p>${escapeHtml(item.studentPrompt)}</p><img src="${escapeHtml(item.renderedSvg)}" alt="Student-facing graph for ${escapeHtml(item.id)}"><details><summary>Checked solution</summary><p>${escapeHtml(item.solution.method)}: <strong>${escapeHtml(item.solution.value.toPrecision(4))} ${escapeHtml(item.solution.unit)}</strong></p></details><p class="source">Derived from ${escapeHtml(item.sourceFixtureId)} · ${escapeHtml(item.paper)}</p></article>`,
+    (item) => {
+      const solutionParts = item.solution.parts
+        .map(
+          (part) =>
+            `<li><strong>${escapeHtml(part.label)}:</strong> ${escapeHtml(part.working)}${part.finalAnswer ? ` <strong>${escapeHtml(part.finalAnswer)}</strong>` : ""}</li>`,
+        )
+        .join("");
+      const expectedGraph = item.solution.expectedGraph
+        ? `<figure class="solution-graph"><figcaption>Expected kinetic-energy sketch</figcaption><img src="${escapeHtml(item.solution.expectedGraph.renderedSvg)}" alt="Teacher solution graph for ${escapeHtml(item.id)}"><p>${escapeHtml(item.solution.expectedGraph.description)}</p></figure>`
+        : "";
+      return `<article><h3>${escapeHtml(item.id)}</h3><p>${escapeHtml(item.studentPrompt)}</p><img src="${escapeHtml(item.renderedSvg)}" alt="Student-facing graph for ${escapeHtml(item.id)}"><details><summary>Complete checked solution</summary><ol>${solutionParts}</ol>${expectedGraph}</details><p class="source">Derived from ${escapeHtml(item.sourceFixtureId)} · ${escapeHtml(item.paper)} · training use blocked</p></article>`;
+    },
   )
   .join("\n");
 const variationsHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>24 parameterized graph exercises</title><style>
-body{font:16px/1.5 system-ui,sans-serif;max-width:1500px;margin:auto;padding:24px;color:#1c242b;background:#f5f7f8}h1{margin:0 0 8px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(390px,1fr));gap:18px}article{background:white;border:1px solid #ccd4d8;border-radius:12px;padding:18px;min-width:0}h3{font-size:18px;overflow-wrap:anywhere}img{width:100%;height:auto;border:1px solid #dce1e4;background:white}details{margin-top:12px}summary{cursor:pointer;font-weight:650}.source{font-size:13px;color:#59656c}
-</style></head><body><h1>24 parameterized graph exercises</h1><p>Three variations of each source-backed graph case. Each plot, prompt and checked answer comes from one scenario. Solutions are collapsed for review; the SVG files themselves contain no answers. These are engineering exercises, not full exam packages or cleared training data.</p><div class="cards">${variationCards}</div></body></html>`;
+body{font:16px/1.5 system-ui,sans-serif;max-width:1500px;margin:auto;padding:24px;color:#1c242b;background:#f5f7f8}h1{margin:0 0 8px}.warning{border-left:5px solid #b54818;background:#fff5eb;padding:12px 16px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(390px,1fr));gap:18px}article{background:white;border:1px solid #ccd4d8;border-radius:12px;padding:18px;min-width:0}h3{font-size:18px;overflow-wrap:anywhere}img{width:100%;height:auto;border:1px solid #dce1e4;background:white}details{margin-top:12px}summary{cursor:pointer;font-weight:650}.solution-graph{margin:16px 0 0}.solution-graph figcaption{font-weight:650;margin-bottom:8px}.source{font-size:13px;color:#59656c}
+</style></head><body><h1>24 parameterized graph exercises</h1><p class="warning"><strong>Training use blocked.</strong> These are engineering test cases, not dataset records. They require conversion into complete question packages, human review, and source-use clearance before any training export.</p><p>Three variations of each source-backed graph case. Each plot, prompt and checked answer comes from one scenario. Student SVG files contain no answers; teacher solution graphs are separate review-only files. Calculated answers are displayed to three significant figures.</p><div class="cards">${variationCards}</div></body></html>`;
 fs.writeFileSync(path.join(outputDirectory, "variants.html"), variationsHtml);
 fs.writeFileSync(
   path.join(outputDirectory, "variants-manifest.json"),
@@ -210,6 +244,12 @@ fs.writeFileSync(
     {
       schemaVersion: "visual-pilot-variants/0.1.0",
       status: "engineering-only-not-training-ready",
+      trainingEligibility: "blocked",
+      trainingBlockers: [
+        "not a complete question package",
+        "not human reviewed",
+        "source-use rights not cleared",
+      ],
       generatedAt: new Date().toISOString(),
       variants: variantReceipt,
     },

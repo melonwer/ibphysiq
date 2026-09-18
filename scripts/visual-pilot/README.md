@@ -17,9 +17,15 @@ The same command also generates `variants.html` and `variants-manifest.json`
 there: three synthetic parameter variations per source case (24 total). Each
 variant's prompt, graph and result come from one scenario. The checked solution
 is shown only in the private review page, never in the student-facing SVG.
+Calculated results are displayed to three significant figures. Multipart graph
+questions also receive a separate teacher-only expected-graph SVG so every asked
+part is covered by the review solution.
 
 Fixtures and independent calculations live in `lib/visuals/pilot-fixtures.ts` and
 `lib/visuals/pilot-physics.ts`. The figures and PDF inputs remain under the ignored
 `dataset/` boundary. The script does not edit source captures or promote any question
-to training-ready status. The generated HTML is for local review; do not publish it
-without a separate source-material rights decision.
+to training-ready status. Both the manifest and each variant explicitly mark
+training eligibility as blocked. The synthetic variants are engineering test cases,
+not records to paste into a training dataset; they require complete package authoring,
+human review and source-material rights clearance first. The generated HTML is for
+local review; do not publish it without that separate rights decision.

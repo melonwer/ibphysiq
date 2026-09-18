@@ -1,6 +1,7 @@
 import { computePilotMetric } from "../pilot-physics";
 import {
   createPilotVariant,
+  formatToSignificantFigures,
   generatePilotVariants,
   kineticEnergyFraction,
 } from "../pilot-variants";
@@ -61,6 +62,20 @@ describe("parameterized Cartesian pilot", () => {
       ).toBe(true);
     },
   );
+
+  it("blocks engineering variants from training and formats answers to 3 s.f.", () => {
+    for (const variant of variants) {
+      expect(variant.trainingEligibility).toBe("blocked");
+      expect(variant.solution.significantFigures).toBe(3);
+      expect(variant.solution.displayValue).toBe(
+        formatToSignificantFigures(variant.solution.value),
+      );
+      expect(variant.solution.parts.some((part) => part.finalAnswer)).toBe(true);
+    }
+    expect(formatToSignificantFigures(123.245)).toBe("123");
+    expect(formatToSignificantFigures(1.2)).toBe("1.20");
+    expect(formatToSignificantFigures(0.001234)).toBe("0.00123");
+  });
 
   it("derives square cells from changing axis ranges instead of a fixed frame", () => {
     const firstTwoFamilies = variants.filter((item) =>
@@ -130,10 +145,16 @@ describe("parameterized Cartesian pilot", () => {
   });
 
   it("keeps every answer-to-sketch kinetic-energy curve private", () => {
+    const angularFrequencies: number[] = [];
     for (const variant of variants) {
       if (variant.scenario.kind !== "harmonic-max-acceleration") continue;
+      angularFrequencies.push(variant.scenario.angularFrequency);
       expect(variant.spec.payload.series).toEqual([]);
       expect(variant.data).toEqual({});
+      expect(variant.studentPrompt).toContain(
+        `cos(${variant.scenario.angularFrequency}t)`,
+      );
+      expect(variant.studentPrompt).not.toMatch(/cos\(\d+\.\d{4,}t\)/);
       const omega = variant.scenario.angularFrequency;
       const amplitude = variant.scenario.amplitude;
       const step = 0.0001 / omega;
@@ -151,7 +172,23 @@ describe("parameterized Cartesian pilot", () => {
       expect(renderCartesianPlot(variant.spec, variant.data)).not.toContain(
         'stroke="#15191d"',
       );
+      const graph = variant.solution.expectedGraph;
+      expect(graph).toBeDefined();
+      expect(variant.solution.parts.map((part) => part.id)).toEqual([
+        "maximum-acceleration",
+        "kinetic-energy-sketch",
+      ]);
+      const solutionPoints = Object.values(graph!.data)[0];
+      expect(solutionPoints).toHaveLength(201);
+      expect(solutionPoints[0]).toEqual({ x: 0, y: 0 });
+      expect(
+        solutionPoints.some((point) => Math.abs(point.y - 1) < 0.001),
+      ).toBe(true);
+      const solutionSvg = renderCartesianPlot(graph!.spec, graph!.data);
+      expect(solutionSvg).toContain('stroke="#15191d"');
+      expect(graph!.description).toContain("repeats every π/ω seconds");
     }
+    expect(angularFrequencies).toEqual([12.6, 15.7, 18.8]);
   });
 
   it("rejects physically or geometrically invalid parameter sets", () => {
@@ -201,5 +238,13 @@ describe("parameterized Cartesian pilot", () => {
         mass: -10,
       }),
     ).toThrow("mass must be positive");
+    expect(() =>
+      createPilotVariant("may26-tz1-hl-2-q6", 1, {
+        kind: "harmonic-max-acceleration",
+        amplitude: 0.5,
+        angularFrequency: 15.707963267948966,
+        duration: 0.8,
+      }),
+    ).toThrow("angular frequency must use at most 3 significant figures");
   });
 });

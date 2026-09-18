@@ -251,11 +251,15 @@ The first reproducible corpus pass now inventories all 80 PDFs, links duplicate 
 The subsequent Cartesian pilot reconstructed eight source-backed plots and verified
 their assessed results against linked schemes. It now produces 24 synthetic
 parameter variations with scenario-driven figures, short prompts and checked
-results. Grid proportions, tick readability, valid physical domains and answer
-visibility have focused tests. This proves only a narrow graph-family workflow:
-the variants are not complete question packages, human review and source-use
-rights remain open, and the planned circuit/field and broader-data pilots have
-not begun. See `docs/VISUAL_PILOT.md`.
+results. Displayed calculated answers use three significant figures, givens are
+calculator-friendly rather than raw floating-point expansions, and multipart
+sketch tasks include separate teacher-only worked graphs. Grid proportions, tick
+readability, valid physical domains, complete solution parts and answer visibility
+have focused tests. This proves only a narrow graph-family workflow: each variant
+and its manifest explicitly block training use because the variants are not
+complete question packages; human review and source-use rights remain open, and
+the planned circuit/field and broader-data pilots have not begun. See
+`docs/VISUAL_PILOT.md`.
 
 ## 8. Reference material
 

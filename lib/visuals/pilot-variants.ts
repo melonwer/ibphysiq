@@ -65,7 +65,31 @@ export type PilotVariantScenario =
       kind: "harmonic-max-acceleration";
       amplitude: number;
       angularFrequency: number;
+      duration: number;
     };
+
+export interface PilotSolutionPart {
+  id: string;
+  label: string;
+  working: string;
+  finalAnswer?: string;
+}
+
+export interface PilotExpectedGraph {
+  description: string;
+  spec: VisualSpec<"cartesian_plot">;
+  data: CartesianPlotData;
+}
+
+export interface PilotVariantSolution {
+  value: number;
+  displayValue: string;
+  significantFigures: 3;
+  unit: string;
+  method: string;
+  parts: PilotSolutionPart[];
+  expectedGraph?: PilotExpectedGraph;
+}
 
 export interface PilotVariant {
   id: string;
@@ -76,7 +100,8 @@ export interface PilotVariant {
   studentPrompt: string;
   spec: VisualSpec<"cartesian_plot">;
   data: CartesianPlotData;
-  solution: { value: number; unit: string; method: string };
+  solution: PilotVariantSolution;
+  trainingEligibility: "blocked";
   check: PilotCheck;
 }
 
@@ -92,6 +117,29 @@ function requireOrder(condition: boolean, message: string): void {
 
 function round(value: number): number {
   return Number(value.toFixed(6));
+}
+
+/** Student-facing calculated answers use the project's IB-style 3 s.f. rule. */
+export function formatToSignificantFigures(
+  value: number,
+  significantFigures = 3,
+): string {
+  if (!Number.isFinite(value)) throw new Error("Answer must be finite");
+  if (!Number.isInteger(significantFigures) || significantFigures < 1) {
+    throw new Error("Significant figures must be a positive integer");
+  }
+  return value.toPrecision(significantFigures).replace("e+", "e");
+}
+
+/** Givens stay calculator-friendly without adding insignificant trailing zeros. */
+function formatGiven(value: number): string {
+  return String(Number(formatToSignificantFigures(value)));
+}
+
+function requireStudentFriendlyGiven(name: string, value: number): void {
+  if (value !== Number(formatGiven(value))) {
+    throw new Error(`${name} must use at most 3 significant figures`);
+  }
 }
 
 function ticks(start: number, end: number, step: number): number[] {
@@ -161,6 +209,45 @@ function variantSpec(
     rendererVersion: "cartesian-svg/0.2.0",
   };
   return spec;
+}
+
+function kineticEnergySolutionGraph(
+  studentSpec: VisualSpec<"cartesian_plot">,
+  id: string,
+  duration: number,
+  angularFrequency: number,
+): PilotExpectedGraph {
+  const spec = structuredClone(studentSpec);
+  const dataRef = `${id}-solution-data`;
+  spec.id = `${id}-solution`;
+  spec.scenarioRef = `${id}-solution`;
+  spec.payload.series = [
+    {
+      id: `${id}-solution-series`,
+      kind: "waveform",
+      xParameterId: spec.payload.xAxis.id,
+      yParameterId: spec.payload.yAxis.id,
+      dataRef,
+      styleRole: "primary",
+    },
+  ];
+  spec.visibility.publicParameterIds = [
+    spec.payload.xAxis.id,
+    spec.payload.yAxis.id,
+    dataRef,
+  ];
+  spec.visibility.privateParameterIds = [];
+  spec.visibility.altTextMode = "teacher-complete";
+  return {
+    description:
+      "The curve starts at zero, reaches Eₜ whenever the displacement passes through equilibrium, returns to zero at each extreme displacement, and repeats every π/ω seconds.",
+    spec,
+    data: {
+      [dataRef]: samples(duration, (time) =>
+        kineticEnergyFraction(time, angularFrequency),
+      ),
+    },
+  };
 }
 
 /** Build a new graph and solution from one validated physical scenario. */
@@ -483,10 +570,12 @@ export function createPilotVariant(
       break;
     }
     case "harmonic-max-acceleration": {
-      const { amplitude, angularFrequency } = scenario;
+      const { amplitude, angularFrequency, duration } = scenario;
       positive("amplitude", amplitude);
       positive("angular frequency", angularFrequency);
-      const duration = (4 * Math.PI) / angularFrequency;
+      positive("duration", duration);
+      requireStudentFriendlyGiven("amplitude", amplitude);
+      requireStudentFriendlyGiven("angular frequency", angularFrequency);
       const timeTicks = ticks(0, duration, duration / 8);
       setAxis(xAxis, [0, duration], timeTicks, duration / 40);
       xAxis.tickLabels = shortTickLabels(timeTicks, 3);
@@ -496,12 +585,47 @@ export function createPilotVariant(
       method =
         "Maximum SHM acceleration = angular frequency squared × displacement amplitude";
       inputs = { amplitude, angularFrequency };
-      studentPrompt = `A loudspeaker follows x = ${amplitude} cos(${angularFrequency}t) metres. Find its maximum acceleration; on the blank axes, sketch kinetic energy over time.`;
+      studentPrompt = `A loudspeaker follows x = ${formatGiven(amplitude)} cos(${formatGiven(angularFrequency)}t) metres. Find its maximum acceleration; on the blank axes, sketch kinetic energy over time.`;
       break;
     }
   }
 
   const data: CartesianPlotData = points ? { [`${id}-data`]: points } : {};
+  const displayValue = formatToSignificantFigures(value);
+  const parts: PilotSolutionPart[] = [
+    {
+      id: "calculation",
+      label: "Calculated result",
+      working: method,
+      finalAnswer: `${displayValue} ${unit}`,
+    },
+  ];
+  let expectedGraph: PilotExpectedGraph | undefined;
+  if (scenario.kind === "harmonic-max-acceleration") {
+    const { amplitude, angularFrequency, duration } = scenario;
+    parts.splice(
+      0,
+      parts.length,
+      {
+        id: "maximum-acceleration",
+        label: "Maximum acceleration",
+        working: `aₘₐₓ = ω²A = (${formatGiven(angularFrequency)})²(${formatGiven(amplitude)})`,
+        finalAnswer: `${displayValue} ${unit}`,
+      },
+      {
+        id: "kinetic-energy-sketch",
+        label: "Kinetic-energy sketch",
+        working:
+          "v = −Aω sin(ωt), so kinetic energy is proportional to sin²(ωt). It is always non-negative and has half the period of the displacement.",
+      },
+    );
+    expectedGraph = kineticEnergySolutionGraph(
+      spec,
+      id,
+      duration,
+      angularFrequency,
+    );
+  }
   const check: PilotCheck = {
     kind: scenario.kind,
     expected: value,
@@ -518,7 +642,16 @@ export function createPilotVariant(
     studentPrompt,
     spec,
     data,
-    solution: { value, unit, method },
+    solution: {
+      value,
+      displayValue,
+      significantFigures: 3,
+      unit,
+      method,
+      parts,
+      expectedGraph,
+    },
+    trainingEligibility: "blocked",
     check,
   };
 }
@@ -712,17 +845,20 @@ const VARIANT_PRESETS: readonly {
       {
         kind: "harmonic-max-acceleration",
         amplitude: 0.3,
-        angularFrequency: 12.566370614359172,
+        angularFrequency: 12.6,
+        duration: 0.8,
       },
       {
         kind: "harmonic-max-acceleration",
         amplitude: 0.5,
-        angularFrequency: 15.707963267948966,
+        angularFrequency: 15.7,
+        duration: 0.8,
       },
       {
         kind: "harmonic-max-acceleration",
         amplitude: 0.4,
-        angularFrequency: 18.84955592153876,
+        angularFrequency: 18.8,
+        duration: 0.8,
       },
     ],
   },
