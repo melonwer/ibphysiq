@@ -1,6 +1,7 @@
 # IB Physics visual system v0.1
 
-Status: schema and catalogue foundation implemented; renderer implementations are not complete.
+Status: schema and catalogue foundation implemented; a Cartesian SVG renderer has
+an eight-question engineering pilot. Other renderer families remain incomplete.
 
 This system separates the physics meaning of a figure from its layout. A question
 package references one versioned visual specification; the registry selects a
@@ -85,7 +86,10 @@ The typed contract and registry are in `lib/visuals/`. A specification contains:
 
 ### Cartesian plots
 
-One renderer should cover quantitative and qualitative curves, measured points,
+The pilot renderer handles linear axes, source-matched ticks, grids, bounded
+polyline curves, and deliberately blank student axes. The eight source-linked
+reconstructions and physics checks are documented in [VISUAL_PILOT.md](VISUAL_PILOT.md).
+The broader renderer should cover quantitative and qualitative curves, measured points,
 uncertainties, multiple series, histograms, waveforms, tangents, intercepts, and
 shaded regions. It must record whether a graph is quantitative, qualitative, or
 schematic; axis limits and tick precision are part of the assessment contract.

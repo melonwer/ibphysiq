@@ -94,6 +94,8 @@ export interface AxisSpec {
   domain: [number, number];
   tickStrategy: "auto" | "fixed" | "source-matched";
   tickValues?: number[];
+  tickLabels?: Record<string, string>;
+  minorTickStep?: number;
 }
 
 export interface PlotSeriesSpec {
@@ -111,6 +113,7 @@ export interface CartesianPlotPayload {
   xAxis: AxisSpec;
   yAxis: AxisSpec;
   series: PlotSeriesSpec[];
+  showGrid?: boolean;
   constructions?: Array<{
     kind: "tangent" | "intercept" | "shaded-region" | "threshold";
     targetSeriesId: string;

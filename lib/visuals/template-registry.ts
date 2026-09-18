@@ -41,7 +41,7 @@ export const VISUAL_TEMPLATE_REGISTRY = {
       "series-within-domain",
       "tick-precision-sufficient",
     ],
-    implementationStatus: "planned",
+    implementationStatus: "pilot",
   },
   circuit_network: {
     family: "circuit_network",
