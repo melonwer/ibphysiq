@@ -5,6 +5,7 @@ Run from the repository root after `scripts/paper-mining/mine_papers.py` has pro
 
 ```bash
 node scripts/visual-pilot/generate.cjs
+python scripts/visual-pilot/audit_cartesian.py
 ```
 
 The script verifies that each of the eight fixture IDs resolves to a mined question,
@@ -29,3 +30,23 @@ training eligibility as blocked. The synthetic variants are engineering test cas
 not records to paste into a training dataset; they require complete package authoring,
 human review and source-material rights clearance first. The generated HTML is for
 local review; do not publish it without that separate rights decision.
+
+## Cartesian corpus coverage audit
+
+`audit_cartesian.py` reads every question whose primary mined family is
+`cartesian_plot`, compares its inferred requirements with the capabilities proved by
+the current renderer pilot, and writes `cartesian-coverage.json` plus
+`cartesian-coverage.html` beside the other private pilot artifacts. The page contains
+all candidate records and defaults to a 24-question, source-linked expansion set.
+
+The selection removes repeated question stems, balances Paper 1A and Paper 2, and
+prioritizes capabilities the renderer lacks or has not reconstructed from a source.
+Records without an isolated plot crop remain visible in a separate evidence-review
+bucket rather than being treated as confirmed plot examples. All classifications are
+automatic audit hypotheses and every record remains blocked from training.
+
+Run the focused audit checks with:
+
+```bash
+python -m unittest scripts/visual-pilot/test_audit_cartesian.py
+```

@@ -261,6 +261,13 @@ complete question packages; human review and source-use rights remain open, and
 the planned circuit/field and broader-data pilots have not begun. See
 `docs/VISUAL_PILOT.md`.
 
+The Cartesian corpus audit now evaluates every primary plot candidate rather than
+extrapolating from the eight fixtures. It groups repeated stems, identifies missing
+source crops, maps questions to renderer capabilities, and selects a balanced,
+source-linked 24-question expansion set. This does not make the automatic labels
+correct by declaration; it supplies the evidence and coverage matrix needed to close
+the graph renderer deliberately before starting the circuit pilot.
+
 ## 8. Reference material
 
 - [Qwen3-8B model card](https://huggingface.co/Qwen/Qwen3-8B)

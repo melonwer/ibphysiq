@@ -72,3 +72,18 @@ not complete coverage of the 119 automatically plot-labelled questions. Before
 training or publication, a human should accept or correct the eight source
 matches, review synthetic exercises as complete question packages, and confirm
 the intended use of source material.
+
+## Full Cartesian candidate audit
+
+Run `python scripts/visual-pilot/audit_cartesian.py` after generating the pilot. It
+audits all 119 primary Cartesian candidates against an explicit capability matrix
+and produces the private `cartesian-coverage.html` and
+`cartesian-coverage.json` artifacts. The audit reports repeated question stems,
+missing plot crops, existing pilot fixtures, capabilities already exercised,
+implemented-but-untested cases, and renderer gaps.
+
+Its default review view is a balanced, deduplicated 24-question expansion set with
+question context, plot crops, source-page links, mark-scheme links and plain-language
+selection reasons. This is a test-planning artifact rather than a label-acceptance
+workflow: automatic capability tags, source extraction, physics, solutions and rights
+remain separate review gates, and training eligibility stays blocked.
