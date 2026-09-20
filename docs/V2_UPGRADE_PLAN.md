@@ -2,7 +2,7 @@
 
 Created: 2026-09-18
 
-Status: Working plan; the initial paper-mining and visual-system foundation is implemented locally, with human review and renderer work still outstanding.
+Status: Working plan; paper mining and source-backed Cartesian and circuit renderer pilots are implemented locally, with human review and the remaining renderer families still outstanding.
 
 Working label: V2; the release version and delivery date are not yet assigned.
 
@@ -235,7 +235,9 @@ Report sample sizes and uncertainty, and slice results by paper, level, topic an
 - [ ] Inventory available source papers and mark schemes; select approximately 100 pilot packages.
 - [ ] Confirm syllabus taxonomy and pilot family coverage, including both papers.
 - [ ] Draft schema v0.1 with a few manually reviewed examples before bulk extraction.
-- [ ] Build the circuit and field fixtures, plus one additional family.
+- [x] Build the source-backed circuit renderer and representative fixtures.
+- [x] Add a coordinate-free circuit intent contract and deterministic series/parallel compiler.
+- [ ] Build the field fixtures, plus one additional family.
 - [ ] Demonstrate extraction -> specification -> solution -> render -> validated package.
 - [ ] Freeze grouped evaluation examples and capture the untuned baseline.
 - [ ] Assemble the initial training dataset and agree the experiment contract.
@@ -257,8 +259,26 @@ sketch tasks include separate teacher-only worked graphs. Grid proportions, tick
 readability, valid physical domains, complete solution parts and answer visibility
 have focused tests. This proves only a narrow graph-family workflow: each variant
 and its manifest explicitly block training use because the variants are not
-complete question packages; human review and source-use rights remain open, and
-the planned circuit/field and broader-data pilots have not begun. See
+complete question packages; human review and source-use rights remain open.
+
+The circuit pilot now reconstructs eight additional source-backed figures, balanced
+across four Paper 1A and four Paper 2 questions. Its semantic graph separates nodes,
+wires and two-terminal components from normalized layout hints, validates connectivity
+and explicit junctions, and covers resistor networks, switches, lamps, meters, a
+variable resistor, an LDR and a thermistor. The fixtures prove deterministic rendering
+and source lineage only; they do not yet contain independently checked solutions for
+every source question and remain blocked from training.
+
+A separate `circuit-intent/0.1.0` model contract now removes renderer coordinates from
+the generation target. It represents recursive series/parallel structure, visible
+labels, component states and panel overrides; a validated deterministic compiler adds
+explicit nodes, junctions, orthogonal wires and normalized layout. Three source-linked
+intent examples compile into the existing renderer while preserving component
+inventories and electrical connectivity. This is an engineering contract, not a
+complete training package or a general graph-layout claim: unsupported
+non-series-parallel circuits are rejected or remain source-authored.
+
+The planned field and broader-data pilots have not begun. See
 `docs/VISUAL_PILOT.md`.
 
 The Cartesian corpus audit now evaluates every primary plot candidate rather than
@@ -266,7 +286,8 @@ extrapolating from the eight fixtures. It groups repeated stems, identifies miss
 source crops, maps questions to renderer capabilities, and selects a balanced,
 source-linked 24-question expansion set. This does not make the automatic labels
 correct by declaration; it supplies the evidence and coverage matrix needed to close
-the graph renderer deliberately before starting the circuit pilot.
+the graph renderer deliberately. That closure was the prerequisite used before the
+circuit pilot began.
 
 ## 8. Reference material
 

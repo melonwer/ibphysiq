@@ -70,8 +70,12 @@ export const VISUAL_TEMPLATE_REGISTRY = {
     validationChecks: [
       ...commonChecks,
       "terminals-connected",
+      "wire-endpoints-resolve",
+      "network-connected",
       "junctions-explicit",
       "meter-placement-valid",
+      "orthogonal-layout",
+      "component-label-visibility-allowlist",
     ],
     implementationStatus: "pilot",
   },

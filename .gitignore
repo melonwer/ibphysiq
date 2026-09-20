@@ -245,3 +245,4 @@ local-config.json
 *.db
 *.sqlite
 *.sqlite3
+dataset/

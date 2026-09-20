@@ -1,4 +1,4 @@
-export const VISUAL_SCHEMA_VERSION = "visual-spec/0.2.0" as const;
+export const VISUAL_SCHEMA_VERSION = "visual-spec/0.3.0" as const;
 
 export const VISUAL_FAMILY_IDS = [
   "cartesian_plot",
@@ -143,6 +143,14 @@ export interface CartesianPlotPayload {
 export interface CircuitNodeSpec {
   id: string;
   kind: "junction" | "terminal" | "reference";
+  label?: string;
+  labelParameterId?: string;
+}
+
+export interface CircuitWireSpec {
+  id: string;
+  from: string;
+  to: string;
 }
 
 export interface CircuitComponentSpec {
@@ -153,6 +161,7 @@ export interface CircuitComponentSpec {
     | "resistor"
     | "variable-resistor"
     | "thermistor"
+    | "ldr"
     | "capacitor"
     | "diode"
     | "lamp"
@@ -160,16 +169,25 @@ export interface CircuitComponentSpec {
     | "ammeter"
     | "voltmeter";
   terminals: [string, string];
-  state?: "open" | "closed" | "active";
+  state?: "open" | "closed" | "active" | "inactive";
+  label?: string;
+  labelParameterId?: string;
   quantityBindings?: QuantityBinding[];
 }
 
 export interface CircuitNetworkPayload {
   nodes: CircuitNodeSpec[];
+  wires: CircuitWireSpec[];
   components: CircuitComponentSpec[];
   layoutHints?: {
     preferredDirection?: "left-to-right" | "top-to-bottom";
     branchOrder?: string[][];
+    nodePositions?: Record<string, Point2D>;
+    componentLabelPositions?: Record<
+      string,
+      "above" | "below" | "left" | "right"
+    >;
+    nodeLabelPositions?: Record<string, "above" | "below" | "left" | "right">;
   };
 }
 

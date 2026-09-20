@@ -31,6 +31,16 @@ const {
 const {
   CARTESIAN_EXPANSION_FIXTURES,
 } = require("../../lib/visuals/cartesian-expansion-fixtures.ts");
+const {
+  CIRCUIT_SOURCE_FIXTURES,
+} = require("../../lib/visuals/circuit-source-fixtures.ts");
+const {
+  CIRCUIT_INTENT_SOURCE_FIXTURES,
+} = require("../../lib/visuals/circuit-intent-fixtures.ts");
+const {
+  compileCircuitIntent,
+  validateCircuitIntent,
+} = require("../../lib/visuals/circuit-intent.ts");
 const { computePilotMetric } = require("../../lib/visuals/pilot-physics.ts");
 const {
   formatToSignificantFigures,
@@ -39,6 +49,7 @@ const {
 const {
   renderCartesianPlot,
 } = require("../../lib/visuals/render-cartesian.ts");
+const { renderCircuitNetwork } = require("../../lib/visuals/render-circuit.ts");
 
 const records = (filename, key) =>
   new Map(
@@ -239,10 +250,7 @@ for (const fixture of CARTESIAN_EXPANSION_FIXTURES) {
     sourceQuestion: fixture.sourceQuestion,
     paper: fixture.paper,
     sourcePdf: question.provenance.relative_path,
-    sourcePages: [
-      question.provenance.page_start,
-      question.provenance.page_end,
-    ],
+    sourcePages: [question.provenance.page_start, question.provenance.page_end],
     markschemeSourceId: question.markscheme_source_id,
     sourceCrops: fixture.sourceCrops,
     sourceEvidence: fixture.sourceEvidence,
@@ -302,6 +310,213 @@ fs.writeFileSync(
 );
 process.stdout.write(
   `Generated ${expansionReceipt.length} source-linked Cartesian expansion fixtures\n`,
+);
+
+const circuitReceipt = [];
+for (const fixture of CIRCUIT_SOURCE_FIXTURES) {
+  const question = questions.get(fixture.sourceQuestionId);
+  const plan = plans.get(fixture.sourceQuestionId);
+  if (
+    !question ||
+    !plan ||
+    question.classification.paper !== fixture.paper ||
+    plan.primary_family !== "circuit_network"
+  ) {
+    throw new Error(`Circuit question lineage mismatch: ${fixture.id}`);
+  }
+  const sourceAssets = fixture.sourceCrops.map((sourceCrop) =>
+    [...assets.values()].find(
+      (asset) =>
+        path.join(runDirectory, asset.path) ===
+          path.join(repository, sourceCrop) &&
+        plan.source_assets.includes(asset.asset_id),
+    ),
+  );
+  if (
+    sourceAssets.some((sourceAsset) => !sourceAsset) ||
+    fixture.sourceCrops.some(
+      (sourceCrop) => !fs.existsSync(path.join(repository, sourceCrop)),
+    )
+  ) {
+    throw new Error(`Missing linked circuit source evidence: ${fixture.id}`);
+  }
+  const svg = renderCircuitNetwork(fixture.spec);
+  if (svg.includes(`${fixture.id}-answer`)) {
+    throw new Error(`Circuit answer leaked into student SVG: ${fixture.id}`);
+  }
+  const svgName = `${fixture.id}.svg`;
+  fs.writeFileSync(path.join(outputDirectory, svgName), svg);
+  circuitReceipt.push({
+    id: fixture.id,
+    sourceQuestionId: fixture.sourceQuestionId,
+    sourceQuestion: fixture.sourceQuestion,
+    paper: fixture.paper,
+    sourcePdf: question.provenance.relative_path,
+    markschemeSourceId: question.markscheme_source_id,
+    sourcePages: [
+      ...new Set(sourceAssets.map((sourceAsset) => sourceAsset.page)),
+    ],
+    sourceAssetIds: sourceAssets.map((sourceAsset) => sourceAsset.asset_id),
+    sourceCrops: fixture.sourceCrops,
+    sourceEvidence: fixture.sourceEvidence,
+    sourceNote: fixture.sourceNote,
+    capabilities: fixture.capabilities,
+    renderedSvg: svgName,
+    trainingEligibility: fixture.trainingEligibility,
+  });
+}
+if (
+  circuitReceipt.length !== 8 ||
+  circuitReceipt.filter((item) => item.paper === "1A").length !== 4 ||
+  circuitReceipt.filter((item) => item.paper === "2").length !== 4
+) {
+  throw new Error("Expected a balanced eight-question circuit pilot");
+}
+const circuitCards = circuitReceipt
+  .map((item) => {
+    const sourceImages = item.sourceCrops
+      .map(
+        (sourceCrop) =>
+          `<img src="${relativeUrl(path.join(repository, sourceCrop))}" alt="Source circuit evidence for ${escapeHtml(item.id)}">`,
+      )
+      .join("");
+    return `<section>
+  <h2>${escapeHtml(item.sourceQuestion)}</h2>
+  <p>${escapeHtml(item.sourceNote)}</p>
+  <p class="caps">${item.capabilities.map((capability) => `<span>${escapeHtml(capability)}</span>`).join("")}</p>
+  <div class="pair"><figure><figcaption>Original exam figure</figcaption><div class="source-images">${sourceImages}</div></figure><figure><figcaption>Semantic circuit reconstruction</figcaption><img src="${escapeHtml(item.renderedSvg)}" alt="Reconstructed circuit for ${escapeHtml(item.id)}"></figure></div>
+  <p class="source">${escapeHtml(item.sourceQuestionId)} · source PDF pages ${item.sourcePages.join("–")} · training use blocked</p>
+</section>`;
+  })
+  .join("\n");
+const circuitsHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Eight-source circuit renderer pilot</title><style>
+body{font:16px/1.5 system-ui,sans-serif;max-width:1500px;margin:auto;padding:24px;color:#1c242b;background:#f5f7f8}h1{margin:0 0 8px}.warning{border-left:5px solid #b54818;background:#fff5eb;padding:12px 16px}section{background:white;border:1px solid #ccd4d8;border-radius:12px;padding:22px;margin:24px 0}.pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}figure{margin:0;min-width:0}figcaption{font-weight:650;margin-bottom:10px}.source-images{display:grid;gap:8px}img{width:100%;height:auto;max-height:720px;object-fit:contain;object-position:left top;border:1px solid #dce1e4;background:white}.caps span{display:inline-block;background:#e6edf1;border-radius:999px;padding:3px 9px;margin:2px;font-size:12px}.source{font-size:13px;color:#59656c}@media(max-width:850px){.pair{grid-template-columns:1fr}}
+</style></head><body><h1>Eight-source circuit renderer pilot</h1><p class="warning"><strong>Training use blocked.</strong> These fixtures validate deterministic topology and drawing against source evidence. They are not complete, human-reviewed question packages.</p><p>Four Paper 1A and four Paper 2 questions cover the circuit symbols and layouts confirmed in the mined corpus. The SVG is generated from nodes, wires and components; source coordinates are kept as layout hints rather than mixed into the electrical topology.</p>${circuitCards}</body></html>`;
+fs.writeFileSync(path.join(outputDirectory, "circuits.html"), circuitsHtml);
+fs.writeFileSync(
+  path.join(outputDirectory, "circuits-manifest.json"),
+  JSON.stringify(
+    {
+      schemaVersion: "circuit-pilot/0.1.0",
+      status: "engineering-only-not-training-ready",
+      trainingEligibility: "blocked",
+      trainingBlockers: [
+        "not a complete question package",
+        "not human reviewed",
+        "source-use rights not cleared",
+      ],
+      generatedAt: new Date().toISOString(),
+      fixtures: circuitReceipt,
+    },
+    null,
+    2,
+  ) + "\n",
+);
+process.stdout.write(
+  `Generated ${circuitReceipt.length} source-linked circuit fixtures\n`,
+);
+
+const circuitIntentReceipt = [];
+for (const fixture of CIRCUIT_INTENT_SOURCE_FIXTURES) {
+  const sourceFixture = CIRCUIT_SOURCE_FIXTURES.find(
+    (candidate) => candidate.id === fixture.sourceFixtureId,
+  );
+  if (
+    !sourceFixture ||
+    sourceFixture.sourceQuestionId !== fixture.sourceQuestionId
+  ) {
+    throw new Error(`Circuit intent source link mismatch: ${fixture.id}`);
+  }
+  const validation = validateCircuitIntent(fixture.intent);
+  if (!validation.valid) {
+    throw new Error(
+      `Invalid circuit intent fixture: ${fixture.id} (${validation.issues.join(
+        ", ",
+      )})`,
+    );
+  }
+  const serializedIntent = JSON.stringify(fixture.intent);
+  if (serializedIntent.includes("nodePositions")) {
+    throw new Error(
+      `Circuit intent contains renderer coordinates: ${fixture.id}`,
+    );
+  }
+  const spec = compileCircuitIntent(fixture.intent);
+  const svg = renderCircuitNetwork(spec);
+  const svgName = `${fixture.intent.id}.svg`;
+  fs.writeFileSync(path.join(outputDirectory, svgName), svg);
+  circuitIntentReceipt.push({
+    id: fixture.id,
+    sourceFixtureId: fixture.sourceFixtureId,
+    sourceQuestionId: fixture.sourceQuestionId,
+    sourceNote: fixture.sourceNote,
+    sourceCrops: sourceFixture.sourceCrops,
+    intent: fixture.intent,
+    compiled: {
+      panelCount: 1 + (spec.layers?.length ?? 0),
+      componentCount:
+        spec.payload.components.length +
+        (spec.layers ?? []).reduce(
+          (total, layer) =>
+            total +
+            (layer.family === "circuit_network"
+              ? layer.payload.components.length
+              : 0),
+          0,
+        ),
+      rendererVersion: spec.provenance.rendererVersion,
+    },
+    renderedSvg: svgName,
+    trainingEligibility: fixture.trainingEligibility,
+  });
+}
+const circuitIntentCards = circuitIntentReceipt
+  .map((item) => {
+    const sourceImages = item.sourceCrops
+      .map(
+        (sourceCrop) =>
+          `<img src="${relativeUrl(path.join(repository, sourceCrop))}" alt="Source circuit evidence for ${escapeHtml(item.id)}">`,
+      )
+      .join("");
+    return `<section>
+  <h2>${escapeHtml(item.id)}</h2>
+  <p>${escapeHtml(item.sourceNote)}</p>
+  <div class="pair"><figure><figcaption>Original exam figure</figcaption><div class="source-images">${sourceImages}</div></figure><figure><figcaption>Autolayout from coordinate-free intent</figcaption><img src="${escapeHtml(item.renderedSvg)}" alt="Compiled circuit for ${escapeHtml(item.id)}"></figure></div>
+  <details><summary>Model-facing CircuitIntent</summary><pre>${escapeHtml(JSON.stringify(item.intent, null, 2))}</pre></details>
+  <p class="source">${escapeHtml(item.sourceQuestionId)} · ${item.compiled.panelCount} compiled panel(s) · training use blocked</p>
+</section>`;
+  })
+  .join("\n");
+const circuitIntentsHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Coordinate-free circuit intent pilot</title><style>
+body{font:16px/1.5 system-ui,sans-serif;max-width:1500px;margin:auto;padding:24px;color:#1c242b;background:#f5f7f8}h1{margin:0 0 8px}.warning{border-left:5px solid #b54818;background:#fff5eb;padding:12px 16px}section{background:white;border:1px solid #ccd4d8;border-radius:12px;padding:22px;margin:24px 0}.pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}figure{margin:0;min-width:0}figcaption{font-weight:650;margin-bottom:10px}.source-images{display:grid;gap:8px}img{width:100%;height:auto;max-height:720px;object-fit:contain;object-position:left top;border:1px solid #dce1e4;background:white}details{margin-top:16px}summary{cursor:pointer;font-weight:650}pre{overflow:auto;padding:14px;background:#f3f5f6;border-radius:8px;font-size:12px}.source{font-size:13px;color:#59656c}@media(max-width:850px){.pair{grid-template-columns:1fr}}
+</style></head><body><h1>Coordinate-free circuit intent pilot</h1><p class="warning"><strong>Training use blocked.</strong> These records prove the model-facing contract and compiler, but they are not complete checked question packages.</p><p>The JSON describes components, series/parallel topology, visible labels and semantic states. The deterministic compiler supplies all nodes, junctions, orthogonal wires and coordinates.</p>${circuitIntentCards}</body></html>`;
+fs.writeFileSync(
+  path.join(outputDirectory, "circuit-intents.html"),
+  circuitIntentsHtml,
+);
+fs.writeFileSync(
+  path.join(outputDirectory, "circuit-intents-manifest.json"),
+  JSON.stringify(
+    {
+      schemaVersion: "circuit-intent-pilot/0.1.0",
+      intentSchemaVersion: "circuit-intent/0.1.0",
+      status: "engineering-only-not-training-ready",
+      trainingEligibility: "blocked",
+      trainingBlockers: [
+        "not a complete question package",
+        "physics and mark schemes not independently checked",
+        "not human reviewed",
+        "source-use rights not cleared",
+      ],
+      generatedAt: new Date().toISOString(),
+      fixtures: circuitIntentReceipt,
+    },
+    null,
+    2,
+  ) + "\n",
+);
+process.stdout.write(
+  `Generated ${circuitIntentReceipt.length} coordinate-free circuit intent fixtures\n`,
 );
 
 const variantReceipt = [];
@@ -368,20 +583,18 @@ for (const variant of generatePilotVariants()) {
 if (variantReceipt.length !== 24)
   throw new Error("Expected exactly 24 synthetic variants");
 const variationCards = variantReceipt
-  .map(
-    (item) => {
-      const solutionParts = item.solution.parts
-        .map(
-          (part) =>
-            `<li><strong>${escapeHtml(part.label)}:</strong> ${escapeHtml(part.working)}${part.finalAnswer ? ` <strong>${escapeHtml(part.finalAnswer)}</strong>` : ""}</li>`,
-        )
-        .join("");
-      const expectedGraph = item.solution.expectedGraph
-        ? `<figure class="solution-graph"><figcaption>Expected kinetic-energy sketch</figcaption><img src="${escapeHtml(item.solution.expectedGraph.renderedSvg)}" alt="Teacher solution graph for ${escapeHtml(item.id)}"><p>${escapeHtml(item.solution.expectedGraph.description)}</p></figure>`
-        : "";
-      return `<article><h3>${escapeHtml(item.id)}</h3><p>${escapeHtml(item.studentPrompt)}</p><img src="${escapeHtml(item.renderedSvg)}" alt="Student-facing graph for ${escapeHtml(item.id)}"><details><summary>Complete checked solution</summary><ol>${solutionParts}</ol>${expectedGraph}</details><p class="source">Derived from ${escapeHtml(item.sourceFixtureId)} · ${escapeHtml(item.paper)} · training use blocked</p></article>`;
-    },
-  )
+  .map((item) => {
+    const solutionParts = item.solution.parts
+      .map(
+        (part) =>
+          `<li><strong>${escapeHtml(part.label)}:</strong> ${escapeHtml(part.working)}${part.finalAnswer ? ` <strong>${escapeHtml(part.finalAnswer)}</strong>` : ""}</li>`,
+      )
+      .join("");
+    const expectedGraph = item.solution.expectedGraph
+      ? `<figure class="solution-graph"><figcaption>Expected kinetic-energy sketch</figcaption><img src="${escapeHtml(item.solution.expectedGraph.renderedSvg)}" alt="Teacher solution graph for ${escapeHtml(item.id)}"><p>${escapeHtml(item.solution.expectedGraph.description)}</p></figure>`
+      : "";
+    return `<article><h3>${escapeHtml(item.id)}</h3><p>${escapeHtml(item.studentPrompt)}</p><img src="${escapeHtml(item.renderedSvg)}" alt="Student-facing graph for ${escapeHtml(item.id)}"><details><summary>Complete checked solution</summary><ol>${solutionParts}</ol>${expectedGraph}</details><p class="source">Derived from ${escapeHtml(item.sourceFixtureId)} · ${escapeHtml(item.paper)} · training use blocked</p></article>`;
+  })
   .join("\n");
 const variationsHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>24 parameterized graph exercises</title><style>
 body{font:16px/1.5 system-ui,sans-serif;max-width:1500px;margin:auto;padding:24px;color:#1c242b;background:#f5f7f8}h1{margin:0 0 8px}.warning{border-left:5px solid #b54818;background:#fff5eb;padding:12px 16px}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(390px,1fr));gap:18px}article{background:white;border:1px solid #ccd4d8;border-radius:12px;padding:18px;min-width:0}h3{font-size:18px;overflow-wrap:anywhere}img{width:100%;height:auto;border:1px solid #dce1e4;background:white}details{margin-top:12px}summary{cursor:pointer;font-weight:650}.solution-graph{margin:16px 0 0}.solution-graph figcaption{font-weight:650;margin-bottom:8px}.source{font-size:13px;color:#59656c}

@@ -1,7 +1,8 @@
-# IB Physics visual system v0.1
+# IB Physics visual system
 
-Status: schema and catalogue foundation implemented; a Cartesian SVG renderer has
-an eight-question engineering pilot. Other renderer families remain incomplete.
+Status: schema and catalogue foundation implemented; deterministic Cartesian and
+circuit SVG renderers have source-backed engineering pilots. Other renderer families
+remain incomplete.
 
 This system separates the physics meaning of a figure from its layout. A question
 package references one versioned visual specification; the registry selects a
@@ -98,10 +99,39 @@ schematic; axis limits and tick precision are part of the assessment contract.
 
 ### Networks and paths
 
-Circuit figures store electrical nodes and two-terminal components independently of
-layout. Ray and wave figures store media, boundaries, rays/wavefronts, normals, and
-angles. Field figures store sources, excluded singularities, sign conventions, and
-the requested representation (lines, equipotentials, or vectors).
+Circuit figures store electrical nodes, wires and two-terminal components independently
+of normalized source-layout hints. The renderer supports source-confirmed cells,
+batteries, fixed and variable resistors, thermistors, LDRs, lamps, open/closed switches,
+ammeters and voltmeters. It renders single circuits, option panels and before/after
+sequences, including inactive components. Validation rejects unresolved terminals,
+disconnected nodes, diagonal component/wire segments, implicit branch points, missing
+layout positions and labels outside the public visibility allowlist.
+
+Model-generated circuits use the smaller `circuit-intent/0.1.0` contract instead of
+the reconstruction payload. The intent contains component identities, recursive
+series/parallel relationships, visible labels, semantic states, panel overrides and a
+left-to-right or top-to-bottom preference. It contains no nodes, coordinates or SVG.
+The deterministic compiler validates that contract, creates explicit junctions and
+orthogonal wires, assigns normalized positions, builds the student-visibility
+allowlist and emits `network.circuit.v1`. Its exported JSON Schema can be used for
+constrained model decoding.
+
+This first compiler deliberately accepts only series-parallel topology plus direct wire
+branches. Unsupported bridge networks and other non-series-parallel graphs must remain
+source-authored or be rejected until a reviewed macro or netlist-layout extension is
+implemented. The model is never permitted to supply drawing code or bypass validation.
+
+Eight source-linked fixtures, balanced across four Paper 1A and four Paper 2 questions,
+exercise series/parallel resistor options, bypass wiring, switching, lamp failure,
+meter placement, an LDR and a thermistor. They are documented in
+[VISUAL_PILOT.md](VISUAL_PILOT.md) and remain blocked from training because the pilot
+proves reconstruction and source lineage, not complete independently checked solutions.
+Capacitor and diode types remain in the schema but are not claimed as source-proven
+capabilities by this fixture set.
+
+Ray and wave figures store media, boundaries, rays/wavefronts, normals, and angles.
+Field figures store sources, excluded singularities, sign conventions, and the requested
+representation (lines, equipotentials, or vectors).
 
 ### Scenes and vectors
 

@@ -38,6 +38,7 @@ describe("visual template registry", () => {
           { id: "n1", kind: "terminal" },
           { id: "n2", kind: "terminal" },
         ],
+        wires: [],
         components: [{ id: "r1", kind: "resistor", terminals: ["n1", "n2"] }],
       },
       visibility: {

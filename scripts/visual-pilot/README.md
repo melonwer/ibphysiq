@@ -1,4 +1,4 @@
-# Eight-question Cartesian pilot
+# Source-backed visual renderer pilots
 
 Run from the repository root after `scripts/paper-mining/mine_papers.py` has produced
 `dataset/_derived/paper-mining-v0.1/`:
@@ -22,6 +22,22 @@ sound-wave questions points at a later car diagram, the generator uses
 `pdftoppm` to derive clean graph-only evidence from the original PDFs without
 modifying either source file.
 
+The same generator writes `circuits.html` and `circuits-manifest.json` for eight
+source-linked circuit fixtures, balanced four Paper 1A and four Paper 2. The circuit
+renderer uses explicit nodes, wires and components plus separate normalized layout
+hints. The fixtures cover series/parallel networks, bypass connections, an open switch,
+lamp failure, meters, a variable resistor, an LDR and a thermistor. They validate visual
+topology and source lineage only; complete physics solutions have not been checked for
+all eight records, so training use remains blocked.
+
+The generator additionally writes `circuit-intents.html` and
+`circuit-intents-manifest.json` for three source-linked, coordinate-free intent
+examples. These records show the exact JSON a model would emit and the circuit SVG
+produced after deterministic compilation. The current intent grammar supports nested
+series/parallel paths, direct wire branches, panel-specific topology, semantic state
+overrides and two layout directions. Unsupported topologies fail validation; the model
+does not emit coordinates or drawing code.
+
 The same command also generates `variants.html` and `variants-manifest.json`
 there: three synthetic parameter variations per source case (24 total). Each
 variant's prompt, graph and result come from one scenario. The checked solution
@@ -32,7 +48,10 @@ part is covered by the review solution.
 
 Fixtures and independent calculations live in `lib/visuals/pilot-fixtures.ts`,
 `lib/visuals/pilot-physics.ts`, and
-`lib/visuals/cartesian-expansion-fixtures.ts`. The figures and PDF inputs remain
+`lib/visuals/cartesian-expansion-fixtures.ts`. Circuit fixtures and rendering live in
+`lib/visuals/circuit-source-fixtures.ts` and `lib/visuals/render-circuit.ts`;
+the model-facing contract, compiler and source-linked examples live in
+`lib/visuals/circuit-intent.ts` and `lib/visuals/circuit-intent-fixtures.ts`. The figures and PDF inputs remain
 under the ignored `dataset/` boundary. The script does not edit source captures or
 promote any question to training-ready status. The manifests and every variant or
 expansion fixture explicitly mark training eligibility as blocked. The synthetic

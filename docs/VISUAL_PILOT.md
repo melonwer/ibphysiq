@@ -1,8 +1,8 @@
-# Cartesian graph reconstruction pilot
+# Visual reconstruction pilots
 
-Status: reconstruction and parameter-variation engineering pilot complete;
-human acceptance, full question-package review, and source-material rights
-clearance remain open. This is not training-ready data.
+Status: Cartesian reconstruction and parameter-variation pilots, plus the circuit
+reconstruction pilot, are complete; human acceptance, full question-package review,
+and source-material rights clearance remain open. This is not training-ready data.
 
 The pilot selected eight distinct, readable source questions with matching mark
 schemes: four Paper 1A multiple-choice items and four Paper 2 multipart items. It
@@ -117,3 +117,61 @@ The inspection deliberately corrected several automatic hypotheses:
 These fixtures prove renderer behavior and source lineage only. They do not yet
 include independently checked solutions for every source question, so the
 manifest and every fixture keep training eligibility blocked.
+
+## Circuit renderer pilot
+
+The circuit milestone adds a deterministic SVG renderer driven by explicit electrical
+nodes, wires and two-terminal components. Normalized node positions are layout hints;
+they do not replace or alter the electrical topology. The renderer keeps meter letters
+upright regardless of component orientation and draws junction dots only where the
+semantic graph declares a branch.
+
+The eight selected fixtures are balanced across four Paper 1A and four Paper 2 source
+questions:
+
+| Paper | Source question         | Capability represented                         |
+| ----- | ----------------------- | ---------------------------------------------- |
+| 1A    | May 2025 TZ1 HL Q14     | Three series/parallel resistor panels          |
+| 1A    | May 2025 TZ3 HL Q17     | Open switch and labelled resistor branches     |
+| 1A    | May 2025 TZ3 HL Q18     | Bypass wires, junctions and terminal labels    |
+| 1A    | May 2026 TZ2 HL Q16     | Initial/failed-lamp sequence with ideal meters |
+| 2     | May 2025 TZ1 SL Q3      | Ammeter in series and voltmeter in parallel    |
+| 2     | November 2025 TZ1 HL Q2 | Variable-resistor internal-resistance circuit  |
+| 2     | May 2026 TZ1 HL Q2      | LDR divider with labelled quantities           |
+| 2     | May 2026 TZ3 HL Q1      | Thermistor network and two-cell battery        |
+
+`node scripts/visual-pilot/generate.cjs` writes the private comparison page
+`circuits.html`, the eight SVGs and `circuits-manifest.json` under
+`dataset/_derived/visual-pilot-v0.1/`. Each manifest record resolves back to its mined
+question, exact crop and source PDF page. Focused tests cover deterministic rendering,
+source existence, public/private label separation, topology resolution, orthogonal
+layout, explicit junctions and the failed-lamp state.
+
+This circuit set is a reconstruction pilot, not a physics-solution pilot. It does not
+independently verify every source answer or mark scheme, and it does not prove capacitor
+or diode rendering from the corpus. Every fixture and generated manifest therefore
+keeps training eligibility blocked pending complete package authoring, human review and
+source-use clearance.
+
+## Coordinate-free circuit intent pilot
+
+`lib/visuals/circuit-intent.ts` defines the separate model-facing
+`circuit-intent/0.1.0` contract and its JSON Schema. A model specifies components,
+recursive series/parallel structure, labels, switch/lamp states and minimal layout
+direction. It does not specify nodes, line routes, coordinates, SVG or executable
+drawing code. The compiler derives those renderer details deterministically and emits
+the existing `VisualSpec<"circuit_network">` format.
+
+Three source-linked examples exercise distinct panel topologies, a before/after
+`failed-open` lamp override and an internal-resistance measurement circuit. The
+generator writes `circuit-intents.html` and `circuit-intents-manifest.json`, including
+the compact JSON beside its compiled SVG. Focused tests compare each compiled panel's
+component inventory and electrical connectivity with the established source
+reconstruction, and reject duplicate components, underspecified parallel groups,
+incompatible states and unknown overrides.
+
+The compiler currently covers series-parallel graphs and direct wire branches. It is
+not a general circuit-graph layout engine, does not solve electrical quantities, and
+does not make the three examples training-ready. Bridge networks require a later
+reviewed topology extension; checked solutions, complete question packages, human
+review and source-use clearance remain separate gates.
