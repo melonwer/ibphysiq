@@ -111,6 +111,41 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual({record["paper"] for record in chosen}, {"1A", "2"})
 
 
+class RendererCoverageTests(unittest.TestCase):
+    def test_source_expansion_updates_proved_capabilities(self):
+        for capability in [
+            "option_panel_grid",
+            "multi_panel_sequence",
+            "multiple_series",
+            "measured_points",
+            "logarithmic_axis",
+            "reversed_axis",
+            "closed_cycle",
+            "decay_or_asymptote",
+            "spacetime_axes",
+            "pressure_volume_axes",
+            "hr_diagram",
+        ]:
+            self.assertEqual(
+                audit_cartesian.CAPABILITIES[capability]["renderer_status"],
+                "tested",
+            )
+
+    def test_unobserved_capabilities_are_not_claimed_as_source_proved(self):
+        self.assertEqual(
+            audit_cartesian.CAPABILITIES["histogram_bars"]["renderer_status"],
+            "implemented_untested",
+        )
+        self.assertEqual(
+            audit_cartesian.CAPABILITIES["uncertainty_bars"]["renderer_status"],
+            "missing",
+        )
+        self.assertEqual(
+            audit_cartesian.CAPABILITIES["shaded_region"]["renderer_status"],
+            "missing",
+        )
+
+
 class TextTests(unittest.TestCase):
     def test_fingerprint_ignores_question_number_and_spacing(self):
         first = audit_cartesian.canonical_fingerprint("12. A graph shows velocity.")

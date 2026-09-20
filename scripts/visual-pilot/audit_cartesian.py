@@ -19,8 +19,11 @@ from urllib.parse import quote
 REPOSITORY = Path(__file__).resolve().parents[2]
 DEFAULT_RUN = REPOSITORY / "dataset/_derived/paper-mining-v0.1"
 DEFAULT_PILOT = REPOSITORY / "dataset/_derived/visual-pilot-v0.1/manifest.json"
+DEFAULT_EXPANSION = (
+    REPOSITORY / "dataset/_derived/visual-pilot-v0.1/expansion-manifest.json"
+)
 DEFAULT_OUTPUT = REPOSITORY / "dataset/_derived/visual-pilot-v0.1"
-SCHEMA_VERSION = "cartesian-coverage-audit/0.1.0"
+SCHEMA_VERSION = "cartesian-coverage-audit/0.2.0"
 TARGET_EXPANSION_SIZE = 24
 
 CAPABILITIES: dict[str, dict[str, str]] = {
@@ -72,22 +75,22 @@ CAPABILITIES: dict[str, dict[str, str]] = {
     "option_panel_grid": {
         "label": "Graph answer-option grid",
         "description": "Several graph choices are labelled A–D in one composition.",
-        "renderer_status": "missing",
+        "renderer_status": "tested",
     },
     "multi_panel_sequence": {
         "label": "Multiple plot panels",
         "description": "A multipart question uses two or more related plot panels.",
-        "renderer_status": "missing",
+        "renderer_status": "tested",
     },
     "multiple_series": {
         "label": "Multiple distinguishable series",
         "description": "Several curves or data series share axes and need distinct styles.",
-        "renderer_status": "missing",
+        "renderer_status": "tested",
     },
     "measured_points": {
         "label": "Measured points or best fit",
         "description": "Markers, scatter data or a fitted line must remain distinct.",
-        "renderer_status": "missing",
+        "renderer_status": "tested",
     },
     "uncertainty_bars": {
         "label": "Uncertainty or error bars",
@@ -97,7 +100,7 @@ CAPABILITIES: dict[str, dict[str, str]] = {
     "histogram_bars": {
         "label": "Bars or histogram",
         "description": "Discrete rectangular marks replace a continuous curve.",
-        "renderer_status": "missing",
+        "renderer_status": "implemented_untested",
     },
     "shaded_region": {
         "label": "Shaded or bounded region",
@@ -107,7 +110,7 @@ CAPABILITIES: dict[str, dict[str, str]] = {
     "tangent_construction": {
         "label": "Tangent or gradient construction",
         "description": "A visible tangent or slope construction is answer-relevant.",
-        "renderer_status": "missing",
+        "renderer_status": "implemented_untested",
     },
     "intercept_construction": {
         "label": "Intercept or threshold construction",
@@ -117,37 +120,37 @@ CAPABILITIES: dict[str, dict[str, str]] = {
     "logarithmic_axis": {
         "label": "Logarithmic axis",
         "description": "At least one axis uses logarithmic spacing.",
-        "renderer_status": "missing",
+        "renderer_status": "tested",
     },
     "reversed_axis": {
         "label": "Reversed axis",
         "description": "Values intentionally decrease from left to right.",
-        "renderer_status": "missing",
+        "renderer_status": "tested",
     },
     "closed_cycle": {
         "label": "Closed thermodynamic cycle",
         "description": "A P–V path closes and may require directional process labels.",
-        "renderer_status": "implemented_untested",
+        "renderer_status": "tested",
     },
     "decay_or_asymptote": {
         "label": "Decay or asymptotic curve",
         "description": "A smooth curve approaches an axis or terminal value.",
-        "renderer_status": "implemented_untested",
+        "renderer_status": "tested",
     },
     "spacetime_axes": {
         "label": "Space–time axes",
         "description": "World lines and transformed x/ct axes require specialized geometry.",
-        "renderer_status": "missing",
+        "renderer_status": "tested",
     },
     "pressure_volume_axes": {
         "label": "Pressure–volume axes",
         "description": "Thermodynamic processes and direction are plotted on P–V axes.",
-        "renderer_status": "implemented_untested",
+        "renderer_status": "tested",
     },
     "hr_diagram": {
         "label": "Hertzsprung–Russell diagram",
         "description": "Log luminosity and reversed temperature axes form a specialized plot.",
-        "renderer_status": "missing",
+        "renderer_status": "tested",
     },
     "missing_crop_evidence": {
         "label": "Missing clean plot crop",
@@ -157,8 +160,8 @@ CAPABILITIES: dict[str, dict[str, str]] = {
 }
 
 STATUS_LABELS = {
-    "tested": "tested in current pilot",
-    "implemented_untested": "renderer can express it, but no source fixture proves it",
+    "tested": "tested in source-linked fixtures",
+    "implemented_untested": "renderer-tested, but no confirmed source fixture proves it",
     "missing": "renderer capability missing",
     "evidence_gap": "source evidence needs review",
 }
@@ -753,14 +756,26 @@ def record_html(record: dict[str, Any], output: Path) -> str:
         if record["is_pilot_fixture"]
         else ""
     )
+    expansion_label = (
+        '<span class="badge expansion-badge">source fixture</span>'
+        if record.get("is_expansion_fixture")
+        else ""
+    )
+    audit_correction = (
+        '<p class="correction"><strong>Source-fixture correction:</strong> '
+        f'{html.escape(record["audit_correction"])}</p>'
+        if record.get("audit_correction")
+        else ""
+    )
     duplicate_label = (
         f'<span class="badge">{record["duplicate_group_size"]} repeated records</span>'
         if record["duplicate_group_size"] > 1
         else ""
     )
     return f'''<article class="{' '.join(classes)}" data-search="{html.escape(search, quote=True)}">
-<header><div><h3>{html.escape(record['source_question'])}</h3><code>{html.escape(record['question_id'])}</code></div><div>{selected_label}{pilot_label}{duplicate_label}<span class="badge">{html.escape(record['coverage_status'].replace('_', ' '))}</span></div></header>
+<header><div><h3>{html.escape(record['source_question'])}</h3><code>{html.escape(record['question_id'])}</code></div><div>{selected_label}{pilot_label}{expansion_label}{duplicate_label}<span class="badge">{html.escape(record['coverage_status'].replace('_', ' '))}</span></div></header>
 <div class="caps">{capability_badges(record)}</div>
+{audit_correction}
 <div class="evidence">{figures}</div>
 <details><summary>Question context and audit evidence</summary><pre>{html.escape(record['question_excerpt'])}</pre>
 <p><a href="{source_link}">Open source PDF at page {source_page}</a>{f' · <a href="{markscheme_link}">Open linked mark scheme</a>' if markscheme_link else ' · no linked mark scheme'}</p>
@@ -778,19 +793,51 @@ def render_html(audit: dict[str, Any], output: Path) -> str:
     )
     cards = "\n".join(record_html(record, output) for record in audit["records"])
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cartesian corpus coverage audit</title><style>
-body{{font:15px/1.45 system-ui,sans-serif;max-width:1500px;margin:auto;padding:24px;color:#1d252b;background:#f4f6f7}}h1,h2,h3{{line-height:1.2}}.blocked{{border-left:6px solid #a33e18;background:#fff3e8;padding:14px 18px}}.stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:20px 0}}.stat{{background:#fff;border:1px solid #ccd4d8;border-radius:10px;padding:14px}}.stat strong{{display:block;font-size:28px}}table{{width:100%;border-collapse:collapse;background:#fff}}th,td{{padding:8px 10px;border:1px solid #d9dfe2;text-align:left}}th{{background:#edf1f3}}.controls{{position:sticky;top:0;background:#f4f6f7eF;padding:12px 0;z-index:2;display:flex;gap:8px;flex-wrap:wrap}}button,input{{font:inherit;padding:8px 12px}}button.active{{background:#24313a;color:#fff}}.record{{background:#fff;border:1px solid #cdd5d9;border-radius:12px;margin:16px 0;padding:18px}}.record header{{display:flex;justify-content:space-between;gap:12px;align-items:start}}.record h3{{margin:0 0 5px}}.badge,.cap{{display:inline-block;border-radius:999px;padding:3px 8px;margin:2px;font-size:12px;background:#e9edef}}.selected-badge{{background:#d7eddd}}.pilot-badge{{background:#dce9fb}}.cap.tested{{background:#d9efdf}}.cap.implemented_untested{{background:#fff0bf}}.cap.missing{{background:#ffd8d2}}.cap.evidence_gap{{background:#eedcf5}}.evidence{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin:12px 0}}figure{{margin:0}}figure img{{width:100%;max-height:420px;object-fit:contain;object-position:left center;border:1px solid #d9dfe2;background:#fff}}figcaption{{font-size:12px;color:#59656c}}pre{{white-space:pre-wrap;background:#f6f7f8;padding:12px;max-height:420px;overflow:auto}}details summary{{cursor:pointer;font-weight:650}}.warning{{padding:12px;background:#fff1e8;border-left:4px solid #b54818}}.hidden{{display:none}}code{{overflow-wrap:anywhere}}@media(max-width:700px){{.record header{{display:block}}}}
+body{{font:15px/1.45 system-ui,sans-serif;max-width:1500px;margin:auto;padding:24px;color:#1d252b;background:#f4f6f7}}h1,h2,h3{{line-height:1.2}}.blocked{{border-left:6px solid #a33e18;background:#fff3e8;padding:14px 18px}}.stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:20px 0}}.stat{{background:#fff;border:1px solid #ccd4d8;border-radius:10px;padding:14px}}.stat strong{{display:block;font-size:28px}}table{{width:100%;border-collapse:collapse;background:#fff}}th,td{{padding:8px 10px;border:1px solid #d9dfe2;text-align:left}}th{{background:#edf1f3}}.controls{{position:sticky;top:0;background:#f4f6f7eF;padding:12px 0;z-index:2;display:flex;gap:8px;flex-wrap:wrap}}button,input{{font:inherit;padding:8px 12px}}button.active{{background:#24313a;color:#fff}}.record{{background:#fff;border:1px solid #cdd5d9;border-radius:12px;margin:16px 0;padding:18px}}.record header{{display:flex;justify-content:space-between;gap:12px;align-items:start}}.record h3{{margin:0 0 5px}}.badge,.cap{{display:inline-block;border-radius:999px;padding:3px 8px;margin:2px;font-size:12px;background:#e9edef}}.selected-badge,.expansion-badge{{background:#d7eddd}}.pilot-badge{{background:#dce9fb}}.cap.tested{{background:#d9efdf}}.cap.implemented_untested{{background:#fff0bf}}.cap.missing{{background:#ffd8d2}}.cap.evidence_gap{{background:#eedcf5}}.evidence{{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin:12px 0}}figure{{margin:0}}figure img{{width:100%;max-height:420px;object-fit:contain;object-position:left center;border:1px solid #d9dfe2;background:#fff}}figcaption{{font-size:12px;color:#59656c}}pre{{white-space:pre-wrap;background:#f6f7f8;padding:12px;max-height:420px;overflow:auto}}details summary{{cursor:pointer;font-weight:650}}.warning,.correction{{padding:12px;background:#fff1e8;border-left:4px solid #b54818}}.hidden{{display:none}}code{{overflow-wrap:anywhere}}@media(max-width:700px){{.record header{{display:block}}}}
 </style></head><body><h1>Cartesian corpus coverage audit</h1>
 <p class="blocked"><strong>Training use blocked.</strong> This is an engineering coverage audit of automatic visual labels. It is not a reviewed dataset and does not promote any question package to training-ready status.</p>
-<p>All {summary['record_count']} questions primarily labelled as Cartesian plots are present below. The default view shows a deduplicated {summary['selected_expansion_count']}-question expansion set chosen to expose renderer gaps while retaining source crops and linked mark schemes.</p>
-<div class="stats"><div class="stat"><strong>{summary['record_count']}</strong>candidate records</div><div class="stat"><strong>{summary['unique_question_count']}</strong>unique stems</div><div class="stat"><strong>{summary['duplicate_record_count']}</strong>repeated records</div><div class="stat"><strong>{summary['pilot_fixture_count']}</strong>current fixtures</div><div class="stat"><strong>{summary['records_missing_crop']}</strong>without clean crop</div><div class="stat"><strong>{summary['renderer_gap_count']}</strong>records needing capabilities</div></div>
+<p>All {summary['record_count']} questions primarily labelled as Cartesian plots are present below. The default view shows the materialized {summary['selected_expansion_count']}-question source-fixture set. Automatic capability tags remain hypotheses wherever a fixture correction says otherwise.</p>
+<div class="stats"><div class="stat"><strong>{summary['record_count']}</strong>candidate records</div><div class="stat"><strong>{summary['unique_question_count']}</strong>unique stems</div><div class="stat"><strong>{summary['duplicate_record_count']}</strong>repeated records</div><div class="stat"><strong>{summary['pilot_fixture_count']}</strong>physics-checked fixtures</div><div class="stat"><strong>{summary['expansion_fixture_count']}</strong>source expansion fixtures</div><div class="stat"><strong>{summary['records_missing_crop']}</strong>without automatic crop</div><div class="stat"><strong>{summary['renderer_gap_count']}</strong>records needing capabilities</div></div>
 <h2>Capability matrix</h2><table><thead><tr><th>Capability</th><th>Current state</th><th>Records</th><th>Unique</th><th>Pilot</th><th>Expansion</th></tr></thead><tbody>{capability_rows}</tbody></table>
 <h2>Source-linked questions</h2><div class="controls"><button data-filter="selected" class="active">Expansion set ({summary['selected_expansion_count']})</button><button data-filter="gap">Renderer gaps</button><button data-filter="evidence">Evidence review</button><button data-filter="pilot">Current pilot</button><button data-filter="all">All {summary['record_count']}</button><input id="search" type="search" placeholder="Search question or capability"></div><div id="records">{cards}</div>
 <script>const records=[...document.querySelectorAll('.record')],buttons=[...document.querySelectorAll('button[data-filter]')],search=document.querySelector('#search');let filter='selected';function apply(){{const q=search.value.toLowerCase();records.forEach(r=>{{const match=filter==='all'||(filter==='selected'&&r.classList.contains('selected'))||(filter==='gap'&&r.classList.contains('renderer_gap'))||(filter==='evidence'&&r.classList.contains('evidence_review'))||(filter==='pilot'&&r.classList.contains('pilot'));r.classList.toggle('hidden',!match||!r.dataset.search.includes(q));}})}}buttons.forEach(b=>b.onclick=()=>{{filter=b.dataset.filter;buttons.forEach(x=>x.classList.toggle('active',x===b));apply();}});search.oninput=apply;apply();</script></body></html>'''
 
 
-def build_audit(run: Path, pilot_manifest: Path) -> dict[str, Any]:
+def build_audit(
+    run: Path, pilot_manifest: Path, expansion_manifest: Path | None = None
+) -> dict[str, Any]:
     records, pilot = build_records(run, pilot_manifest)
-    select_representatives(records)
+    expansion = None
+    if expansion_manifest and expansion_manifest.exists():
+        expansion = json.loads(expansion_manifest.read_text(encoding="utf-8"))
+        expansion_fixtures = {
+            item["sourceQuestionId"]: item for item in expansion.get("fixtures", [])
+        }
+        for record in records:
+            fixture = expansion_fixtures.get(record["question_id"])
+            record["is_expansion_fixture"] = fixture is not None
+            record["audit_correction"] = (
+                fixture.get("auditCorrection") if fixture else None
+            )
+            if fixture:
+                record["selected_for_expansion"] = True
+                record["selection_reasons"].append(
+                    "Materialized as a source-linked Cartesian expansion fixture."
+                )
+                record["coverage_status"] = "expansion_fixture"
+        missing_fixture_ids = set(expansion_fixtures) - {
+            record["question_id"] for record in records
+        }
+        if missing_fixture_ids:
+            raise ValueError(
+                "Expansion manifest references non-Cartesian questions: "
+                + ", ".join(sorted(missing_fixture_ids))
+            )
+    else:
+        for record in records:
+            record["is_expansion_fixture"] = False
+            record["audit_correction"] = None
+        select_representatives(records)
     fingerprints = {record["fingerprint"] for record in records}
     summary_file = json.loads((run / "summary.json").read_text(encoding="utf-8"))
     expected = next(
@@ -810,11 +857,19 @@ def build_audit(run: Path, pilot_manifest: Path) -> dict[str, Any]:
         ],
         "source_run": str(run.relative_to(REPOSITORY)),
         "pilot_manifest": str(pilot_manifest.relative_to(REPOSITORY)),
+        "expansion_manifest": (
+            str(expansion_manifest.relative_to(REPOSITORY))
+            if expansion_manifest and expansion_manifest.exists()
+            else None
+        ),
         "summary": {
             "record_count": len(records),
             "unique_question_count": len(fingerprints),
             "duplicate_record_count": len(records) - len(fingerprints),
             "pilot_fixture_count": sum(record["is_pilot_fixture"] for record in records),
+            "expansion_fixture_count": sum(
+                record["is_expansion_fixture"] for record in records
+            ),
             "records_missing_crop": sum(not record["plot_assets"] for record in records),
             "records_needing_review": sum(
                 record["plan"]["review_status"] == "needs_review"
@@ -837,6 +892,9 @@ def build_audit(run: Path, pilot_manifest: Path) -> dict[str, Any]:
                 )
             ),
             "pilot_schema_version": pilot.get("schemaVersion"),
+            "expansion_schema_version": (
+                expansion.get("schemaVersion") if expansion else None
+            ),
         },
         "capabilities": build_capability_summary(records),
         "selected_expansion_ids": [
@@ -854,13 +912,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", type=Path, default=DEFAULT_RUN)
     parser.add_argument("--pilot-manifest", type=Path, default=DEFAULT_PILOT)
+    parser.add_argument(
+        "--expansion-manifest", type=Path, default=DEFAULT_EXPANSION
+    )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
     run = args.run.resolve()
     pilot_manifest = args.pilot_manifest.resolve()
+    expansion_manifest = args.expansion_manifest.resolve()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
-    audit = build_audit(run, pilot_manifest)
+    audit = build_audit(run, pilot_manifest, expansion_manifest)
     json_path = output / "cartesian-coverage.json"
     html_path = output / "cartesian-coverage.html"
     json_path.write_text(

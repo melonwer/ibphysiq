@@ -1,4 +1,4 @@
-export const VISUAL_SCHEMA_VERSION = "visual-spec/0.1.0" as const;
+export const VISUAL_SCHEMA_VERSION = "visual-spec/0.2.0" as const;
 
 export const VISUAL_FAMILY_IDS = [
   "cartesian_plot",
@@ -91,6 +91,8 @@ export interface AxisSpec {
   label: string;
   unit?: string;
   scale: "linear" | "log";
+  direction?: "ascending" | "descending";
+  showArrow?: boolean;
   domain: [number, number];
   tickStrategy: "auto" | "fixed" | "source-matched";
   tickValues?: number[];
@@ -107,6 +109,21 @@ export interface PlotSeriesSpec {
   dataRef: string;
   uncertaintyRef?: string;
   styleRole?: "primary" | "comparison" | "construction";
+  lineStyle?: "solid" | "dashed" | "dotted";
+  marker?: "none" | "circle" | "dot" | "cross";
+  lineWeight?: "thin" | "normal" | "wide";
+  closed?: boolean;
+  showDirection?: boolean;
+}
+
+export interface PlotAnnotationSpec {
+  id: string;
+  kind: "point-label" | "text";
+  position: Point2D;
+  label: string;
+  offset?: Point2D;
+  textAnchor?: "start" | "middle" | "end";
+  styleRole?: "primary" | "comparison" | "construction";
 }
 
 export interface CartesianPlotPayload {
@@ -115,6 +132,7 @@ export interface CartesianPlotPayload {
   series: PlotSeriesSpec[];
   showGrid?: boolean;
   squareGridCells?: boolean;
+  annotations?: PlotAnnotationSpec[];
   constructions?: Array<{
     kind: "tangent" | "intercept" | "shaded-region" | "threshold";
     targetSeriesId: string;

@@ -14,6 +14,14 @@ result against the scheme target, renders the student-facing SVG, and writes a
 private side-by-side review page and provenance manifest to
 `dataset/_derived/visual-pilot-v0.1/`.
 
+It also renders the balanced 24-question Cartesian expansion as `expansion.html`
+and `expansion-manifest.json`. Those records prove source-linked renderer
+capabilities and preserve audit corrections, but do not claim complete checked
+solutions. Training use remains blocked. When the automatic crop for the two
+sound-wave questions points at a later car diagram, the generator uses
+`pdftoppm` to derive clean graph-only evidence from the original PDFs without
+modifying either source file.
+
 The same command also generates `variants.html` and `variants-manifest.json`
 there: three synthetic parameter variations per source case (24 total). Each
 variant's prompt, graph and result come from one scenario. The checked solution
@@ -22,14 +30,16 @@ Calculated results are displayed to three significant figures. Multipart graph
 questions also receive a separate teacher-only expected-graph SVG so every asked
 part is covered by the review solution.
 
-Fixtures and independent calculations live in `lib/visuals/pilot-fixtures.ts` and
-`lib/visuals/pilot-physics.ts`. The figures and PDF inputs remain under the ignored
-`dataset/` boundary. The script does not edit source captures or promote any question
-to training-ready status. Both the manifest and each variant explicitly mark
-training eligibility as blocked. The synthetic variants are engineering test cases,
-not records to paste into a training dataset; they require complete package authoring,
-human review and source-material rights clearance first. The generated HTML is for
-local review; do not publish it without that separate rights decision.
+Fixtures and independent calculations live in `lib/visuals/pilot-fixtures.ts`,
+`lib/visuals/pilot-physics.ts`, and
+`lib/visuals/cartesian-expansion-fixtures.ts`. The figures and PDF inputs remain
+under the ignored `dataset/` boundary. The script does not edit source captures or
+promote any question to training-ready status. The manifests and every variant or
+expansion fixture explicitly mark training eligibility as blocked. The synthetic
+variants are engineering test cases, not records to paste into a training dataset;
+they require complete package authoring, human review and source-material rights
+clearance first. The generated HTML is for local review; do not publish it without
+that separate rights decision.
 
 ## Cartesian corpus coverage audit
 

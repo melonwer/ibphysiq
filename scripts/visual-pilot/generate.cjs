@@ -1,6 +1,7 @@
 /* Generate a private, source-linked reconstruction receipt from the eight fixtures. */
 const fs = require("node:fs");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 const ts = require("typescript");
 
 require.extensions[".ts"] = (module, filename) => {
@@ -27,6 +28,9 @@ const outputDirectory = path.join(
 const {
   CARTESIAN_PILOT_FIXTURES,
 } = require("../../lib/visuals/pilot-fixtures.ts");
+const {
+  CARTESIAN_EXPANSION_FIXTURES,
+} = require("../../lib/visuals/cartesian-expansion-fixtures.ts");
 const { computePilotMetric } = require("../../lib/visuals/pilot-physics.ts");
 const {
   formatToSignificantFigures,
@@ -68,6 +72,60 @@ const relativeUrl = (absolutePath) =>
     .join("/");
 
 fs.mkdirSync(outputDirectory, { recursive: true });
+const sourceRepairDirectory = path.join(outputDirectory, "source-repairs");
+fs.mkdirSync(sourceRepairDirectory, { recursive: true });
+const ensureSourceCrop = ({
+  filename,
+  sourcePdf,
+  page,
+  x,
+  y,
+  width,
+  height,
+}) => {
+  const target = path.join(sourceRepairDirectory, filename);
+  if (fs.existsSync(`${target}.png`)) return;
+  execFileSync("pdftoppm", [
+    "-f",
+    String(page),
+    "-l",
+    String(page),
+    "-singlefile",
+    "-png",
+    "-r",
+    "120",
+    "-x",
+    String(x),
+    "-y",
+    String(y),
+    "-W",
+    String(width),
+    "-H",
+    String(height),
+    path.join(repository, sourcePdf),
+    target,
+  ]);
+};
+ensureSourceCrop({
+  filename: "may25-tz3-sl-p2-q2-waves",
+  sourcePdf:
+    "dataset/2025 Examination Session/May 2025 Examination Session/files and resources/Experimental sciences/Physics_paper_2_TZ3_SL.pdf",
+  page: 4,
+  x: 100,
+  y: 100,
+  width: 760,
+  height: 740,
+});
+ensureSourceCrop({
+  filename: "may25-tz3-hl-p2-q4-waves",
+  sourcePdf:
+    "dataset/2025 Examination Session/May 2025 Examination Session/files and resources/Experimental sciences/Physics_paper_2_TZ3_HL.pdf",
+  page: 8,
+  x: 100,
+  y: 310,
+  width: 760,
+  height: 750,
+});
 const receipt = [];
 for (const fixture of CARTESIAN_PILOT_FIXTURES) {
   const question = questions.get(fixture.sourceQuestionId);
@@ -153,6 +211,97 @@ fs.writeFileSync(
 );
 process.stdout.write(
   `Generated ${receipt.length} checked reconstructions in ${path.relative(repository, outputDirectory)}\n`,
+);
+
+const expansionReceipt = [];
+for (const fixture of CARTESIAN_EXPANSION_FIXTURES) {
+  const question = questions.get(fixture.sourceQuestionId);
+  if (!question || question.classification.paper !== fixture.paper) {
+    throw new Error(`Expansion question lineage mismatch: ${fixture.id}`);
+  }
+  const missingSourceCrop = fixture.sourceCrops.find(
+    (sourceCrop) => !fs.existsSync(path.join(repository, sourceCrop)),
+  );
+  if (missingSourceCrop) {
+    throw new Error(
+      `Missing expansion source evidence: ${fixture.id} (${missingSourceCrop})`,
+    );
+  }
+  const svg = renderCartesianPlot(fixture.spec, fixture.data);
+  if (svg.includes(`${fixture.id}-answer`)) {
+    throw new Error(`Expansion answer leaked into student SVG: ${fixture.id}`);
+  }
+  const svgName = `${fixture.id}.svg`;
+  fs.writeFileSync(path.join(outputDirectory, svgName), svg);
+  expansionReceipt.push({
+    id: fixture.id,
+    sourceQuestionId: fixture.sourceQuestionId,
+    sourceQuestion: fixture.sourceQuestion,
+    paper: fixture.paper,
+    sourcePdf: question.provenance.relative_path,
+    sourcePages: [
+      question.provenance.page_start,
+      question.provenance.page_end,
+    ],
+    markschemeSourceId: question.markscheme_source_id,
+    sourceCrops: fixture.sourceCrops,
+    sourceEvidence: fixture.sourceEvidence,
+    sourceNote: fixture.sourceNote,
+    auditCorrection: fixture.auditCorrection,
+    capabilities: fixture.capabilities,
+    renderedSvg: svgName,
+    trainingEligibility: fixture.trainingEligibility,
+  });
+}
+if (expansionReceipt.length !== 24) {
+  throw new Error("Expected exactly 24 source-linked expansion fixtures");
+}
+const expansionCards = expansionReceipt
+  .map((item) => {
+    const sourceImages = item.sourceCrops
+      .map(
+        (sourceCrop) =>
+          `<img src="${relativeUrl(path.join(repository, sourceCrop))}" alt="Source evidence for ${escapeHtml(item.id)}">`,
+      )
+      .join("");
+    const correction = item.auditCorrection
+      ? `<p class="correction"><strong>Audit correction:</strong> ${escapeHtml(item.auditCorrection)}</p>`
+      : "";
+    return `<section>
+  <h2>${escapeHtml(item.sourceQuestion)}</h2>
+  <p>${escapeHtml(item.sourceNote)}</p>
+  ${correction}
+  <p class="caps">${item.capabilities.map((capability) => `<span>${escapeHtml(capability)}</span>`).join("")}</p>
+  <div class="pair"><figure><figcaption>Source evidence (${escapeHtml(item.sourceEvidence)})</figcaption><div class="source-images">${sourceImages}</div></figure><figure><figcaption>Semantic reconstruction</figcaption><img src="${escapeHtml(item.renderedSvg)}" alt="Reconstructed plot for ${escapeHtml(item.id)}"></figure></div>
+  <p class="source">${escapeHtml(item.sourceQuestionId)} · source PDF pages ${item.sourcePages.join("–")} · training use blocked</p>
+</section>`;
+  })
+  .join("\n");
+const expansionHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>24-source Cartesian expansion</title><style>
+body{font:16px/1.5 system-ui,sans-serif;max-width:1500px;margin:auto;padding:24px;color:#1c242b;background:#f5f7f8}h1{margin:0 0 8px}.warning{border-left:5px solid #b54818;background:#fff5eb;padding:12px 16px}section{background:white;border:1px solid #ccd4d8;border-radius:12px;padding:22px;margin:24px 0}.pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}figure{margin:0;min-width:0}figcaption{font-weight:650;margin-bottom:10px}.source-images{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}img{width:100%;height:auto;max-height:620px;object-fit:contain;object-position:left top;border:1px solid #dce1e4;background:white}.caps span{display:inline-block;background:#e6edf1;border-radius:999px;padding:3px 9px;margin:2px;font-size:12px}.correction{border-left:4px solid #ad5a18;background:#fff4df;padding:10px 12px}.source{font-size:13px;color:#59656c}@media(max-width:850px){.pair{grid-template-columns:1fr}}
+</style></head><body><h1>24-source Cartesian expansion</h1><p class="warning"><strong>Training use blocked.</strong> These are deterministic engineering reconstructions tied to source evidence. They are not complete question packages and have not been promoted to training-ready data.</p><p>The set is balanced across 12 Paper 1A and 12 Paper 2 records. Audit corrections identify cases where nearby wording or a bad automatic crop originally implied the wrong visual capability.</p>${expansionCards}</body></html>`;
+fs.writeFileSync(path.join(outputDirectory, "expansion.html"), expansionHtml);
+fs.writeFileSync(
+  path.join(outputDirectory, "expansion-manifest.json"),
+  JSON.stringify(
+    {
+      schemaVersion: "cartesian-expansion/0.1.0",
+      status: "engineering-only-not-training-ready",
+      trainingEligibility: "blocked",
+      trainingBlockers: [
+        "not a complete question package",
+        "not human reviewed",
+        "source-use rights not cleared",
+      ],
+      generatedAt: new Date().toISOString(),
+      fixtures: expansionReceipt,
+    },
+    null,
+    2,
+  ) + "\n",
+);
+process.stdout.write(
+  `Generated ${expansionReceipt.length} source-linked Cartesian expansion fixtures\n`,
 );
 
 const variantReceipt = [];
