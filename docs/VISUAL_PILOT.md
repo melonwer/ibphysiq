@@ -1,8 +1,9 @@
 # Visual reconstruction pilots
 
-Status: Cartesian reconstruction and parameter-variation pilots, plus the circuit
-reconstruction pilot, are complete; human acceptance, full question-package review,
-and source-material rights clearance remain open. This is not training-ready data.
+Status: Cartesian reconstruction and parameter-variation pilots, the circuit
+reconstruction pilot, and an eight-package circuit vertical slice are implemented.
+Human acceptance, broader family coverage, and source-material rights clearance remain
+open. This is not training-ready data.
 
 The pilot selected eight distinct, readable source questions with matching mark
 schemes: four Paper 1A multiple-choice items and four Paper 2 multipart items. It
@@ -147,11 +148,10 @@ question, exact crop and source PDF page. Focused tests cover deterministic rend
 source existence, public/private label separation, topology resolution, orthogonal
 layout, explicit junctions and the failed-lamp state.
 
-This circuit set is a reconstruction pilot, not a physics-solution pilot. It does not
-independently verify every source answer or mark scheme, and it does not prove capacitor
-or diode rendering from the corpus. Every fixture and generated manifest therefore
-keeps training eligibility blocked pending complete package authoring, human review and
-source-use clearance.
+The source-fixture set remains a reconstruction artifact and does not prove capacitor
+or diode rendering from the corpus. A separate complete-package layer now verifies the
+physics and mark-scheme targets for all eight selected cases. Both artifact types keep
+training eligibility blocked pending human review and source-use clearance.
 
 ## Coordinate-free circuit intent pilot
 
@@ -171,7 +171,36 @@ reconstruction, and reject duplicate components, underspecified parallel groups,
 incompatible states and unknown overrides.
 
 The compiler currently covers series-parallel graphs and direct wire branches. It is
-not a general circuit-graph layout engine, does not solve electrical quantities, and
-does not make the three examples training-ready. Bridge networks require a later
-reviewed topology extension; checked solutions, complete question packages, human
-review and source-use clearance remain separate gates.
+not a general circuit-graph layout engine and deliberately does not solve electrical
+quantities; the package layer calls a separate deterministic solver. Bridge networks
+require a later reviewed topology extension, and the three intent examples are not
+training-ready by themselves.
+
+## Complete circuit package vertical slice
+
+`lib/visuals/circuit-question-packages.ts` takes all eight circuit fixtures through the
+full engineering path: source linkage, one typed physics scenario, student wording,
+the student-safe `VisualSpec`, deterministic calculations, complete worked solutions,
+marking points, mark totals, and comparisons with the linked source mark schemes. The
+four Paper 1A packages have four unique options and verified answers D, A, A and C. The
+four Paper 2 packages cover series components, internal resistance, an LDR divider and
+a thermistor divider.
+
+The two source questions that originally depended on separate graphs are self-contained
+derivatives: the needed operating points are supplied in the stem. The internal-
+resistance package covers only the source's circuit parts a–c and explicitly excludes
+the unrelated entropy part. Numerical answers are displayed to three significant
+figures, and assumptions such as ideal meters, negligible internal resistance and the
+constant-resistance lamp model are stored with each scenario.
+
+The generator writes `circuit-packages.html`, eight package SVGs and
+`circuit-packages-manifest.json` under the private ignored output directory. The review
+page places source evidence, exact mark-scheme references, assumptions, the complete
+student package and collapsed teacher solution together. The manifest status is
+`physics-verified-awaiting-human-review`; every transcribed scheme-target regression
+check passes, and the cited source pages were manually compared. The generator verifies
+source identity, file existence and page bounds, but does not parse the mark-scheme PDF
+to derive those targets. Training eligibility remains `blocked` pending human review,
+source-use rights clearance, and assignment of training metadata and a grouped split.
+This is one complete family slice, not completion of the planned approximately
+100-package pilot or of the wider dataset.

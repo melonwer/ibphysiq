@@ -2,7 +2,7 @@
 
 Created: 2026-09-18
 
-Status: Working plan; paper mining and source-backed Cartesian and circuit renderer pilots are implemented locally, with human review and the remaining renderer families still outstanding.
+Status: Working plan; paper mining, source-backed Cartesian and circuit renderers, and an eight-package checked circuit vertical slice are implemented locally. Human review, broader package coverage, and the remaining renderer families are still outstanding.
 
 Working label: V2; the release version and delivery date are not yet assigned.
 
@@ -238,7 +238,7 @@ Report sample sizes and uncertainty, and slice results by paper, level, topic an
 - [x] Build the source-backed circuit renderer and representative fixtures.
 - [x] Add a coordinate-free circuit intent contract and deterministic series/parallel compiler.
 - [ ] Build the field fixtures, plus one additional family.
-- [ ] Demonstrate extraction -> specification -> solution -> render -> validated package.
+- [x] Demonstrate extraction -> specification -> solution -> render -> validated package for the eight-circuit vertical slice.
 - [ ] Freeze grouped evaluation examples and capture the untuned baseline.
 - [ ] Assemble the initial training dataset and agree the experiment contract.
 - [ ] Train, compare and decide whether to expand data or revise the architecture.
@@ -265,9 +265,23 @@ The circuit pilot now reconstructs eight additional source-backed figures, balan
 across four Paper 1A and four Paper 2 questions. Its semantic graph separates nodes,
 wires and two-terminal components from normalized layout hints, validates connectivity
 and explicit junctions, and covers resistor networks, switches, lamps, meters, a
-variable resistor, an LDR and a thermistor. The fixtures prove deterministic rendering
-and source lineage only; they do not yet contain independently checked solutions for
-every source question and remain blocked from training.
+variable resistor, an LDR and a thermistor.
+
+Those same eight cases now form the first complete package vertical slice. Each package
+links a typed scenario to deterministic circuit calculations, student givens, the
+visual, three-significant-figure final answers, complete worked solutions and marking
+points. Validation binds required givens and final answers back to the scenario/results;
+it does not claim that prose is generated automatically from the scenario. Every result
+is checked against a manually transcribed target from its linked mark scheme; the Paper
+1A answer sequence is D, A, A, C, and all Paper 2 numerical and qualitative targets
+pass. The cited PDF pages were also manually compared, while the generator itself
+verifies source identity, file existence and page bounds rather than parsing scheme
+content. Graph-dependent source values are made explicit in the derivative stems, and
+the November 2025 mixed question is scoped to its circuit parts rather than silently
+including the unrelated entropy part. The private `circuit-packages.html` review page
+and manifest are still blocked from training until human review, source-use rights
+clearance, and assignment of training metadata and a grouped split. This establishes
+the pipeline for one family; it does not complete the approximately 100-package pilot.
 
 A separate `circuit-intent/0.1.0` model contract now removes renderer coordinates from
 the generation target. It represents recursive series/parallel structure, visible

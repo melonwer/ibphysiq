@@ -38,6 +38,10 @@ const {
   CIRCUIT_INTENT_SOURCE_FIXTURES,
 } = require("../../lib/visuals/circuit-intent-fixtures.ts");
 const {
+  CIRCUIT_QUESTION_PACKAGES,
+  validateCircuitQuestionPackage,
+} = require("../../lib/visuals/circuit-question-packages.ts");
+const {
   compileCircuitIntent,
   validateCircuitIntent,
 } = require("../../lib/visuals/circuit-intent.ts");
@@ -63,6 +67,7 @@ const records = (filename, key) =>
 const questions = records("questions.jsonl", "question_id");
 const plans = records("visual-plans.jsonl", "question_id");
 const assets = records("visual-assets.jsonl", "asset_id");
+const sources = records("sources.jsonl", "source_id");
 const escapeHtml = (value) =>
   String(value).replace(
     /[&<>"']/g,
@@ -517,6 +522,202 @@ fs.writeFileSync(
 );
 process.stdout.write(
   `Generated ${circuitIntentReceipt.length} coordinate-free circuit intent fixtures\n`,
+);
+
+const circuitPackageReceipt = [];
+for (const item of CIRCUIT_QUESTION_PACKAGES) {
+  const validation = validateCircuitQuestionPackage(item);
+  if (!validation.valid) {
+    throw new Error(
+      `Invalid circuit question package: ${item.id} (${validation.issues.join(
+        ", ",
+      )})`,
+    );
+  }
+  const fixture = CIRCUIT_SOURCE_FIXTURES.find(
+    (candidate) => candidate.id === item.source.fixtureId,
+  );
+  const question = questions.get(item.source.questionId);
+  const questionSource = question ? sources.get(question.source_id) : undefined;
+  const markscheme = sources.get(item.source.markscheme.sourceId);
+  if (
+    !fixture ||
+    !question ||
+    !questionSource ||
+    !markscheme ||
+    fixture.sourceQuestionId !== question.question_id ||
+    question.markscheme_source_id !== markscheme.source_id ||
+    markscheme.role !== "markscheme" ||
+    question.provenance.relative_path !== questionSource.relative_path
+  ) {
+    throw new Error(`Circuit package source link mismatch: ${item.id}`);
+  }
+  const markschemePdf = path.join(
+    repository,
+    "dataset",
+    markscheme.relative_path,
+  );
+  if (
+    !fs.existsSync(markschemePdf) ||
+    item.source.markscheme.pages.some(
+      (page) =>
+        !Number.isInteger(page) ||
+        page < 1 ||
+        page > markscheme.profile.page_count,
+    ) ||
+    fixture.sourceCrops.some(
+      (sourceCrop) => !fs.existsSync(path.join(repository, sourceCrop)),
+    )
+  ) {
+    throw new Error(`Missing circuit package source evidence: ${item.id}`);
+  }
+  const sourceChecks = item.sourceChecks.map((check) => {
+    const actual = item.results[check.resultKey];
+    const passed =
+      check.kind === "exact"
+        ? actual === check.expected
+        : typeof actual === "number" &&
+          Math.abs(actual - check.expected) <= check.tolerance;
+    if (!passed) {
+      throw new Error(
+        `Circuit package source check failed: ${item.id}/${check.resultKey}`,
+      );
+    }
+    return { ...check, actual, passed };
+  });
+  const svg = renderCircuitNetwork(item.visualSpec);
+  if (
+    item.visualSpec.visibility.privateParameterIds.some((privateId) =>
+      svg.includes(privateId),
+    )
+  ) {
+    throw new Error(`Circuit package answer leaked into SVG: ${item.id}`);
+  }
+  const svgName = `${item.id}.svg`;
+  fs.writeFileSync(path.join(outputDirectory, svgName), svg);
+  circuitPackageReceipt.push({
+    id: item.id,
+    schemaVersion: item.schemaVersion,
+    paper: item.paper,
+    marks: item.marks,
+    source: {
+      ...item.source,
+      questionPdf: questionSource.relative_path,
+      questionPages: [
+        question.provenance.page_start,
+        question.provenance.page_end,
+      ],
+      sourceCrops: fixture.sourceCrops,
+      markscheme: {
+        ...item.source.markscheme,
+        relativePath: markscheme.relative_path,
+      },
+    },
+    assumptions: item.assumptions,
+    scenario: item.scenario,
+    question: item.question,
+    visual: {
+      specId: item.visualSpec.id,
+      scenarioRef: item.visualSpec.scenarioRef,
+      renderedSvg: svgName,
+    },
+    results: item.results,
+    solution: item.solution,
+    sourceChecks,
+    physicsStatus: item.physicsStatus,
+    trainingEligibility: item.trainingEligibility,
+    trainingBlockers: item.trainingBlockers,
+  });
+}
+if (
+  circuitPackageReceipt.length !== 8 ||
+  circuitPackageReceipt.filter((item) => item.paper === "1A").length !== 4 ||
+  circuitPackageReceipt.filter((item) => item.paper === "2").length !== 4
+) {
+  throw new Error("Expected eight complete circuit packages balanced 4/4");
+}
+
+const circuitPackageCards = circuitPackageReceipt
+  .map((item) => {
+    const sourceImages = item.source.sourceCrops
+      .map(
+        (sourceCrop) =>
+          `<img src="${relativeUrl(path.join(repository, sourceCrop))}" alt="Source evidence for ${escapeHtml(item.id)}">`,
+      )
+      .join("");
+    const studentBody =
+      item.question.kind === "multiple-choice"
+        ? `<ol class="options" type="A">${item.question.options
+            .map((option) => `<li>${escapeHtml(option.text)}</li>`)
+            .join("")}</ol>`
+        : `<ol class="parts">${item.question.parts
+            .map(
+              (part) =>
+                `<li><strong>${escapeHtml(part.id)}</strong> ${escapeHtml(part.prompt)} <span>[${part.marks}]</span></li>`,
+            )
+            .join("")}</ol>`;
+    const assumptions = item.assumptions
+      .map((assumption) => `<li>${escapeHtml(assumption)}</li>`)
+      .join("");
+    const solutions = item.solution.parts
+      .map((part) => {
+        const working = part.working
+          .map((step) => `<li>${escapeHtml(step)}</li>`)
+          .join("");
+        const markingPoints = part.markingPoints
+          .map((point) => `<li>${escapeHtml(point)}</li>`)
+          .join("");
+        return `<div class="solution-part"><h4>${escapeHtml(part.partId)} <span>[${part.marks}]</span></h4>${working ? `<ol>${working}</ol>` : ""}<p><strong>Marking points</strong></p><ul>${markingPoints}</ul>${part.finalAnswer ? `<p><strong>Final answer:</strong> ${escapeHtml(part.finalAnswer)}</p>` : ""}</div>`;
+      })
+      .join("");
+    const schemeEvidence = item.source.markscheme.evidence
+      .map((evidence) => `<li>${escapeHtml(evidence)}</li>`)
+      .join("");
+    const checks = item.sourceChecks
+      .map(
+        (check) =>
+          `<li><code>${escapeHtml(check.resultKey)}</code>: ${escapeHtml(check.actual)} ✓</li>`,
+      )
+      .join("");
+    return `<section>
+  <h2>${escapeHtml(item.source.questionLabel)} — checked derivative</h2>
+  <p class="scope"><strong>Source scope:</strong> ${escapeHtml(item.source.sourceScope)}</p>
+  <div class="source-row"><figure><figcaption>Private source evidence</figcaption><div class="source-images">${sourceImages}</div></figure><div><h3>Linked mark scheme</h3><p><code>${escapeHtml(item.source.markscheme.sourceId)}</code>, PDF page(s) ${item.source.markscheme.pages.join(", ")}</p><ul>${schemeEvidence}</ul><h3>Explicit assumptions</h3><ul>${assumptions}</ul></div></div>
+  <div class="student-package"><h3>Student package · ${item.marks} marks</h3><p class="stem">${escapeHtml(item.question.stem)}</p><img src="${escapeHtml(item.visual.renderedSvg)}" alt="Student-facing circuit for ${escapeHtml(item.id)}">${studentBody}</div>
+  <details><summary>Complete deterministic solution and marking points</summary>${solutions}<h4>Machine checks</h4><ul>${checks}</ul></details>
+  <p class="source">${escapeHtml(item.id)} · physics verified · training blocked pending human review, source-rights clearance, and training metadata/grouped split</p>
+</section>`;
+  })
+  .join("\n");
+const circuitPackagesHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Eight complete circuit question packages</title><style>
+body{font:16px/1.5 system-ui,sans-serif;max-width:1500px;margin:auto;padding:24px;color:#1c242b;background:#f5f7f8}h1{margin:0 0 8px}.warning{border-left:5px solid #b54818;background:#fff5eb;padding:12px 16px}section{background:white;border:1px solid #ccd4d8;border-radius:12px;padding:22px;margin:24px 0}.source-row{display:grid;grid-template-columns:1.2fr 1fr;gap:22px;align-items:start}.source-images{display:grid;gap:8px}figure{margin:0;min-width:0}figcaption,h3{font-weight:700;margin-bottom:10px}.source-images img,.student-package>img{width:100%;height:auto;max-height:650px;object-fit:contain;object-position:left top;border:1px solid #dce1e4;background:white}.student-package{margin-top:20px;padding:20px;border:2px solid #61727d;border-radius:10px}.student-package>img{max-width:850px;display:block;margin:16px auto}.stem{white-space:pre-line}.parts,.options{padding-left:28px}.parts li,.options li{margin:8px 0}.parts span,.solution-part span{float:right;color:#59656c}details{margin-top:18px;padding:14px;background:#f6f8f9;border-radius:8px}summary{cursor:pointer;font-weight:700}.solution-part{border-top:1px solid #ccd4d8;padding-top:10px}.scope{border-left:4px solid #47728a;padding-left:12px}.source{font-size:13px;color:#59656c}code{overflow-wrap:anywhere}@media(max-width:850px){.source-row{grid-template-columns:1fr}}
+</style></head><body><h1>Eight complete circuit question packages</h1><p class="warning"><strong>Physics verified; training use still blocked.</strong> Each package links one explicit scenario to the visual, deterministic calculations, student givens, checked final answers and complete marking points. These records still require human review, source-use clearance, and training metadata with a grouped split before dataset export.</p><p>Four Paper 1A and four Paper 2 packages form the first complete extraction → scenario → render → solve → validate vertical slice. Source-dependent graph values are supplied explicitly where needed; no question silently depends on an omitted figure.</p>${circuitPackageCards}</body></html>`;
+fs.writeFileSync(
+  path.join(outputDirectory, "circuit-packages.html"),
+  circuitPackagesHtml,
+);
+fs.writeFileSync(
+  path.join(outputDirectory, "circuit-packages-manifest.json"),
+  JSON.stringify(
+    {
+      schemaVersion: "circuit-package-pilot/0.1.0",
+      packageSchemaVersion: "circuit-question-package/0.1.0",
+      status: "physics-verified-awaiting-human-review",
+      trainingEligibility: "blocked",
+      trainingBlockers: [
+        "not human reviewed",
+        "source-use rights not cleared",
+        "training metadata and grouped split not assigned",
+      ],
+      generatedAt: new Date().toISOString(),
+      packages: circuitPackageReceipt,
+    },
+    null,
+    2,
+  ) + "\n",
+);
+process.stdout.write(
+  `Generated ${circuitPackageReceipt.length} complete checked circuit packages\n`,
 );
 
 const variantReceipt = [];

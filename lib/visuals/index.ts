@@ -5,6 +5,8 @@ export * from "./render-circuit";
 export * from "./circuit-source-fixtures";
 export * from "./circuit-intent";
 export * from "./circuit-intent-fixtures";
+export * from "./circuit-physics";
+export * from "./circuit-question-packages";
 export * from "./pilot-physics";
 export * from "./pilot-variants";
 export * from "./template-registry";

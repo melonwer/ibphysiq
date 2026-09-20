@@ -26,9 +26,18 @@ The same generator writes `circuits.html` and `circuits-manifest.json` for eight
 source-linked circuit fixtures, balanced four Paper 1A and four Paper 2. The circuit
 renderer uses explicit nodes, wires and components plus separate normalized layout
 hints. The fixtures cover series/parallel networks, bypass connections, an open switch,
-lamp failure, meters, a variable resistor, an LDR and a thermistor. They validate visual
-topology and source lineage only; complete physics solutions have not been checked for
-all eight records, so training use remains blocked.
+lamp failure, meters, a variable resistor, an LDR and a thermistor. Those source-fixture
+artifacts validate visual topology and source lineage.
+
+The generator also writes `circuit-packages.html`, eight package SVGs and
+`circuit-packages-manifest.json`. This is the complete circuit vertical slice: all eight
+fixtures have typed scenarios, deterministic calculations, self-contained student
+questions, complete worked solutions, marking points and linked mark-scheme checks.
+Calculated answers use three significant figures. The two questions that originally
+used separate graphs receive their required operating points in the derivative stem,
+and mixed-source scope is recorded explicitly. The manifest status is
+`physics-verified-awaiting-human-review`; training remains blocked pending human review,
+source-use rights clearance, and assignment of the training metadata and grouped split.
 
 The generator additionally writes `circuit-intents.html` and
 `circuit-intents-manifest.json` for three source-linked, coordinate-free intent
@@ -51,14 +60,16 @@ Fixtures and independent calculations live in `lib/visuals/pilot-fixtures.ts`,
 `lib/visuals/cartesian-expansion-fixtures.ts`. Circuit fixtures and rendering live in
 `lib/visuals/circuit-source-fixtures.ts` and `lib/visuals/render-circuit.ts`;
 the model-facing contract, compiler and source-linked examples live in
-`lib/visuals/circuit-intent.ts` and `lib/visuals/circuit-intent-fixtures.ts`. The figures and PDF inputs remain
-under the ignored `dataset/` boundary. The script does not edit source captures or
-promote any question to training-ready status. The manifests and every variant or
-expansion fixture explicitly mark training eligibility as blocked. The synthetic
-variants are engineering test cases, not records to paste into a training dataset;
-they require complete package authoring, human review and source-material rights
-clearance first. The generated HTML is for local review; do not publish it without
-that separate rights decision.
+`lib/visuals/circuit-intent.ts` and `lib/visuals/circuit-intent-fixtures.ts`. Circuit
+solvers and complete packages live in `lib/visuals/circuit-physics.ts` and
+`lib/visuals/circuit-question-packages.ts`. The figures and PDF inputs remain under the
+ignored `dataset/` boundary. The script does not edit source captures or promote any
+question to training-ready status. The manifests and every variant or expansion fixture
+explicitly mark training eligibility as blocked. The synthetic Cartesian variants are
+engineering test cases, not records to paste into a training dataset; they still require
+complete package authoring, human review and source-material rights clearance. The
+generated HTML is for local review; do not publish it without that separate rights
+decision.
 
 ## Cartesian corpus coverage audit
 
