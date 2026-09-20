@@ -191,6 +191,68 @@ export interface CircuitNetworkPayload {
   };
 }
 
+export interface FieldEntitySpec {
+  id: string;
+  kind:
+    | "point-charge"
+    | "point-mass"
+    | "sphere"
+    | "bar-magnet"
+    | "plate"
+    | "test-particle"
+    | "point-marker";
+  position: Point2D;
+  endPosition?: Point2D;
+  size?: Point2D;
+  sign?: -1 | 1;
+  relativeMagnitude?: number;
+  label?: string;
+  labelParameterId?: string;
+  secondaryLabel?: string;
+  secondaryLabelParameterId?: string;
+  appearance?: "default" | "dot" | "cross";
+  labelPlacement?: "above" | "below" | "left" | "right" | "center";
+}
+
+export interface FieldPathSpec {
+  id: string;
+  kind: "field-line" | "equipotential" | "guide" | "trajectory" | "dimension";
+  points: Point2D[];
+  closed?: boolean;
+  direction?: "forward" | "reverse";
+  lineStyle?: "solid" | "dashed" | "dotted";
+  label?: string;
+  labelParameterId?: string;
+  labelAt?: "start" | "middle" | "end";
+  labelPlacement?: "above" | "below" | "left" | "right";
+  smooth?: boolean;
+  showArrow?: boolean;
+}
+
+export interface FieldVectorSpec {
+  id: string;
+  origin: Point2D;
+  direction: Point2D;
+  label?: string;
+  labelParameterId?: string;
+  styleRole?: "field" | "velocity" | "acceleration" | "construction";
+}
+
+export interface FieldAnnotationSpec {
+  id: string;
+  position: Point2D;
+  label: string;
+  labelParameterId: string;
+  textAnchor?: "start" | "middle" | "end";
+}
+
+export interface FieldMapPayload {
+  entities: FieldEntitySpec[];
+  paths: FieldPathSpec[];
+  vectors?: FieldVectorSpec[];
+  annotations?: FieldAnnotationSpec[];
+}
+
 export interface VectorSpec {
   id: string;
   originRef: string;
@@ -245,7 +307,7 @@ export interface VisualPayloadByFamily {
   circuit_network: CircuitNetworkPayload;
   vector_force: ScenePayload;
   ray_wave: ScenePayload;
-  field_map: ScenePayload;
+  field_map: FieldMapPayload;
   experimental_apparatus: ScenePayload;
   data_table: TablePayload;
   energy_level: EnergyLevelPayload;

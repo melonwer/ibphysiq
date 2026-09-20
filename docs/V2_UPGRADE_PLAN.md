@@ -2,7 +2,7 @@
 
 Created: 2026-09-18
 
-Status: Working plan; paper mining, source-backed Cartesian and circuit renderers, and an eight-package checked circuit vertical slice are implemented locally. Human review, broader package coverage, and the remaining renderer families are still outstanding.
+Status: Working plan; paper mining, source-backed Cartesian, circuit and field-map renderers, and checked eight-package circuit and field vertical slices are implemented locally. Human review, broader package coverage, and the remaining renderer families are still outstanding.
 
 Working label: V2; the release version and delivery date are not yet assigned.
 
@@ -237,8 +237,10 @@ Report sample sizes and uncertainty, and slice results by paper, level, topic an
 - [ ] Draft schema v0.1 with a few manually reviewed examples before bulk extraction.
 - [x] Build the source-backed circuit renderer and representative fixtures.
 - [x] Add a coordinate-free circuit intent contract and deterministic series/parallel compiler.
-- [ ] Build the field fixtures, plus one additional family.
+- [x] Build the source-backed field-map renderer, intent compiler and representative fixtures.
+- [ ] Build one additional visual family beyond Cartesian, circuits and fields.
 - [x] Demonstrate extraction -> specification -> solution -> render -> validated package for the eight-circuit vertical slice.
+- [x] Repeat the complete-package vertical slice for eight balanced field questions.
 - [ ] Freeze grouped evaluation examples and capture the untuned baseline.
 - [ ] Assemble the initial training dataset and agree the experiment contract.
 - [ ] Train, compare and decide whether to expand data or revise the architecture.
@@ -292,8 +294,25 @@ inventories and electrical connectivity. This is an engineering contract, not a
 complete training package or a general graph-layout claim: unsupported
 non-series-parallel circuits are rejected or remain source-authored.
 
-The planned field and broader-data pilots have not begun. See
-`docs/VISUAL_PILOT.md`.
+The field-map pilot now repeats that complete path for eight distinct source questions,
+balanced four Paper 1A and four Paper 2. Its coordinate-free `field-intent/0.1.0`
+contract describes source types, signs, relative strengths, markers, symbolic
+dimensions, representation mode and panels; deterministic code validates it and owns
+layout. The renderer covers discrete sources, bodies, equipotentials, dimensions,
+vectors and a genuine 2×2 field-line choice grid with source-matched distractor
+semantics. Three Paper 2 scenarios derive Cartesian plots, including explicit exclusion
+of point-source singularities; the two graph-only sources remain plot-only instead of
+receiving invented spatial companions. Three selected low-confidence `geometry_scene`
+records are now explicitly treated as field maps, without claiming that the full
+geometry review bucket has been resolved.
+
+All eight field packages contain complete worked solutions and marking points, use
+three-significant-figure calculated answers, and pass their source/scheme targets. The
+private `field-packages.html` review page and manifest remain blocked from training for
+the same three reasons as circuits: human acceptance, source-use rights and training
+metadata with a grouped split. This establishes a second family-level architecture
+test; the approximately 100-package pilot and an additional visual family remain open.
+See `docs/VISUAL_PILOT.md`.
 
 The Cartesian corpus audit now evaluates every primary plot candidate rather than
 extrapolating from the eight fixtures. It groups repeated stems, identifies missing

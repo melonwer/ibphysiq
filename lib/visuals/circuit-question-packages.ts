@@ -9,7 +9,8 @@ import {
   seriesResistance,
 } from "./circuit-physics";
 import { formatToSignificantFigures } from "./pilot-variants";
-import { VisualSpec } from "./types";
+import { CartesianPlotData } from "./render-cartesian";
+import { VISUAL_SCHEMA_VERSION, VisualSpec } from "./types";
 
 export const CIRCUIT_QUESTION_PACKAGE_VERSION =
   "circuit-question-package/0.1.0" as const;
@@ -108,6 +109,13 @@ export type CircuitSourceCheck =
       expected: string;
     };
 
+export interface CircuitPlotArtifact {
+  student: {
+    spec: VisualSpec<"cartesian_plot">;
+    data: CartesianPlotData;
+  };
+}
+
 export interface CircuitQuestionPackage {
   schemaVersion: typeof CIRCUIT_QUESTION_PACKAGE_VERSION;
   id: string;
@@ -128,6 +136,7 @@ export interface CircuitQuestionPackage {
   question: CircuitStudentQuestion;
   marks: number;
   visualSpec: VisualSpec<"circuit_network">;
+  plot?: CircuitPlotArtifact;
   results: CircuitScenarioResults;
   solution: {
     correctOptionId?: OptionId;
@@ -583,7 +592,7 @@ const definitions: PackageDefinition[] = [
     markschemeSourceId: "src_f498c500ab593561758d",
     markschemePages: [4],
     sourceScope:
-      "Circuit parts a–d; the operating points needed from the source I–V graph are supplied in text so the package is self-contained.",
+      "All of Q3; the source I–V graph and circuit are both retained.",
     schemeEvidence: [
       "P has resistance 50 Ω.",
       "Q resistance increases with current.",
@@ -591,29 +600,33 @@ const definitions: PackageDefinition[] = [
     ],
     assumptions: [
       "The ammeter and voltmeter are ideal.",
-      "The supplied operating points define the component behaviour used in each part.",
+      "Graph readings use the source scale and tolerate normal plotting precision.",
     ],
     scenario: {
       kind: "series-components",
       pOperatingPoint: { voltageV: 10, currentA: 0.2 },
       qOperatingPoints: [
         { voltageV: 3, currentA: 0.12 },
-        { voltageV: 10, currentA: 0.16 },
+        { voltageV: 10, currentA: 0.18 },
       ],
       circuitQVoltageV: 3,
     },
     question: {
       kind: "multipart",
-      stem: "Component P has an operating point (10.0 V, 0.200 A). Component Q has operating points (3.00 V, 0.120 A) and (10.0 V, 0.160 A). P and Q are then connected in series as shown. The voltmeter across Q reads 3.00 V.",
+      stem: "The graph shows how current I varies with potential difference V for an ohmic resistor P and a non-ohmic component Q. P and Q are connected in the circuit shown. The ideal voltmeter reads 3.0 V.",
       parts: [
         { id: "a", prompt: "Calculate the resistance of P.", marks: 1 },
         {
           id: "b",
           prompt:
-            "State how the resistance of Q changes as its current increases.",
+            "Outline how the resistance of Q changes when the current in it increases.",
           marks: 1,
         },
-        { id: "c", prompt: "Determine the ammeter reading.", marks: 1 },
+        {
+          id: "c",
+          prompt: "State, in mA, the reading of the ammeter.",
+          marks: 1,
+        },
         { id: "d", prompt: "Determine the emf of the source.", marks: 2 },
       ],
     },
@@ -621,7 +634,10 @@ const definitions: PackageDefinition[] = [
       parts: [
         {
           partId: "a",
-          working: ["R(P) = V/I = 10.0/0.200."],
+          working: [
+            "Read a point on P from the graph, for example 10.0 V at 0.200 A.",
+            "R(P) = V/I = 10.0/0.200.",
+          ],
           markingPoints: ["Uses R = V/I to obtain the resistance."],
           finalAnswer: answer(50, "Ω"),
           marks: 1,
@@ -629,7 +645,8 @@ const definitions: PackageDefinition[] = [
         {
           partId: "b",
           working: [
-            "At 0.120 A, R(Q) = 3.00/0.120 = 25.0 Ω; at 0.160 A, R(Q) = 10.0/0.160 = 62.5 Ω.",
+            "From the graph, Q is about 3.0 V at 0.120 A and 10.0 V at 0.180 A.",
+            "V/I rises from about 25 Ω to about 56 Ω, so its resistance increases with current.",
           ],
           markingPoints: ["States that the resistance increases with current."],
           finalAnswer: "The resistance of Q increases.",
@@ -637,9 +654,7 @@ const definitions: PackageDefinition[] = [
         },
         {
           partId: "c",
-          working: [
-            "The 3.00 V operating point of Q corresponds to a series current of 0.120 A.",
-          ],
+          working: ["Read Q's current at 3.0 V from the graph: 0.120 A."],
           markingPoints: ["Reads or uses the matching Q operating point."],
           finalAnswer: answer(120, "mA"),
           marks: 1,
@@ -672,7 +687,7 @@ const definitions: PackageDefinition[] = [
     markschemeSourceId: "src_d970eeeb18991d0ce889",
     markschemePages: [4, 5],
     sourceScope:
-      "Circuit experiment parts a–c only; the unrelated entropy part from the source question is intentionally excluded, and graph readings are supplied as a table.",
+      "Circuit experiment parts a–c only; the source V–I graph is retained and the unrelated entropy part is excluded.",
     schemeEvidence: [
       "Changing the variable resistor changes current and hence terminal voltage through V = ε − Ir.",
       "The source gradient gives internal resistance about 0.8 Ω.",
@@ -685,13 +700,13 @@ const definitions: PackageDefinition[] = [
     scenario: {
       kind: "internal-resistance",
       measurements: [
-        { currentA: 0, terminalVoltageV: 24.8 },
-        { currentA: 8, terminalVoltageV: 18.8 },
+        { currentA: 2, terminalVoltageV: 23.2 },
+        { currentA: 10, terminalVoltageV: 17.2 },
       ],
     },
     question: {
       kind: "multipart",
-      stem: "The circuit is used to investigate a source with internal resistance. Two points from the terminal-voltage data are (I = 0 A, V = 24.8 V) and (I = 8.00 A, V = 18.8 V).",
+      stem: "A student investigates the emf and internal resistance of a cell using the circuit shown. The ideal voltmeter reading V is plotted against the ideal ammeter reading I on the graph.",
       parts: [
         {
           id: "a",
@@ -701,7 +716,8 @@ const definitions: PackageDefinition[] = [
         },
         {
           id: "b",
-          prompt: "Use the data to determine the internal resistance.",
+          prompt:
+            "Show that the internal resistance of the cell is about 0.8 Ω.",
           marks: 2,
         },
         { id: "c", prompt: "Determine the emf of the source.", marks: 2 },
@@ -725,7 +741,7 @@ const definitions: PackageDefinition[] = [
           partId: "b",
           working: [
             "The magnitude of the V–I gradient is the internal resistance.",
-            "r = (24.8 − 18.8)/(8.00 − 0) = 0.750 Ω.",
+            "Using two well-separated graph readings, r = 6.00 V/8.00 A = 0.750 Ω.",
           ],
           markingPoints: [
             "Identifies internal resistance with the magnitude of the gradient.",
@@ -737,21 +753,21 @@ const definitions: PackageDefinition[] = [
         {
           partId: "c",
           working: [
-            "At I = 0, V = ε; equivalently ε = V + Ir.",
-            "Using either point gives ε = 24.8 V.",
+            "Extrapolate the straight line to I = 0, where V = ε.",
+            "The graph intercept is 24.7 V.",
           ],
           markingPoints: [
             "Uses the zero-current intercept or ε = V + Ir.",
             "Obtains an emf consistent with the data.",
           ],
-          finalAnswer: answer(24.8, "V"),
+          finalAnswer: answer(24.7, "V"),
           marks: 2,
         },
       ],
     },
     sourceChecks: [
       numericCheck("internalResistanceOhm", 0.75, 1e-12, "Ω"),
-      numericCheck("emfV", 24.8, 1e-12, "V"),
+      numericCheck("emfV", 24.7, 1e-12, "V"),
     ],
   },
   {
@@ -969,6 +985,237 @@ function buildVisualSpec(
   return spec;
 }
 
+function smoothCurve(
+  knots: readonly { x: number; y: number }[],
+  samplesPerInterval = 12,
+): Array<{ x: number; y: number }> {
+  const slopes = knots.map((point, index) => {
+    if (index === 0) return (knots[1].y - point.y) / (knots[1].x - point.x);
+    if (index === knots.length - 1)
+      return (point.y - knots[index - 1].y) / (point.x - knots[index - 1].x);
+    return (
+      (knots[index + 1].y - knots[index - 1].y) /
+      (knots[index + 1].x - knots[index - 1].x)
+    );
+  });
+  return knots
+    .slice(0, -1)
+    .flatMap((start, index) => {
+      const end = knots[index + 1];
+      const width = end.x - start.x;
+      return Array.from({ length: samplesPerInterval }, (_, sample) => {
+        const t = sample / samplesPerInterval;
+        const t2 = t * t;
+        const t3 = t2 * t;
+        return {
+          x: start.x + width * t,
+          y:
+            (2 * t3 - 3 * t2 + 1) * start.y +
+            (t3 - 2 * t2 + t) * width * slopes[index] +
+            (-2 * t3 + 3 * t2) * end.y +
+            (t3 - t2) * width * slopes[index + 1],
+        };
+      });
+    })
+    .concat(knots[knots.length - 1]);
+}
+
+function buildCircuitPlot(
+  packageId: string,
+  scenario: CircuitScenario,
+): CircuitPlotArtifact | undefined {
+  const baseSpec = (
+    xAxis: VisualSpec<"cartesian_plot">["payload"]["xAxis"],
+    yAxis: VisualSpec<"cartesian_plot">["payload"]["yAxis"],
+    series: VisualSpec<"cartesian_plot">["payload"]["series"],
+    annotations: NonNullable<
+      VisualSpec<"cartesian_plot">["payload"]["annotations"]
+    >,
+  ): VisualSpec<"cartesian_plot"> => ({
+    schemaVersion: VISUAL_SCHEMA_VERSION,
+    id: `${packageId}-source-plot`,
+    family: "cartesian_plot",
+    templateId: "plot.cartesian.v1",
+    scenarioRef: packageId,
+    coordinateSpace: "cartesian",
+    payload: {
+      xAxis,
+      yAxis,
+      series,
+      annotations,
+      showGrid: true,
+    },
+    visibility: {
+      publicParameterIds: [
+        xAxis.id,
+        yAxis.id,
+        ...series.flatMap((item) => [
+          item.xParameterId,
+          item.yParameterId,
+          item.dataRef,
+        ]),
+        ...annotations.map((item) => item.id),
+      ],
+      privateParameterIds: [`${packageId}-answer`],
+      labelMode: "allowlist",
+      altTextMode: "student-safe",
+    },
+    provenance: { rendererVersion: "cartesian-svg/0.1.0" },
+  });
+
+  if (scenario.kind === "series-components") {
+    const pRef = `${packageId}-p-data`;
+    const qRef = `${packageId}-q-data`;
+    const xId = `${packageId}-voltage`;
+    const yId = `${packageId}-current`;
+    const spec = baseSpec(
+      {
+        id: xId,
+        label: "V",
+        unit: "V",
+        scale: "linear",
+        domain: [0, 10],
+        tickStrategy: "source-matched",
+        tickValues: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        minorTickStep: 0.2,
+        showArrow: true,
+      },
+      {
+        id: yId,
+        label: "I",
+        unit: "mA",
+        scale: "linear",
+        domain: [0, 200],
+        tickStrategy: "source-matched",
+        tickValues: [0, 40, 80, 120, 160, 200],
+        minorTickStep: 10,
+        showArrow: true,
+      },
+      [
+        {
+          id: `${packageId}-p-series`,
+          kind: "analytical-curve",
+          xParameterId: xId,
+          yParameterId: yId,
+          dataRef: pRef,
+          styleRole: "primary",
+        },
+        {
+          id: `${packageId}-q-series`,
+          kind: "analytical-curve",
+          xParameterId: xId,
+          yParameterId: yId,
+          dataRef: qRef,
+          styleRole: "primary",
+        },
+      ],
+      [
+        {
+          id: `${packageId}-p-label`,
+          kind: "text",
+          position: { x: 5.2, y: 94 },
+          label: "P",
+          offset: { x: 12, y: 12 },
+        },
+        {
+          id: `${packageId}-q-label`,
+          kind: "text",
+          position: { x: 3.1, y: 121 },
+          label: "Q",
+          offset: { x: 10, y: -10 },
+        },
+      ],
+    );
+    return {
+      student: {
+        spec,
+        data: {
+          [pRef]: Array.from({ length: 51 }, (_, index) => ({
+            x: index / 5,
+            y: index * 4,
+          })),
+          [qRef]: smoothCurve([
+            { x: 0, y: 0 },
+            { x: 0.5, y: 42 },
+            { x: 1, y: 67 },
+            { x: 2, y: 101 },
+            { x: 3, y: 120 },
+            { x: 4, y: 135 },
+            { x: 5, y: 145 },
+            { x: 6, y: 152 },
+            { x: 7, y: 158 },
+            { x: 8, y: 164 },
+            { x: 8.4, y: 168 },
+            { x: 9, y: 172 },
+            { x: 10, y: 180 },
+          ]),
+        },
+      },
+    };
+  }
+
+  if (scenario.kind === "internal-resistance") {
+    const dataRef = `${packageId}-terminal-voltage-data`;
+    const xId = `${packageId}-current`;
+    const yId = `${packageId}-terminal-voltage`;
+    const spec = baseSpec(
+      {
+        id: xId,
+        label: "I",
+        unit: "A",
+        scale: "linear",
+        domain: [0, 10],
+        tickStrategy: "source-matched",
+        tickValues: [2, 4, 6, 8, 10],
+        minorTickStep: 1,
+        showArrow: true,
+      },
+      {
+        id: yId,
+        label: "V",
+        unit: "V",
+        scale: "linear",
+        domain: [16, 25],
+        tickStrategy: "source-matched",
+        tickValues: [18, 20, 22, 24],
+        minorTickStep: 1,
+        showArrow: true,
+      },
+      [
+        {
+          id: `${packageId}-line`,
+          kind: "analytical-curve",
+          xParameterId: xId,
+          yParameterId: yId,
+          dataRef,
+          styleRole: "primary",
+        },
+      ],
+      [],
+    );
+    const [first, second] = scenario.measurements;
+    const gradient =
+      (second.terminalVoltageV - first.terminalVoltageV) /
+      (second.currentA - first.currentA);
+    const intercept = first.terminalVoltageV - gradient * first.currentA;
+    return {
+      student: {
+        spec,
+        data: {
+          [dataRef]: Array.from({ length: 71 }, (_, index) => {
+            const currentA = 3 + index / 10;
+            return {
+              x: currentA,
+              y: intercept + gradient * currentA,
+            };
+          }),
+        },
+      },
+    };
+  }
+  return undefined;
+}
+
 function questionMarks(question: CircuitStudentQuestion): number {
   return question.kind === "multiple-choice"
     ? question.marks
@@ -1001,6 +1248,7 @@ function buildPackage(definition: PackageDefinition): CircuitQuestionPackage {
     question: definition.question,
     marks: questionMarks(definition.question),
     visualSpec: buildVisualSpec(definition.fixtureId, definition.id),
+    plot: buildCircuitPlot(definition.id, definition.scenario),
     results: solveCircuitScenario(definition.scenario),
     solution: definition.solution,
     sourceChecks: definition.sourceChecks,
@@ -1119,11 +1367,10 @@ function expectedPackageContent(
       const emf = numericResult(results, "emfV");
       return {
         studentTokens: [
-          `${formatToSignificantFigures(scenario.pOperatingPoint.voltageV)} V`,
-          `${formatToSignificantFigures(scenario.pOperatingPoint.currentA)} A`,
-          `${formatToSignificantFigures(scenario.qOperatingPoints[0].voltageV)} V`,
-          `${formatToSignificantFigures(scenario.qOperatingPoints[0].currentA)} A`,
-          `${formatToSignificantFigures(scenario.qOperatingPoints[1].currentA)} A`,
+          "graph shows",
+          "ohmic resistor P",
+          "non-ohmic component Q",
+          "3.0 V",
         ],
         solutionTokens: [
           answer(pResistance, "Ω"),
@@ -1147,9 +1394,9 @@ function expectedPackageContent(
       const emf = numericResult(results, "emfV");
       return {
         studentTokens: [
-          `${formatToSignificantFigures(scenario.measurements[0].terminalVoltageV)} V`,
-          `${formatToSignificantFigures(scenario.measurements[1].currentA)} A`,
-          `${formatToSignificantFigures(scenario.measurements[1].terminalVoltageV)} V`,
+          "emf and internal resistance",
+          "voltmeter reading V",
+          "ammeter reading I",
         ],
         solutionTokens: [
           "variable resistor",
@@ -1250,6 +1497,16 @@ export function validateCircuitQuestionPackage(item: CircuitQuestionPackage): {
   }
   if (item.visualSpec.scenarioRef !== item.id) {
     issues.push("Visual scenarioRef must point to the package");
+  }
+  if (
+    (item.scenario.kind === "series-components" ||
+      item.scenario.kind === "internal-resistance") &&
+    !item.plot
+  ) {
+    issues.push("Source graph-reading package must retain its Cartesian plot");
+  }
+  if (item.plot && item.plot.student.spec.scenarioRef !== item.id) {
+    issues.push("Plot scenarioRef must point to the package");
   }
   if (
     fixture &&

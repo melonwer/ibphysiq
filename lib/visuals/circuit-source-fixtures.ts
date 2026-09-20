@@ -532,10 +532,18 @@ const definitions: FixtureDefinition[] = [
     sourceQuestionId: "q_54c80db279d59785da58",
     sourceQuestion: "May 2025 TZ1 SL Paper 2 Q3",
     paper: "2",
-    sourceCrops: [crop("assets/src_cb87fa290cf104cb52ae/p007_v01.png")],
-    capabilities: ["ammeter", "voltmeter", "parallel-meter-branch"],
+    sourceCrops: [
+      crop("assets/src_cb87fa290cf104cb52ae/p006_v01.png"),
+      crop("assets/src_cb87fa290cf104cb52ae/p007_v01.png"),
+    ],
+    capabilities: [
+      "current-voltage-graph",
+      "ammeter",
+      "voltmeter",
+      "parallel-meter-branch",
+    ],
     sourceNote:
-      "Components P and Q with an ammeter in series and voltmeter in parallel.",
+      "I–V graph for P and Q followed by the circuit with an ammeter in series and voltmeter in parallel.",
     panels: [currentVoltageCircuit],
   },
   {
@@ -543,10 +551,19 @@ const definitions: FixtureDefinition[] = [
     sourceQuestionId: "q_cf9c9d9e434d847ca84c",
     sourceQuestion: "November 2025 TZ1 HL Paper 2 Q2",
     paper: "2",
-    sourceCrops: [crop("assets/src_934551dd63d06ab53bc0/p004_v01.png")],
-    capabilities: ["variable-resistor", "ammeter", "voltmeter", "cell"],
+    sourceCrops: [
+      crop("assets/src_934551dd63d06ab53bc0/p004_v01.png"),
+      crop("assets/src_934551dd63d06ab53bc0/p004_v02.png"),
+    ],
+    capabilities: [
+      "terminal-voltage-current-graph",
+      "variable-resistor",
+      "ammeter",
+      "voltmeter",
+      "cell",
+    ],
     sourceNote:
-      "Internal-resistance experiment with ideal meters and a variable resistor.",
+      "Internal-resistance experiment with its V–I graph, ideal meters and a variable resistor.",
     panels: [internalResistanceCircuit],
   },
   {

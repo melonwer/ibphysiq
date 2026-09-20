@@ -1,9 +1,9 @@
 # Visual reconstruction pilots
 
-Status: Cartesian reconstruction and parameter-variation pilots, the circuit
-reconstruction pilot, and an eight-package circuit vertical slice are implemented.
-Human acceptance, broader family coverage, and source-material rights clearance remain
-open. This is not training-ready data.
+Status: Cartesian reconstruction and parameter-variation pilots plus complete
+eight-package circuit and field-map vertical slices are implemented. Human acceptance,
+broader family coverage, and source-material rights clearance remain open. This is not
+training-ready data.
 
 The pilot selected eight distinct, readable source questions with matching mark
 schemes: four Paper 1A multiple-choice items and four Paper 2 multipart items. It
@@ -186,10 +186,11 @@ four Paper 1A packages have four unique options and verified answers D, A, A and
 four Paper 2 packages cover series components, internal resistance, an LDR divider and
 a thermistor divider.
 
-The two source questions that originally depended on separate graphs are self-contained
-derivatives: the needed operating points are supplied in the stem. The internal-
-resistance package covers only the source's circuit parts a–c and explicitly excludes
-the unrelated entropy part. Numerical answers are displayed to three significant
+The two source questions that assess graph reading retain deterministic, source-shaped
+Cartesian graphs beside their circuit diagrams. Their answer-bearing operating points
+and intercepts are not supplied in prose. The internal-resistance package covers only
+the source's circuit parts a–c and explicitly excludes the unrelated entropy part.
+Numerical answers are displayed to three significant
 figures, and assumptions such as ideal meters, negligible internal resistance and the
 constant-resistance lamp model are stored with each scenario.
 
@@ -204,3 +205,41 @@ to derive those targets. Training eligibility remains `blocked` pending human re
 source-use rights clearance, and assignment of training metadata and a grouped split.
 This is one complete family slice, not completion of the planned approximately
 100-package pilot or of the wider dataset.
+
+## Complete field-map package vertical slice
+
+The field milestone selects eight distinct official source questions, balanced four
+Paper 1A and four Paper 2. The Paper 1A set covers signed electric superposition, a
+zero-gravitational-field mass ratio, acceleration from equipotential spacing, and a
+genuine 2×2 field-line option grid. The Paper 2 set covers zero-field stability, a
+two-charge electric-field graph, radial nuclear potential and a calibrated two-body
+gravitational-potential graph. Three source records previously in the low-confidence
+`geometry_scene` bucket are explicitly corrected to `field_map`; this is not a blanket
+reclassification of the other geometry records.
+
+`field-intent/0.1.0` is the coordinate-free model target. It expresses source types,
+signs, relative magnitudes, markers, symbolic dimensions, representation modes and
+panel variants. It contains no coordinates, SVG or executable drawing code. The
+deterministic compiler lays out linear sources, equipotentials, radial interactions,
+body pairs and option grids, constructs the label allowlist, and emits the typed
+`field.map.v1` payload. Source-specific controls cover dots, cross markers, coordinate
+axes, extension lines and label placement. The field-line grid uses the four source
+distractor semantics and smooth RK4 traces for physical curves. Invalid signs, domains,
+vector endpoints, unsupported keys, private labels and field evaluations at point-source
+singularities are rejected.
+
+`lib/visuals/field-question-packages.ts` connects each intent to one typed physical
+scenario, complete student wording, deterministic results, all worked solution parts
+and marking points. The electric-field question derives its coordinate diagram and
+Cartesian curve from the same source configuration. The nuclear-potential and
+gravitational-potential sources contain graphs only, so their packages remain plot-only
+instead of adding invented spatial diagrams. The nuclear sketch uses unnumbered blank
+student axes and a separate teacher-only expected curve. Calculated final answers are
+displayed to three significant figures.
+
+The generator writes `field-packages.html`, `field-packages-manifest.json`, six spatial
+SVGs and the associated plot SVGs under the ignored private output directory.
+It validates the question/mark-scheme linkage, evidence files and page bounds, while
+scheme targets remain manually transcribed and page-compared. The manifest status is
+`physics-verified-awaiting-human-review`, and training eligibility remains blocked
+pending human acceptance, source-use rights and training metadata with a grouped split.

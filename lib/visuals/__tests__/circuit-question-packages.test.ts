@@ -16,6 +16,7 @@ import {
   validateCircuitQuestionPackage,
 } from "../index";
 import { renderCircuitNetwork } from "../render-circuit";
+import { renderCartesianPlot } from "../render-cartesian";
 
 const clonePackage = (item: CircuitQuestionPackage): CircuitQuestionPackage =>
   structuredClone(item);
@@ -48,6 +49,14 @@ describe("complete source-backed circuit question packages", () => {
       expect(svg).not.toMatch(/NaN|Infinity|undefined/);
       for (const privateId of item.visualSpec.visibility.privateParameterIds) {
         expect(svg).not.toContain(privateId);
+      }
+      if (item.plot) {
+        const plotSvg = renderCartesianPlot(
+          item.plot.student.spec,
+          item.plot.student.data,
+        );
+        expect(plotSvg).toContain("<svg");
+        expect(plotSvg).not.toMatch(/NaN|Infinity|undefined/);
       }
       expect(item.trainingEligibility).toBe("blocked");
       expect(item.trainingBlockers).toEqual([
@@ -122,7 +131,7 @@ describe("complete source-backed circuit question packages", () => {
     });
     expect(byKind.get("internal-resistance")).toMatchObject({
       internalResistanceOhm: 0.75,
-      emfV: 24.8,
+      emfV: 24.7,
     });
     expect(byKind.get("ldr-divider")).toMatchObject({
       currentA: 3.6e-5,
@@ -153,12 +162,25 @@ describe("complete source-backed circuit question packages", () => {
         "120 mA",
         "9.00 V",
         "0.750 Ω",
-        "24.8 V",
+        "24.7 V",
         "36.0 µA",
         "50.0 mA",
         "80.0 Ω",
       ]),
     );
+  });
+
+  it("retains graph-reading assessment instead of exposing coordinates in prose", () => {
+    const graphPackages = CIRCUIT_QUESTION_PACKAGES.filter((item) =>
+      ["series-components", "internal-resistance"].includes(item.scenario.kind),
+    );
+    expect(graphPackages).toHaveLength(2);
+    for (const item of graphPackages) {
+      expect(item.plot).toBeDefined();
+      expect(item.question.stem).not.toMatch(/operating point|Two points from/);
+    }
+    expect(graphPackages[0].question.stem).not.toContain("0.200 A");
+    expect(graphPackages[1].question.stem).not.toContain("24.7 V");
   });
 
   it("rejects invalid scenario physics and inconsistent packages", () => {

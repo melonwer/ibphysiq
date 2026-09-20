@@ -33,9 +33,10 @@ The generator also writes `circuit-packages.html`, eight package SVGs and
 `circuit-packages-manifest.json`. This is the complete circuit vertical slice: all eight
 fixtures have typed scenarios, deterministic calculations, self-contained student
 questions, complete worked solutions, marking points and linked mark-scheme checks.
-Calculated answers use three significant figures. The two questions that originally
-used separate graphs receive their required operating points in the derivative stem,
-and mixed-source scope is recorded explicitly. The manifest status is
+Calculated answers use three significant figures. The two graph-reading questions
+retain source-shaped Cartesian plots beside their circuit diagrams; answer-bearing
+operating points are not substituted into the stem. Mixed-source scope is recorded
+explicitly. The manifest status is
 `physics-verified-awaiting-human-review`; training remains blocked pending human review,
 source-use rights clearance, and assignment of the training metadata and grouped split.
 
@@ -46,6 +47,24 @@ produced after deterministic compilation. The current intent grammar supports ne
 series/parallel paths, direct wire branches, panel-specific topology, semantic state
 overrides and two layout directions. Unsupported topologies fail validation; the model
 does not emit coordinates or drawing code.
+
+The field milestone writes `field-packages.html`, six source-backed spatial SVGs, three
+student-facing Cartesian visuals (plus the teacher-only expected nuclear-potential
+sketch), and `field-packages-manifest.json`. Four Paper 1A and four Paper 2 packages
+cover electric and gravitational superposition, zero-field points, stability,
+equipotential gradients, source-matched field-line choices, radial electric potential
+and two-body gravitational potential. Plot-only source questions remain plot-only;
+the package generator does not invent companion spatial diagrams. Three low-confidence
+`geometry_scene` records are explicitly
+rerouted to `field_map`; this does not claim to clean the rest of that review bucket.
+
+`field-intent/0.1.0` is the coordinate-free model contract. It describes source kind,
+sign, relative magnitude, marker role, symbolic dimensions, representation and panel
+variants. The deterministic compiler owns coordinates and SVG. Source singularities,
+invalid signs/domains, label leakage and unsupported intent keys fail validation. Every
+asked part has a complete checked solution and numerical answers use three significant
+figures. The field manifest has the same human-review, rights and grouped-split training
+blockers as the circuit packages.
 
 The same command also generates `variants.html` and `variants-manifest.json`
 there: three synthetic parameter variations per source case (24 total). Each
@@ -62,7 +81,11 @@ Fixtures and independent calculations live in `lib/visuals/pilot-fixtures.ts`,
 the model-facing contract, compiler and source-linked examples live in
 `lib/visuals/circuit-intent.ts` and `lib/visuals/circuit-intent-fixtures.ts`. Circuit
 solvers and complete packages live in `lib/visuals/circuit-physics.ts` and
-`lib/visuals/circuit-question-packages.ts`. The figures and PDF inputs remain under the
+`lib/visuals/circuit-question-packages.ts`. The field contract, compiler, renderer,
+source fixtures, solvers and complete packages live in `lib/visuals/field-intent.ts`,
+`lib/visuals/render-field-map.ts`, `lib/visuals/field-source-fixtures.ts`,
+`lib/visuals/field-physics.ts` and `lib/visuals/field-question-packages.ts`. The figures
+and PDF inputs remain under the
 ignored `dataset/` boundary. The script does not edit source captures or promote any
 question to training-ready status. The manifests and every variant or expansion fixture
 explicitly mark training eligibility as blocked. The synthetic Cartesian variants are

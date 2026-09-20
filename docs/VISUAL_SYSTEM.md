@@ -1,8 +1,8 @@
 # IB Physics visual system
 
-Status: schema and catalogue foundation implemented; deterministic Cartesian and
-circuit SVG renderers have source-backed engineering pilots. Other renderer families
-remain incomplete.
+Status: schema and catalogue foundation implemented; deterministic Cartesian, circuit
+and field-map SVG renderers have source-backed engineering pilots. Other renderer
+families remain incomplete.
 
 This system separates the physics meaning of a figure from its layout. A question
 package references one versioned visual specification; the registry selects a
@@ -116,6 +116,20 @@ orthogonal wires, assigns normalized positions, builds the student-visibility
 allowlist and emits `network.circuit.v1`. Its exported JSON Schema can be used for
 constrained model decoding.
 
+Field maps use a dedicated payload of source/marker entities, field/equipotential/
+dimension paths, vectors and annotations. `field-intent/0.1.0` is the smaller
+model-facing contract: the model selects a reviewed semantic template and supplies
+source type, sign, relative strength, labels, marker relationships, symbolic dimensions
+and panel variants. It cannot supply coordinates or SVG. The compiler deterministically
+places linear sources, parallel equipotentials, radial sources, body pairs and 2×2
+field-line choices, constructs the public-label allowlist, and emits `field.map.v1`.
+Validation rejects source singularities in calculations, invalid normalized geometry,
+out-of-bounds vectors, unsupported keys and private labels. Graph-bearing packages use
+the same scenario to derive their Cartesian data rather than asking the model to redraw
+a curve independently. Package composition is also source-gated: a field map is emitted
+only when the source question contains a spatial field diagram, so graph-only questions
+do not acquire synthetic companion figures.
+
 This first compiler deliberately accepts only series-parallel topology plus direct wire
 branches. Unsupported bridge networks and other non-series-parallel graphs must remain
 source-authored or be rejected until a reviewed macro or netlist-layout extension is
@@ -167,14 +181,12 @@ move from `planned` to `supported`:
 
 The pilot backlog is evidence-driven:
 
-1. `plot.cartesian.v1`, `network.circuit.v1`, and the shared geometry/vector
-   primitives support the planned motion-graph, circuit, and field fixtures.
-2. `field.map.v1` and the hybrid layering contract cover electric/magnetic scenes and
-   plots derived from the same sources.
-3. Build mechanics and electromagnetic scene primitives as reusable layers, then
+1. `plot.cartesian.v1`, `network.circuit.v1`, and `field.map.v1` now have source-backed
+   renderer and complete-package evidence.
+2. Build mechanics and electromagnetic scene primitives as reusable layers, then
    implement ray/wave, thermal, matter, energy-level, orbital, table, and apparatus
    templates according to reviewed frequency.
-4. Keep particle-interaction and annotated-image templates reserved until reviewed
+3. Keep particle-interaction and annotated-image templates reserved until reviewed
    corpus evidence or a generation requirement justifies them.
 
 ## Derived review artifacts
