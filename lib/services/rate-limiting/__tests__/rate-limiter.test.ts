@@ -190,6 +190,23 @@ describe('RateLimiter', () => {
       }
     });
 
+    it('treats zero daily cost as unlimited when estimating affordability', () => {
+      const freeTier = createHarness({
+        ...testConfig,
+        openrouter: { ...testConfig.openrouter, maxDailyCost: 0 }
+      });
+      try {
+        freeTier.limiter.trackUsage('openrouter', 100000);
+        expect(freeTier.limiter.estimateCost('openrouter', 100000)).toEqual({
+          cost: 0.1,
+          remainingBudget: Number.POSITIVE_INFINITY,
+          canAfford: true
+        });
+      } finally {
+        freeTier.limiter.stopCleanup();
+      }
+    });
+
     it('should handle different API types independently', async () => {
       await rateLimiter.checkLimit('openrouter');
       await rateLimiter.checkLimit('huggingface');

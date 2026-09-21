@@ -14,7 +14,6 @@ interface APIError {
   retryAfter?: number;
   statusCode?: number;
 }
-
 class APIErrorImpl extends Error implements APIError {
   public readonly type: 'rate_limit' | 'quota_exceeded' | 'service_unavailable' | 'invalid_response';
   public readonly retryAfter?: number;
@@ -294,8 +293,11 @@ export class RateLimiter implements IRateLimiter {
     const costPerToken = this.config[apiType].costPerToken;
     const cost = roundUsd(estimatedTokens * costPerToken);
     const dailyCost = this.getDailyCost(apiType);
-    const remainingBudget = roundUsd(this.config[apiType].maxDailyCost - dailyCost);
-    const canAfford = cost <= remainingBudget;
+    const cap = this.config[apiType].maxDailyCost;
+    const remainingBudget = cap <= 0
+      ? Number.POSITIVE_INFINITY
+      : roundUsd(cap - dailyCost);
+    const canAfford = cap <= 0 || cost <= remainingBudget;
 
     return {
       cost,

@@ -17,6 +17,7 @@
  * `./question-run-graph`.
  */
 
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 
@@ -25,6 +26,12 @@ import {
   checkArtifactSchemaVersion,
   validateArtifact,
 } from "./contracts";
+import {
+  HumanReviewEvent,
+  assertStatusIsEvidenced,
+  evaluateTrainingReadiness,
+  statusFromHumanReview,
+} from "./human-review";
 import {
   createQuestionRun,
   createQuestionRunId,
@@ -46,6 +53,27 @@ const RUNS_DIR = "runs";
 const EVENTS_FILE = "events.jsonl";
 const SNAPSHOT_FILE = "snapshot.json";
 const CORRUPT_DIR = "corrupt";
+const LOCKS_DIR = ".locks";
+const LOCK_RETRY_DELAY_MS = 10;
+const LOCK_STALE_MS = 60_000;
+const QUESTION_RUN_STATUSES: readonly QuestionRunStatus[] = [
+  "requested",
+  "running",
+  "awaiting-human-review",
+  "sent-back-for-repair",
+  "accepted",
+  "rejected",
+];
+const QUESTION_RUN_STAGES: readonly QuestionRunStage[] = [
+  "plan",
+  "validate-blueprint",
+  "solve-and-render",
+  "author",
+  "validate-package",
+  "novelty-check",
+  "prepare-review",
+  "human-review",
+];
 
 export type QuestionRunStoreErrorCode =
   | "run-not-found"
@@ -121,6 +149,11 @@ export interface RejectionRecordedEvent extends QuestionRunEventBase {
   payload: { rejection: QuestionRunRejection };
 }
 
+export interface HumanReviewRecordedEvent extends QuestionRunEventBase {
+  type: "human-review-recorded";
+  payload: { review: HumanReviewEvent };
+}
+
 export type QuestionRunEvent =
   | RunCreatedEvent
   | RunStatusChangedEvent
@@ -129,7 +162,8 @@ export type QuestionRunEvent =
   | ArtifactRecordedEvent
   | HistoryRecordedEvent
   | ReviewRecordedEvent
-  | RejectionRecordedEvent;
+  | RejectionRecordedEvent
+  | HumanReviewRecordedEvent;
 
 export type QuestionRunEventType = QuestionRunEvent["type"];
 
@@ -151,6 +185,75 @@ export interface AppendEventOptions {
   /** Caller-supplied id making the append idempotent under retry. */
   eventId?: string;
   createdAt?: string;
+}
+
+/** Claims signed after server-side session, CSRF, and observed-view checks. */
+export interface HumanReviewAppendAuthorization {
+  readonly runId: string;
+  readonly reviewerId: string;
+  readonly sessionId: string;
+  readonly packageId: string;
+  readonly reviewedRevision: number;
+  readonly reviewedContentFingerprint: string;
+  readonly signature: string;
+}
+
+export interface AuthorizedHumanReviewStore extends QuestionRunStore {
+  appendAuthorizedHumanReview(
+    review: HumanReviewEvent,
+    authorization: HumanReviewAppendAuthorization,
+  ): Promise<QuestionRun>;
+}
+
+function authorizationMessage(
+  authorization: Omit<HumanReviewAppendAuthorization, "signature">,
+): string {
+  return [
+    "human-review-append/v1",
+    authorization.runId,
+    authorization.reviewerId,
+    authorization.sessionId,
+    authorization.packageId,
+    String(authorization.reviewedRevision),
+    authorization.reviewedContentFingerprint,
+  ].join("\u0000");
+}
+
+/** Server-only signer; without the pilot session secret callers cannot forge it. */
+export function signHumanReviewAppendAuthorization(
+  authorization: Omit<HumanReviewAppendAuthorization, "signature">,
+  secret: string,
+): HumanReviewAppendAuthorization {
+  return {
+    ...authorization,
+    signature: createHmac("sha256", secret)
+      .update(authorizationMessage(authorization), "utf8")
+      .digest("base64url"),
+  };
+}
+
+function hasValidHumanReviewAuthorization(
+  authorization: HumanReviewAppendAuthorization,
+  secret: string,
+): boolean {
+  const expected = signHumanReviewAppendAuthorization(
+    {
+      runId: authorization.runId,
+      reviewerId: authorization.reviewerId,
+      sessionId: authorization.sessionId,
+      packageId: authorization.packageId,
+      reviewedRevision: authorization.reviewedRevision,
+      reviewedContentFingerprint: authorization.reviewedContentFingerprint,
+    },
+    secret,
+  ).signature;
+  // HMAC both strings to fixed width before comparison so malformed signature
+  // lengths neither throw nor create a length oracle.
+  const blind = (value: string) =>
+    createHmac("sha256", "human-review-authorization-length-blinding")
+      .update(value, "utf8")
+      .digest();
+  return timingSafeEqual(blind(expected), blind(authorization.signature));
 }
 
 export interface CreateQuestionRunOptions {
@@ -189,10 +292,7 @@ export interface QuestionRunStore {
     event: NewQuestionRunEvent,
     options?: AppendEventOptions,
   ): Promise<QuestionRun>;
-  syncRun(
-    run: QuestionRun,
-    options?: AppendEventOptions,
-  ): Promise<QuestionRun>;
+  syncRun(run: QuestionRun, options?: AppendEventOptions): Promise<QuestionRun>;
   resume(runId: string): Promise<QuestionRun>;
   inspect(runId: string): Promise<QuestionRunInspection>;
   recordRejection(
@@ -276,6 +376,20 @@ export function applyQuestionRunEvent(
       return { ...run, history: [...run.history, event.payload.entry] };
     case "review-recorded":
       return { ...run, reviews: [...run.reviews, event.payload.review] };
+    case "human-review-recorded":
+      // The decision and the editorial state are one durable fact. This avoids
+      // a crash between a review event and a separate status event leaving an
+      // accepted decision stranded in an awaiting-review snapshot.
+      return {
+        ...run,
+        humanReviews: [...run.humanReviews, event.payload.review],
+        ...(event.payload.review.concern === "educational-acceptance"
+          ? {
+              status: statusFromHumanReview(event.payload.review),
+              currentStage: "human-review" as const,
+            }
+          : {}),
+      };
     case "rejection-recorded":
       return { ...run, status: "rejected", rejection: event.payload.rejection };
   }
@@ -318,7 +432,9 @@ function canonicalize(value: unknown): string {
 }
 
 /** Strip fields the store owns so a replayed run can be compared to its input. */
-export function withoutRevisionFields(run: QuestionRun): Record<string, unknown> {
+export function withoutRevisionFields(
+  run: QuestionRun,
+): Record<string, unknown> {
   const { revision: _revision, updatedAt: _updatedAt, ...rest } = run;
   return rest;
 }
@@ -327,14 +443,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function assertArtifactIsValid(artifactKind: ArtifactKind, artifact: unknown): void {
+function assertArtifactIsValid(
+  artifactKind: ArtifactKind,
+  artifact: unknown,
+): void {
   const version = (artifact as { schemaVersion?: unknown } | undefined)
     ?.schemaVersion;
   const versionCheck = checkArtifactSchemaVersion(artifactKind, version);
   if (!versionCheck.supported) {
     throw new QuestionRunStoreError(
       "unsupported-schema-version",
-      versionCheck.issue?.message ?? `${artifactKind} has an unsupported version`,
+      versionCheck.issue?.message ??
+        `${artifactKind} has an unsupported version`,
       { artifactKind, version },
     );
   }
@@ -371,17 +491,22 @@ function emptyQuestionRun(runId: string): QuestionRun {
   return { ...placeholder, history: [], revision: 0 };
 }
 
-export class JsonlQuestionRunStore implements QuestionRunStore {
+export class JsonlQuestionRunStore implements AuthorizedHumanReviewStore {
   private readonly locks = new Map<string, Promise<unknown>>();
 
-  constructor(private readonly rootDir: string) {}
+  constructor(
+    private readonly rootDir: string,
+    private readonly humanReviewAuthorizationSecret?: string,
+  ) {}
 
   async create(
     request: QuestionRunRequest,
     options: CreateQuestionRunOptions = {},
   ): Promise<QuestionRun> {
     const runId = options.runId ?? createQuestionRunId();
-    return this.withRunLock(runId, () => this.createLocked(runId, request, options));
+    return this.withRunLock(runId, () =>
+      this.createLocked(runId, request, options),
+    );
   }
 
   /**
@@ -389,10 +514,10 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
    * write, which `resume` is responsible for repairing.
    */
   async fetch(runId: string): Promise<QuestionRun | undefined> {
-    const snapshot = await this.readSnapshot(runId);
-    if (snapshot) return snapshot.run;
+    this.assertSafeRunId(runId);
     if (!(await this.exists(this.runDir(runId)))) return undefined;
-    // No usable snapshot, but the run exists: recover it from the log.
+    // A snapshot is only an index. Replaying here prevents a syntactically
+    // valid but stale or tampered cache from becoming an authority.
     return (await this.inspect(runId)).run;
   }
 
@@ -402,6 +527,7 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
 
   /** Replay the log and repair a lagging snapshot. */
   async inspect(runId: string): Promise<QuestionRunInspection> {
+    this.assertSafeRunId(runId);
     return this.withRunLock(runId, () => this.inspectLocked(runId));
   }
 
@@ -410,8 +536,26 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
     return runs.filter((run) => matchesFilter(run, filter));
   }
 
-  async listReviewQueue(filter: QuestionRunFilter = {}): Promise<QuestionRun[]> {
-    return this.list({ ...filter, status: "awaiting-human-review" });
+  async listReviewQueue(
+    filter: QuestionRunFilter = {},
+  ): Promise<QuestionRun[]> {
+    const runs = await this.list(filter);
+    return runs.filter((run) => {
+      // A passed educational review is only one of four independent gates.
+      // Keep it discoverable until source clearance, metadata, and grouped
+      // split assignment also make the package genuinely training-ready.
+      if (run.status === "accepted") {
+        return !evaluateTrainingReadiness(run).ready;
+      }
+
+      // Send-back is active review work: the reviewer must be able to reopen
+      // it after repair. A rejection is terminal and intentionally stays out
+      // of the worklist; it can still be fetched directly for audit.
+      return (
+        run.status === "awaiting-human-review" ||
+        run.status === "sent-back-for-repair"
+      );
+    });
   }
 
   async appendEvent(
@@ -419,9 +563,100 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
     event: NewQuestionRunEvent,
     options: AppendEventOptions = {},
   ): Promise<QuestionRun> {
+    if (event.type === "human-review-recorded") {
+      throw new QuestionRunStoreError(
+        "invalid-event",
+        "Human review events require the authorized review append path",
+        { runId },
+      );
+    }
     return this.withRunLock(runId, () =>
       this.appendEventLocked(runId, event, options),
     );
+  }
+
+  /**
+   * The only write path for a new immutable human decision. The caller must
+   * present a server-signed authorization bound to one observed page revision
+   * and package fingerprint; this check occurs inside the same filesystem lock
+   * as the append, so a CAS race cannot silently retarget a decision.
+   */
+  async appendAuthorizedHumanReview(
+    review: HumanReviewEvent,
+    authorization: HumanReviewAppendAuthorization,
+  ): Promise<QuestionRun> {
+    return this.withRunLock(review.runId, async () => {
+      if (
+        !this.humanReviewAuthorizationSecret ||
+        !hasValidHumanReviewAuthorization(
+          authorization,
+          this.humanReviewAuthorizationSecret,
+        )
+      ) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          "Human review authorization is invalid",
+          { runId: review.runId },
+        );
+      }
+      const current = (await this.inspectLocked(review.runId)).run;
+      const existing = current.humanReviews.find(
+        (candidate) => candidate.decisionId === review.decisionId,
+      );
+      if (existing) {
+        if (canonicalize(existing) === canonicalize(review)) return current;
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          `Human review decision ${review.decisionId} is already recorded with different content`,
+          { runId: review.runId, decisionId: review.decisionId },
+        );
+      }
+      if (
+        authorization.runId !== review.runId ||
+        authorization.reviewerId !== review.reviewerId ||
+        authorization.reviewedRevision !== review.reviewedRevision ||
+        authorization.reviewedContentFingerprint !==
+          review.reviewedContentFingerprint ||
+        current.revision !== authorization.reviewedRevision ||
+        current.questionPackage?.packageId !== authorization.packageId ||
+        current.questionPackage?.contentFingerprint !==
+          authorization.reviewedContentFingerprint
+      ) {
+        throw new QuestionRunStoreError(
+          "stale-revision",
+          `Human review authorization no longer matches canonical run ${review.runId}`,
+          { runId: review.runId },
+        );
+      }
+      const appended: QuestionRunEvent = {
+        eventId: `${review.runId}:${current.revision + 1}:human-review-recorded`,
+        runId: review.runId,
+        revision: current.revision + 1,
+        createdAt: review.createdAt,
+        type: "human-review-recorded",
+        payload: { review },
+      };
+      this.assertEventPayloadIsValid(
+        { type: "human-review-recorded", payload: { review } },
+        review.runId,
+      );
+      const stored = withEnvelope(
+        applyQuestionRunEvent(current, appended),
+        appended,
+      );
+      try {
+        assertStatusIsEvidenced(stored);
+      } catch (error) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          error instanceof Error ? error.message : String(error),
+          { runId: review.runId },
+        );
+      }
+      await this.appendEventLines(review.runId, [appended]);
+      await this.writeSnapshot(review.runId, stored);
+      return stored;
+    });
   }
 
   /**
@@ -439,6 +674,17 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
         : await this.createLocked(run.runId, run.request, {
             createdAt: run.createdAt,
           });
+      if (
+        run.humanReviews.length !== stored.humanReviews.length ||
+        ((run.status === "accepted" || run.status === "sent-back-for-repair") &&
+          run.status !== stored.status)
+      ) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          "syncRun cannot create human review evidence or human-only statuses",
+          { runId: run.runId },
+        );
+      }
       return this.applyRunDiff(stored, run, options);
     });
   }
@@ -487,7 +733,10 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
       },
     };
     await this.appendEventLines(runId, [event]);
-    const stored = withEnvelope(applyQuestionRunEvent(emptyQuestionRun(runId), event), event);
+    const stored = withEnvelope(
+      applyQuestionRunEvent(emptyQuestionRun(runId), event),
+      event,
+    );
     await this.writeSnapshot(runId, stored);
     return stored;
   }
@@ -503,19 +752,22 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
 
     const { events, issues } = await this.readEventLog(runId);
     const snapshot = await this.readSnapshot(runId);
-    const lastRevision = events.length > 0 ? events[events.length - 1].revision : 0;
-
-    let baseline = emptyQuestionRun(runId);
-    let pending = events;
-    if (snapshot && snapshot.revision <= lastRevision) {
-      // Only events past the snapshot are pending; replaying already-folded
-      // events would duplicate history, checks, and reviews.
-      baseline = snapshot.run;
-      pending = events.filter((event) => event.revision > snapshot.revision);
+    // The log is the source of truth. A parsed snapshot must never be trusted
+    // merely because its revision happens to match the last event: it may have
+    // been partially replaced with another valid JSON value. Replaying the
+    // compact pilot logs is cheap and makes snapshot corruption recoverable.
+    const replayed = foldQuestionRunEvents(emptyQuestionRun(runId), events);
+    try {
+      assertStatusIsEvidenced(replayed);
+    } catch (error) {
+      throw new QuestionRunStoreError(
+        "invalid-event",
+        error instanceof Error ? error.message : String(error),
+        { runId },
+      );
     }
-    const replayed = foldQuestionRunEvents(baseline, pending);
 
-    if (!snapshot || snapshot.revision !== replayed.revision) {
+    if (!snapshot || canonicalize(snapshot.run) !== canonicalize(replayed)) {
       await this.writeSnapshot(runId, replayed);
     }
     return { run: replayed, issues };
@@ -528,16 +780,37 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
     knownRun?: QuestionRun,
   ): Promise<QuestionRun> {
     const run = knownRun ?? (await this.inspectLocked(runId)).run;
-    if (event.type === "artifact-recorded") {
-      assertArtifactIsValid(event.payload.artifactKind, event.payload.artifact);
-    }
-    this.assertRevision(run, options.expectedRevision, runId);
+    this.assertEventPayloadIsValid(event, runId);
 
     const eventId = options.eventId ?? this.nextEventId(run, event.type);
     const { events } = await this.readEventLog(runId);
-    if (events.some((candidate) => candidate.eventId === eventId)) {
-      // An idempotent retry: the caller's intent is already durable.
+    const existing = events.find((candidate) => candidate.eventId === eventId);
+    if (existing) {
+      if (
+        existing.type !== event.type ||
+        canonicalize(existing.payload) !== canonicalize(event.payload)
+      ) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          `Event id ${eventId} was already used for different content`,
+          { runId, eventId },
+        );
+      }
+      // An exact at-least-once retry: the caller's intent is already durable.
       return run;
+    }
+    this.assertRevision(run, options.expectedRevision, runId);
+    if (
+      event.type === "human-review-recorded" &&
+      run.humanReviews.some(
+        (review) => review.decisionId === event.payload.review.decisionId,
+      )
+    ) {
+      throw new QuestionRunStoreError(
+        "invalid-event",
+        `Human review decision ${event.payload.review.decisionId} is already recorded for ${runId}`,
+        { runId, decisionId: event.payload.review.decisionId },
+      );
     }
 
     const appended = {
@@ -548,8 +821,17 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
       ...event,
     } as QuestionRunEvent;
 
-    await this.appendEventLines(runId, [appended]);
     const stored = withEnvelope(applyQuestionRunEvent(run, appended), appended);
+    try {
+      assertStatusIsEvidenced(stored);
+    } catch (error) {
+      throw new QuestionRunStoreError(
+        "invalid-event",
+        error instanceof Error ? error.message : String(error),
+        { runId },
+      );
+    }
+    await this.appendEventLines(runId, [appended]);
     await this.writeSnapshot(runId, stored);
     return stored;
   }
@@ -570,26 +852,60 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
       );
     }
 
-    // History and reviews are append-only, so only the entries past the stored
-    // prefix can be new. A rewrite would mean the caller built a run from
-    // different facts rather than from progress.
+    // History, reviews, and human decisions are append-only, so only the
+    // entries past the stored prefix can be new. A rewrite would mean the
+    // caller built a run from different facts rather than from progress.
     this.assertAppendOnlyPrefix(
       stored.history,
       incoming.history,
       "history",
       incoming.runId,
     );
+    const decisionIds = new Set<string>();
+    for (const review of incoming.humanReviews) {
+      if (decisionIds.has(review.decisionId)) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          `Run ${incoming.runId} repeats human review decision ${review.decisionId}`,
+          { runId: incoming.runId, decisionId: review.decisionId },
+        );
+      }
+      decisionIds.add(review.decisionId);
+    }
     this.assertAppendOnlyPrefix(
       stored.reviews,
       incoming.reviews,
       "reviews",
       incoming.runId,
     );
+    this.assertAppendOnlyPrefix(
+      stored.humanReviews,
+      incoming.humanReviews,
+      "human reviews",
+      incoming.runId,
+    );
+
+    // An accepted or sent-back run must be evidenced by a recorded human
+    // decision; this is what makes automatic acceptance unreachable rather
+    // than merely discouraged.
+    try {
+      assertStatusIsEvidenced(incoming);
+    } catch (error) {
+      throw new QuestionRunStoreError(
+        "invalid-event",
+        error instanceof Error ? error.message : String(error),
+        { runId: incoming.runId, status: incoming.status },
+      );
+    }
 
     const events: NewQuestionRunEvent[] = [];
 
     for (const entry of incoming.history.slice(stored.history.length)) {
       events.push({ type: "history-recorded", payload: { entry } });
+    }
+
+    for (const review of incoming.reviews.slice(stored.reviews.length)) {
+      events.push({ type: "review-recorded", payload: { review } });
     }
 
     for (const [stage, attempt] of Object.entries(incoming.attempts)) {
@@ -619,11 +935,35 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
       });
     }
 
+    const newHumanReviews = incoming.humanReviews.slice(
+      stored.humanReviews.length,
+    );
+    for (const review of newHumanReviews) {
+      if (review.runId !== incoming.runId) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          `Human review event ${review.decisionId} belongs to ${review.runId}, not ${incoming.runId}`,
+          { runId: incoming.runId, reviewRunId: review.runId },
+        );
+      }
+      events.push({ type: "human-review-recorded", payload: { review } });
+    }
+
     const statusChanged =
       incoming.status !== stored.status ||
       (incoming.currentStage ?? undefined) !==
         (stored.currentStage ?? undefined);
-    if (statusChanged && incoming.rejection === undefined) {
+    const statusIsCarriedByReview = newHumanReviews.some(
+      (review) =>
+        review.concern === "educational-acceptance" &&
+        statusFromHumanReview(review) === incoming.status &&
+        incoming.currentStage === "human-review",
+    );
+    if (
+      statusChanged &&
+      incoming.rejection === undefined &&
+      !statusIsCarriedByReview
+    ) {
       events.push({
         type: "run-status-changed",
         payload: {
@@ -649,6 +989,9 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
 
     if (events.length === 0) return stored;
 
+    for (const event of events) {
+      this.assertEventPayloadIsValid(event, incoming.runId);
+    }
     this.assertRevision(stored, options.expectedRevision, incoming.runId);
 
     let current = stored;
@@ -667,9 +1010,10 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
       } as QuestionRunEvent);
     }
 
-    await this.appendEventLines(incoming.runId, appended);
+    // Validate the complete projected state before changing either durable
+    // representation. A mixed valid/invalid diff must never leave a prefix of
+    // its events in the canonical log.
     current = foldQuestionRunEvents(current, appended);
-    await this.writeSnapshot(incoming.runId, current);
 
     if (
       canonicalize(withoutRevisionFields(current)) !==
@@ -682,6 +1026,9 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
         { runId: incoming.runId },
       );
     }
+
+    await this.appendEventLines(incoming.runId, appended);
+    await this.writeSnapshot(incoming.runId, current);
 
     return current;
   }
@@ -701,6 +1048,84 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
         `Run ${runId} rewrites its own ${label}, which are append-only`,
         { runId, label },
       );
+    }
+  }
+
+  /**
+   * Validate the payload of any event that carries a versioned record, so a
+   * malformed or unknown-version record never becomes durable.
+   */
+  private assertEventPayloadIsValid(
+    event: NewQuestionRunEvent,
+    runId?: string,
+  ): void {
+    if (!isPlainObject(event.payload)) {
+      throw new QuestionRunStoreError(
+        "invalid-event",
+        `Event ${event.type} has no object payload`,
+        { runId },
+      );
+    }
+    if (event.type === "run-created") {
+      assertArtifactIsValid("question-run-request", event.payload.request);
+    }
+    if (event.type === "run-status-changed") {
+      if (
+        event.payload.status === "accepted" ||
+        event.payload.status === "sent-back-for-repair"
+      ) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          `Status ${event.payload.status} may only be produced by an evidenced human-review-recorded event`,
+          { runId, status: event.payload.status },
+        );
+      }
+      if (!QUESTION_RUN_STATUSES.includes(event.payload.status)) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          `Unknown question-run status ${String(event.payload.status)}`,
+          { runId },
+        );
+      }
+      if (
+        event.payload.currentStage !== undefined &&
+        !QUESTION_RUN_STAGES.includes(event.payload.currentStage)
+      ) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          `Unknown question-run stage ${String(event.payload.currentStage)}`,
+          { runId },
+        );
+      }
+    }
+    if (event.type === "stage-attempted") {
+      if (
+        !QUESTION_RUN_STAGES.includes(event.payload.stage) ||
+        !Number.isInteger(event.payload.attempt) ||
+        event.payload.attempt < 1
+      ) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          "Stage attempts need a known stage and a positive integer attempt",
+          { runId },
+        );
+      }
+    }
+    if (event.type === "artifact-recorded") {
+      assertArtifactIsValid(event.payload.artifactKind, event.payload.artifact);
+    }
+    if (event.type === "rejection-recorded") {
+      assertArtifactIsValid("question-run-rejection", event.payload.rejection);
+    }
+    if (event.type === "human-review-recorded") {
+      assertArtifactIsValid("human-review-event", event.payload.review);
+      if (runId !== undefined && event.payload.review.runId !== runId) {
+        throw new QuestionRunStoreError(
+          "invalid-event",
+          `Human review event belongs to ${event.payload.review.runId}, not ${runId}`,
+          { runId, reviewRunId: event.payload.review.runId },
+        );
+      }
     }
   }
 
@@ -725,6 +1150,23 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
 
   private runDir(runId: string): string {
     return join(this.rootDir, RUNS_DIR, runId);
+  }
+
+  private assertSafeRunId(runId: string): void {
+    if (
+      !runId ||
+      runId === "." ||
+      runId === ".." ||
+      runId.includes("/") ||
+      runId.includes("\\") ||
+      runId.includes("\0")
+    ) {
+      throw new QuestionRunStoreError(
+        "invalid-event",
+        "Question run id must be a single non-empty path segment",
+        { runId },
+      );
+    }
   }
 
   private async exists(path: string): Promise<boolean> {
@@ -768,7 +1210,9 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
    * aside rather than treated as fatal: it is a cache, so the caller can rebuild
    * it from the log.
    */
-  private async readSnapshot(runId: string): Promise<StoredSnapshot | undefined> {
+  private async readSnapshot(
+    runId: string,
+  ): Promise<StoredSnapshot | undefined> {
     const path = join(this.runDir(runId), SNAPSHOT_FILE);
     let raw: string;
     try {
@@ -816,8 +1260,17 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
     }
     const runs: QuestionRun[] = [];
     for (const entry of [...entries].sort()) {
-      const snapshot = await this.readSnapshot(entry);
-      if (snapshot) runs.push(snapshot.run);
+      const path = join(runsRoot, entry);
+      let stat;
+      try {
+        stat = await fs.stat(path);
+      } catch {
+        continue;
+      }
+      if (!stat.isDirectory()) continue;
+      // As with fetch, list results must originate from replayed events rather
+      // than an unverified snapshot cache.
+      runs.push(await this.resume(entry));
     }
     return runs;
   }
@@ -834,8 +1287,16 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
     let raw: string;
     try {
       raw = await fs.readFile(path, "utf8");
-    } catch {
-      return { events: [], issues: [] };
+    } catch (error: unknown) {
+      throw new QuestionRunStoreError(
+        "corrupt-log",
+        `Canonical event log for ${runId} is missing or unreadable; refusing to fabricate a run from its snapshot`,
+        {
+          runId,
+          path,
+          cause: (error as NodeJS.ErrnoException).code ?? "unknown",
+        },
+      );
     }
 
     const terminated = raw.endsWith("\n");
@@ -897,10 +1358,18 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
       await this.rewriteEventLog(runId, completeLines);
     }
 
-    const seen = new Set<string>();
+    const seen = new Map<string, QuestionRunEvent>();
     const events: QuestionRunEvent[] = [];
     for (const event of parsedEvents) {
-      if (seen.has(event.eventId)) {
+      const prior = seen.get(event.eventId);
+      if (prior) {
+        if (canonicalize(prior) !== canonicalize(event)) {
+          throw new QuestionRunStoreError(
+            "corrupt-log",
+            `Event log for ${runId} reuses event id ${event.eventId} for different content`,
+            { runId, eventId: event.eventId },
+          );
+        }
         // At-least-once delivery: replaying a retry must change nothing.
         issues.push({
           code: "duplicate-event-id",
@@ -908,17 +1377,58 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
         });
         continue;
       }
-      seen.add(event.eventId);
+      seen.set(event.eventId, event);
       events.push(event);
     }
 
-    events.sort((left, right) => left.revision - right.revision);
+    if (events.length === 0) {
+      throw new QuestionRunStoreError(
+        "corrupt-log",
+        `Canonical event log for ${runId} is empty; refusing to fabricate a run from its snapshot`,
+        { runId, path },
+      );
+    }
+
+    // Event order is part of the immutable log's evidence. Sorting would turn
+    // a physically reordered file into a seemingly valid history and hide the
+    // corruption from recovery.
+    for (const [index, event] of events.entries()) {
+      const expectedRevision = index + 1;
+      if (event.revision !== expectedRevision) {
+        throw new QuestionRunStoreError(
+          "corrupt-log",
+          `Event log for ${runId} has revision ${event.revision} where ${expectedRevision} was required`,
+          { runId, expectedRevision, actualRevision: event.revision },
+        );
+      }
+    }
+    if (events[0].type !== "run-created") {
+      throw new QuestionRunStoreError(
+        "corrupt-log",
+        `Event log for ${runId} must begin with run-created`,
+        { runId },
+      );
+    }
 
     for (const event of events) {
-      if (event.type !== "artifact-recorded") continue;
       // Reading verifies versions too, so a record written by a newer harness
       // is rejected instead of being silently read as the current shape.
-      assertArtifactIsValid(event.payload.artifactKind, event.payload.artifact);
+      if (event.type === "artifact-recorded") {
+        assertArtifactIsValid(
+          event.payload.artifactKind,
+          event.payload.artifact,
+        );
+      }
+      if (event.type === "human-review-recorded") {
+        assertArtifactIsValid("human-review-event", event.payload.review);
+        if (event.payload.review.runId !== runId) {
+          throw new QuestionRunStoreError(
+            "invalid-event",
+            `Human review event belongs to ${event.payload.review.runId}, not ${runId}`,
+            { runId, reviewRunId: event.payload.review.runId },
+          );
+        }
+      }
     }
 
     return { events, issues };
@@ -947,7 +1457,18 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
       Number.isInteger(event.revision) &&
       event.revision > 0 &&
       typeof event.createdAt === "string" &&
-      typeof event.type === "string";
+      typeof event.type === "string" &&
+      [
+        "run-created",
+        "run-status-changed",
+        "stage-attempted",
+        "check-recorded",
+        "artifact-recorded",
+        "history-recorded",
+        "review-recorded",
+        "rejection-recorded",
+        "human-review-recorded",
+      ].includes(event.type);
     if (!usable) {
       throw new QuestionRunStoreError(
         "invalid-event",
@@ -955,6 +1476,7 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
         { runId },
       );
     }
+    this.assertEventPayloadIsValid(event as NewQuestionRunEvent, runId);
   }
 
   /**
@@ -985,7 +1507,10 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
     action: () => Promise<T>,
   ): Promise<T> {
     const previous = this.locks.get(runId) ?? Promise.resolve();
-    const next = previous.then(action, action);
+    const next = previous.then(
+      () => this.withFilesystemLock(runId, action),
+      () => this.withFilesystemLock(runId, action),
+    );
     const chain = next.then(
       () => undefined,
       () => undefined,
@@ -997,18 +1522,62 @@ export class JsonlQuestionRunStore implements QuestionRunStore {
       if (this.locks.get(runId) === chain) this.locks.delete(runId);
     }
   }
+
+  private async withFilesystemLock<T>(
+    runId: string,
+    action: () => Promise<T>,
+  ): Promise<T> {
+    this.assertSafeRunId(runId);
+    const locksRoot = join(this.rootDir, LOCKS_DIR);
+    const lockPath = join(locksRoot, `${runId}.lock`);
+    await fs.mkdir(locksRoot, { recursive: true });
+
+    for (;;) {
+      try {
+        await fs.mkdir(lockPath);
+        break;
+      } catch (error: unknown) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "EEXIST") throw error;
+        try {
+          const stat = await fs.stat(lockPath);
+          if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+            await fs.rm(lockPath, { recursive: true, force: true });
+            continue;
+          }
+        } catch (statError: unknown) {
+          if ((statError as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw statError;
+          }
+        }
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, LOCK_RETRY_DELAY_MS),
+        );
+      }
+    }
+
+    try {
+      return await action();
+    } finally {
+      await fs.rm(lockPath, { recursive: true, force: true });
+    }
+  }
 }
 
 function matchesFilter(run: QuestionRun, filter: QuestionRunFilter): boolean {
   if (filter.status !== undefined && run.status !== filter.status) return false;
-  if (filter.mode !== undefined && run.request.mode !== filter.mode) return false;
+  if (filter.mode !== undefined && run.request.mode !== filter.mode)
+    return false;
   if (filter.paper !== undefined && run.request.paper !== filter.paper) {
     return false;
   }
   if (filter.level !== undefined && run.request.level !== filter.level) {
     return false;
   }
-  if (filter.topic !== undefined && !run.request.topics.includes(filter.topic)) {
+  if (
+    filter.topic !== undefined &&
+    !run.request.topics.includes(filter.topic)
+  ) {
     return false;
   }
   return true;

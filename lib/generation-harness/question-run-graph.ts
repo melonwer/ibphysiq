@@ -290,7 +290,9 @@ function retryLimits(
   const limits = { ...DEFAULT_RETRY_LIMITS, ...overrides };
   for (const [stage, value] of Object.entries(limits)) {
     if (!Number.isInteger(value) || value < 1 || value > 5) {
-      throw new Error(`Retry limit for ${stage} must be an integer from 1 to 5`);
+      throw new Error(
+        `Retry limit for ${stage} must be an integer from 1 to 5`,
+      );
     }
   }
   return limits;
@@ -298,6 +300,38 @@ function retryLimits(
 
 function routeAfterStage(state: typeof QuestionRunState.State): string {
   return state.run.status === "rejected" ? "rejected" : "continue";
+}
+
+function hasPassedStage(run: QuestionRun, stage: QuestionRunStage): boolean {
+  return run.checks.some(
+    (check) => check.stage === stage && check.outcome === "passed",
+  );
+}
+
+/** Pick the first incomplete canonical stage when a persisted run is invoked. */
+function routeFromCanonicalRun(state: typeof QuestionRunState.State): string {
+  const { run } = state;
+  if (
+    run.status === "rejected" ||
+    run.status === "accepted" ||
+    run.status === "sent-back-for-repair"
+  ) {
+    return "done";
+  }
+  if (!run.blueprint) return "plan";
+  if (!hasPassedStage(run, "validate-blueprint")) return "validateBlueprint";
+  if (!run.verifiedArtifacts) return "solveAndRender";
+  if (!run.questionPackage) return "author";
+  if (!hasPassedStage(run, "validate-package")) return "validatePackage";
+  if (!run.novelty) return "checkNovelty";
+  if (
+    !run.reviewEnvelope ||
+    run.status !== "awaiting-human-review" ||
+    run.currentStage !== "human-review"
+  ) {
+    return "prepareReview";
+  }
+  return "done";
 }
 
 export function createQuestionRunGraph(
@@ -422,7 +456,8 @@ export function createQuestionRunGraph(
           (current) => current,
           () => ({
             code: "package-valid",
-            message: "Question, solution, source, and deterministic results agree",
+            message:
+              "Question, solution, source, and deterministic results agree",
           }),
         ),
       ),
@@ -450,6 +485,37 @@ export function createQuestionRunGraph(
       ),
     )
     .addNode("prepareReview", async ({ run }) => {
+      // The envelope is the expensive, fully checked result of this stage. A
+      // crash can occur after it is durably recorded but before the separate
+      // awaiting-human-review status/index update. Do not execute the stage a
+      // second time in that case: duplicate check/history facts would no
+      // longer reproduce the canonical record. Finalize that durable prefix
+      // instead. Conversely, an awaiting status without an envelope reaches
+      // the normal preparation path below and is repaired from the required
+      // inputs rather than treated as complete.
+      if (run.reviewEnvelope) {
+        const finalized: QuestionRun = {
+          ...run,
+          status: "awaiting-human-review",
+          currentStage: "human-review",
+        };
+        const alreadyRecorded = finalized.history.some(
+          (entry) =>
+            entry.type === "awaiting-human-review" &&
+            entry.stage === "human-review",
+        );
+        return settle(
+          alreadyRecorded
+            ? finalized
+            : appendHistory(finalized, {
+                type: "awaiting-human-review",
+                stage: "human-review",
+                message: "Run stopped at the human acceptance boundary",
+                createdAt: now(),
+              }),
+        );
+      }
+
       const completed = await executeStage(
         run,
         "prepare-review",
@@ -475,7 +541,8 @@ export function createQuestionRunGraph(
         }),
       );
 
-      if (completed.status !== "awaiting-human-review") return settle(completed);
+      if (completed.status !== "awaiting-human-review")
+        return settle(completed);
 
       const at = now();
       return settle(
@@ -487,7 +554,16 @@ export function createQuestionRunGraph(
         }),
       );
     })
-    .addEdge(START, "plan")
+    .addConditionalEdges(START, routeFromCanonicalRun, {
+      plan: "plan",
+      validateBlueprint: "validateBlueprint",
+      solveAndRender: "solveAndRender",
+      author: "author",
+      validatePackage: "validatePackage",
+      checkNovelty: "checkNovelty",
+      prepareReview: "prepareReview",
+      done: END,
+    })
     .addConditionalEdges("plan", routeAfterStage, {
       continue: "validateBlueprint",
       rejected: END,
@@ -546,7 +622,10 @@ export async function runQuestionGraph(
   }
 
   const graph = createQuestionRunGraph(adapters, { ...options, now });
-  const result = await graph.invoke({ run: initialRun }, checkpointConfig(options, runId));
+  const result = await graph.invoke(
+    { run: initialRun },
+    checkpointConfig(options, runId),
+  );
   return result.run;
 }
 

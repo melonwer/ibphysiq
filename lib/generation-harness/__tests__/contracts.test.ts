@@ -8,11 +8,26 @@ import {
   createCircuitReplayAdapters,
   JsonSchema,
   QUESTION_RUN_REQUEST_SCHEMA_VERSION,
+  packageContentFingerprint,
   SchemaNode,
   toJsonSchema,
   validateArtifact,
   validateSchemaValue,
 } from "..";
+
+describe("package fingerprints", () => {
+  it("uses canonical SHA-256 serialization independent of object key order", () => {
+    const first = { question: { stem: "x", marks: 1 }, packageId: "p" };
+    const reordered = { packageId: "p", question: { marks: 1, stem: "x" } };
+    expect(packageContentFingerprint(first)).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(packageContentFingerprint(reordered)).toBe(
+      packageContentFingerprint(first),
+    );
+    expect(
+      packageContentFingerprint({ ...first, packageId: "changed" }),
+    ).not.toBe(packageContentFingerprint(first));
+  });
+});
 
 function assertNodeMatchesJsonSchema(
   node: SchemaNode,
@@ -94,7 +109,10 @@ describe("runtime schema toolkit", () => {
           code: "number-out-of-range",
           path: "$.count",
         }),
-        expect.objectContaining({ code: "expected-string", path: "$.items[0]" }),
+        expect.objectContaining({
+          code: "expected-string",
+          path: "$.items[0]",
+        }),
         expect.objectContaining({
           code: "expected-boolean",
           path: "$.nested.flag",
@@ -118,7 +136,10 @@ describe("runtime schema toolkit", () => {
 
     const missing = validateSchemaValue(node, {});
     expect(missing.issues).toEqual([
-      expect.objectContaining({ code: "missing-required", path: "$.requiredField" }),
+      expect.objectContaining({
+        code: "missing-required",
+        path: "$.requiredField",
+      }),
     ]);
 
     expect(validateSchemaValue(node, { requiredField: "ok" }).valid).toBe(true);
@@ -129,8 +150,8 @@ describe("runtime schema toolkit", () => {
       validateSchemaValue({ kind: "number" }, Number.NaN).issues[0].code,
     ).toBe("expected-number");
     expect(
-      validateSchemaValue({ kind: "number" }, Number.POSITIVE_INFINITY).issues[0]
-        .code,
+      validateSchemaValue({ kind: "number" }, Number.POSITIVE_INFINITY)
+        .issues[0].code,
     ).toBe("expected-number");
     expect(validateSchemaValue({ kind: "integer" }, 1.5).issues[0].code).toBe(
       "expected-integer",
@@ -139,7 +160,9 @@ describe("runtime schema toolkit", () => {
 
   it("rejects arrays and null where an object is required", () => {
     const node: SchemaNode = { kind: "object", properties: {} };
-    expect(validateSchemaValue(node, []).issues[0].code).toBe("expected-object");
+    expect(validateSchemaValue(node, []).issues[0].code).toBe(
+      "expected-object",
+    );
     expect(validateSchemaValue(node, null).issues[0].code).toBe(
       "expected-object",
     );
@@ -174,16 +197,15 @@ describe("artifact contracts", () => {
 
   it("accepts the artifacts the replay harness actually produces", async () => {
     const adapters = createCircuitReplayAdapters();
-    const request = { ...circuitReplayRequest(), schemaVersion: QUESTION_RUN_REQUEST_SCHEMA_VERSION };
+    const request = {
+      ...circuitReplayRequest(),
+      schemaVersion: QUESTION_RUN_REQUEST_SCHEMA_VERSION,
+    };
     const blueprint = await adapters.plan(request);
     const artifacts = await adapters.solveAndRender(blueprint);
     const questionPackage = await adapters.author(blueprint, artifacts);
     const novelty = await adapters.checkNovelty(questionPackage, blueprint);
-    const envelope = await adapters.prepareReview(
-      questionPackage,
-      [],
-      novelty,
-    );
+    const envelope = await adapters.prepareReview(questionPackage, [], novelty);
 
     expect(validateArtifact("question-run-request", request).valid).toBe(true);
     expect(validateArtifact("question-blueprint", blueprint).valid).toBe(true);
@@ -194,9 +216,9 @@ describe("artifact contracts", () => {
       validateArtifact("question-package-artifact", questionPackage).valid,
     ).toBe(true);
     expect(validateArtifact("novelty-assessment", novelty).valid).toBe(true);
-    expect(
-      validateArtifact("question-review-envelope", envelope).valid,
-    ).toBe(true);
+    expect(validateArtifact("question-review-envelope", envelope).valid).toBe(
+      true,
+    );
   });
 
   it("rejects an artifact that carries an unknown schema version", () => {
@@ -230,8 +252,8 @@ describe("artifact contracts", () => {
         ?.trainingEligibility.values,
     ).toEqual(["blocked"]);
     expect(
-      ARTIFACT_SCHEMAS["question-review-envelope"].properties
-        ?.decisionAuthority.values,
+      ARTIFACT_SCHEMAS["question-review-envelope"].properties?.decisionAuthority
+        .values,
     ).toEqual(["human"]);
   });
 
@@ -244,9 +266,9 @@ describe("artifact contracts", () => {
       expect(
         checkArtifactSchemaVersion(artifactKind, `${current}-next`).supported,
       ).toBe(false);
-      expect(checkArtifactSchemaVersion(artifactKind, undefined).supported).toBe(
-        false,
-      );
+      expect(
+        checkArtifactSchemaVersion(artifactKind, undefined).supported,
+      ).toBe(false);
     }
   });
 

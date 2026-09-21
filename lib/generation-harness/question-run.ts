@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 
+import type { HumanReviewEvent } from "./human-review";
+
 export const QUESTION_RUN_SCHEMA_VERSION = "question-run/0.1.0" as const;
 export const QUESTION_RUN_REQUEST_SCHEMA_VERSION =
   "question-run-request/0.1.0" as const;
@@ -29,7 +31,12 @@ export type QuestionLevel = "SL" | "HL";
 export type QuestionStructure = "multiple-choice" | "multipart";
 
 export type QuestionRunStatus =
-  "requested" | "running" | "awaiting-human-review" | "accepted" | "rejected";
+  | "requested"
+  | "running"
+  | "awaiting-human-review"
+  | "sent-back-for-repair"
+  | "accepted"
+  | "rejected";
 
 export type QuestionRunStage =
   | "plan"
@@ -229,6 +236,8 @@ export interface QuestionRun {
   attempts: Partial<Record<QuestionRunStage, number>>;
   checks: QuestionRunCheck[];
   reviews: QuestionRunReview[];
+  /** Immutable reviewer decisions. Only these can accept a run. */
+  humanReviews: HumanReviewEvent[];
   history: QuestionRunHistoryEntry[];
   rejection?: QuestionRunRejection;
   createdAt: string;
@@ -256,6 +265,7 @@ export function createQuestionRun(
     attempts: {},
     checks: [],
     reviews: [],
+    humanReviews: [],
     history: [
       {
         type: "run-created",

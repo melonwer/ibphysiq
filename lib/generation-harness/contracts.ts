@@ -9,6 +9,11 @@
  */
 
 import {
+  HUMAN_REVIEW_CONCERNS,
+  HUMAN_REVIEW_EVENT_SCHEMA_VERSION,
+  HUMAN_REVIEW_OUTCOMES,
+} from "./human-review";
+import {
   NOVELTY_ASSESSMENT_SCHEMA_VERSION,
   QUESTION_BLUEPRINT_SCHEMA_VERSION,
   QUESTION_PACKAGE_ARTIFACT_SCHEMA_VERSION,
@@ -107,7 +112,8 @@ export const QUESTION_RUN_REQUEST_SCHEMA_NODE: SchemaNode = {
 
 export const QUESTION_BLUEPRINT_SCHEMA_NODE: SchemaNode = {
   kind: "object",
-  description: "Approved semantic plan for a question, before any prose is written",
+  description:
+    "Approved semantic plan for a question, before any prose is written",
   properties: {
     schemaVersion: stringField([QUESTION_BLUEPRINT_SCHEMA_VERSION]),
     id: stringField(),
@@ -222,6 +228,25 @@ export const REJECTION_RECORD_SCHEMA_NODE: SchemaNode = {
   },
 };
 
+export const HUMAN_REVIEW_EVENT_SCHEMA_NODE: SchemaNode = {
+  kind: "object",
+  description:
+    "Immutable record of one authenticated reviewer decision about one concern",
+  properties: {
+    schemaVersion: stringField([HUMAN_REVIEW_EVENT_SCHEMA_VERSION]),
+    decisionId: stringField(),
+    runId: stringField(),
+    concern: stringField(HUMAN_REVIEW_CONCERNS),
+    outcome: stringField(HUMAN_REVIEW_OUTCOMES),
+    reviewerId: stringField(),
+    reviewerAuthMethod: stringField(["pilot-admin-token-session"]),
+    notes: { kind: "string" },
+    reviewedRevision: { kind: "integer", minimum: 1 },
+    reviewedContentFingerprint: stringField(),
+    createdAt: stringField(),
+  },
+};
+
 /** Every contract the harness reads or writes, keyed by artifact kind. */
 export const ARTIFACT_SCHEMAS = {
   "question-run-request": QUESTION_RUN_REQUEST_SCHEMA_NODE,
@@ -231,6 +256,7 @@ export const ARTIFACT_SCHEMAS = {
   "novelty-assessment": NOVELTY_ASSESSMENT_SCHEMA_NODE,
   "question-review-envelope": REVIEW_ENVELOPE_SCHEMA_NODE,
   "question-run-rejection": REJECTION_RECORD_SCHEMA_NODE,
+  "human-review-event": HUMAN_REVIEW_EVENT_SCHEMA_NODE,
 } as const;
 
 export type ArtifactKind = keyof typeof ARTIFACT_SCHEMAS;
@@ -249,6 +275,7 @@ export const ARTIFACT_SCHEMA_VERSIONS: Record<ArtifactKind, readonly string[]> =
     "novelty-assessment": [NOVELTY_ASSESSMENT_SCHEMA_VERSION],
     "question-review-envelope": [REVIEW_ENVELOPE_SCHEMA_VERSION],
     "question-run-rejection": [REJECTION_RECORD_SCHEMA_VERSION],
+    "human-review-event": [HUMAN_REVIEW_EVENT_SCHEMA_VERSION],
   };
 
 export const UNSUPPORTED_SCHEMA_VERSION_CODE = "unsupported-schema-version";

@@ -167,8 +167,8 @@ export function validateRateLimitConfig(config: RateLimitConfig): {
       errors.push(`${apiName}: costPerToken cannot be negative`);
     }
     
-    if (apiConfig.maxDailyCost <= 0) {
-      errors.push(`${apiName}: maxDailyCost must be positive`);
+    if (apiConfig.maxDailyCost < 0) {
+      errors.push(`${apiName}: maxDailyCost must be non-negative`);
     }
     
     // Logical consistency checks

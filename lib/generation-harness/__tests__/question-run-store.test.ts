@@ -18,6 +18,8 @@ import {
   runQuestionGraph,
   withoutRevisionFields,
 } from "..";
+import { createHumanReviewEvent } from "../human-review";
+import { CIRCUIT_REPLAY_PACKAGE_ID } from "../replay-fixtures";
 import type { QuestionRunRejection } from "..";
 
 let rootDir: string;
@@ -124,7 +126,9 @@ describe("JsonlQuestionRunStore", () => {
     ).toEqual([requested.runId]);
     expect(await store.list({ paper: "1A" })).toHaveLength(1);
     expect(await store.list({ topic: "electric circuits" })).toHaveLength(2);
-    expect(await store.list({ status: "awaiting-human-review" })).toHaveLength(1);
+    expect(await store.list({ status: "awaiting-human-review" })).toHaveLength(
+      1,
+    );
   });
 
   it("records a rejection through the store", async () => {
@@ -204,7 +208,7 @@ describe("JsonlQuestionRunStore", () => {
         run.runId,
         {
           type: "run-status-changed",
-          payload: { status: "accepted" },
+          payload: { status: "requested" },
         },
         { expectedRevision: run.revision },
       ),
@@ -235,11 +239,69 @@ describe("JsonlQuestionRunStore", () => {
     const second = await store.appendEvent(
       run.runId,
       { type: "run-status-changed", payload: { status: "running" } },
-      { eventId },
+      { eventId, expectedRevision: run.revision },
     );
 
     expect(second.revision).toBe(first.revision);
     expect((await store.resume(run.runId)).revision).toBe(first.revision);
+  });
+
+  it("rejects reuse of an event id for different content", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await store.create(circuitReplayRequest());
+    const eventId = `${run.runId}:retry`;
+    await store.appendEvent(
+      run.runId,
+      { type: "run-status-changed", payload: { status: "running" } },
+      { eventId },
+    );
+
+    await expect(
+      store.appendEvent(
+        run.runId,
+        { type: "run-status-changed", payload: { status: "rejected" } },
+        { eventId },
+      ),
+    ).rejects.toMatchObject({ code: "invalid-event" });
+  });
+
+  it("rejects direct acceptance status events without changing durable state", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await store.create(circuitReplayRequest());
+    const before = await fs.readFile(await eventLogPath(run.runId), "utf8");
+
+    await expect(
+      store.appendEvent(run.runId, {
+        type: "run-status-changed",
+        payload: { status: "accepted" },
+      }),
+    ).rejects.toMatchObject({ code: "invalid-event" });
+    expect(await fs.readFile(await eventLogPath(run.runId), "utf8")).toBe(
+      before,
+    );
+    expect((await store.resume(run.runId)).status).toBe("requested");
+  });
+
+  it("persists legacy review records through sync and survives restart", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await store.create(circuitReplayRequest());
+    const withReview = await store.syncRun({
+      ...run,
+      reviews: [
+        {
+          reviewerKind: "agent",
+          reviewerId: "agent-1",
+          decision: "flag",
+          notes: "needs human review",
+          createdAt: "2026-09-21T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(withReview.reviews).toHaveLength(1);
+    expect(await store.syncRun(withReview)).toEqual(withReview);
+    expect(
+      (await new JsonlQuestionRunStore(rootDir).resume(run.runId)).reviews,
+    ).toEqual(withReview.reviews);
   });
 
   it("recovers from an interrupted append and keeps the torn bytes", async () => {
@@ -310,6 +372,191 @@ describe("JsonlQuestionRunStore", () => {
     );
     expect(repaired.schemaVersion).toBe(QUESTION_RUN_SNAPSHOT_SCHEMA_VERSION);
     expect(repaired.run.runId).toBe(run.runId);
+  });
+
+  it("fails closed when a valid run loses its canonical event log", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await store.create(circuitReplayRequest());
+    const snapshot = await fs.readFile(await snapshotPath(run.runId), "utf8");
+    await fs.rm(await eventLogPath(run.runId));
+
+    await expect(store.resume(run.runId)).rejects.toMatchObject({
+      code: "corrupt-log",
+    });
+    // The snapshot is evidence, not a replacement source of truth. Recovery
+    // must not overwrite it with an invented empty run.
+    expect(await fs.readFile(await snapshotPath(run.runId), "utf8")).toBe(
+      snapshot,
+    );
+  });
+
+  it("fails closed when a canonical event log is empty", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await store.create(circuitReplayRequest());
+    const snapshot = await fs.readFile(await snapshotPath(run.runId), "utf8");
+    await fs.writeFile(await eventLogPath(run.runId), "", "utf8");
+
+    await expect(store.resume(run.runId)).rejects.toMatchObject({
+      code: "corrupt-log",
+    });
+    expect(await fs.readFile(await snapshotPath(run.runId), "utf8")).toBe(
+      snapshot,
+    );
+  });
+
+  it("rejects a physically reordered immutable event log", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await runQuestionGraph(
+      circuitReplayRequest(),
+      createCircuitReplayAdapters(),
+      { store, now: sequentialClock() },
+    );
+    const path = await eventLogPath(run.runId);
+    const lines = (await fs.readFile(path, "utf8")).trim().split("\n");
+    expect(lines.length).toBeGreaterThan(1);
+    [lines[0], lines[1]] = [lines[1], lines[0]];
+    await fs.writeFile(path, `${lines.join("\n")}\n`, "utf8");
+
+    await expect(store.resume(run.runId)).rejects.toMatchObject({
+      code: "corrupt-log",
+    });
+  });
+
+  it("rebuilds a syntactically valid but tampered snapshot from the event log", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await store.create(circuitReplayRequest());
+    const path = await snapshotPath(run.runId);
+    const snapshot = JSON.parse(await fs.readFile(path, "utf8")) as {
+      run: QuestionRun;
+    };
+    snapshot.run = { ...snapshot.run, status: "accepted" };
+    await fs.writeFile(path, JSON.stringify(snapshot), "utf8");
+
+    const recovered = await store.fetch(run.runId);
+    expect(recovered?.status).toBe("requested");
+    expect(
+      (JSON.parse(await fs.readFile(path, "utf8")) as { run: QuestionRun }).run
+        .status,
+    ).toBe("requested");
+  });
+
+  it("rejects a human review event for another run", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await store.create(circuitReplayRequest());
+    const review = createHumanReviewEvent({
+      decisionId: "review-for-other-run",
+      runId: "other-run",
+      concern: "educational-acceptance",
+      outcome: "accept",
+      reviewerId: "pilot-admin",
+      notes: "",
+      reviewedRevision: 1,
+      reviewedContentFingerprint: "fingerprint",
+      createdAt: "2026-09-21T00:00:00.000Z",
+    });
+
+    await expect(
+      store.appendEvent(run.runId, {
+        type: "human-review-recorded",
+        payload: { review },
+      }),
+    ).rejects.toMatchObject({ code: "invalid-event" });
+  });
+
+  it("rejects fabricated human review events on the public append API", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await runQuestionGraph(
+      circuitReplayRequest(),
+      createCircuitReplayAdapters(),
+      { store, now: sequentialClock() },
+    );
+    const review = createHumanReviewEvent({
+      decisionId: "unique-review",
+      runId: run.runId,
+      concern: "educational-acceptance",
+      outcome: "accept",
+      reviewerId: "pilot-admin",
+      notes: "",
+      reviewedRevision: run.revision,
+      reviewedContentFingerprint: run.questionPackage!.contentFingerprint,
+      createdAt: "2026-09-21T00:00:00.000Z",
+    });
+    await expect(
+      store.appendEvent(run.runId, {
+        type: "human-review-recorded",
+        payload: { review },
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid-event",
+      message: expect.stringContaining("authorized review append"),
+    });
+  });
+
+  it("rejects fabricated human review evidence through syncRun", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await runQuestionGraph(
+      circuitReplayRequest(),
+      createCircuitReplayAdapters(),
+      { store, now: sequentialClock() },
+    );
+    const review = createHumanReviewEvent({
+      decisionId: "fabricated-sync-review",
+      runId: run.runId,
+      concern: "educational-acceptance",
+      outcome: "accept",
+      reviewerId: "pilot-admin",
+      notes: "",
+      reviewedRevision: run.revision,
+      reviewedContentFingerprint: run.questionPackage!.contentFingerprint,
+      createdAt: "2026-09-21T00:00:00.000Z",
+    });
+
+    await expect(
+      store.syncRun({
+        ...run,
+        status: "accepted",
+        humanReviews: [review],
+      }),
+    ).rejects.toMatchObject({
+      code: "invalid-event",
+      message: expect.stringContaining("cannot create human review evidence"),
+    });
+    expect((await store.resume(run.runId)).humanReviews).toEqual([]);
+  });
+
+  it("rejects the superseded human-review event schema instead of reinterpreting it", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await runQuestionGraph(
+      circuitReplayRequest(),
+      createCircuitReplayAdapters(),
+      { store, now: sequentialClock() },
+    );
+    const current = createHumanReviewEvent({
+      decisionId: "old-schema-review",
+      runId: run.runId,
+      concern: "educational-acceptance",
+      outcome: "accept",
+      reviewerId: "pilot-admin",
+      notes: "",
+      reviewedRevision: run.revision,
+      reviewedContentFingerprint: run.questionPackage!.contentFingerprint,
+      createdAt: "2026-09-21T00:00:00.000Z",
+    });
+    const legacy = { ...current, schemaVersion: "human-review-event/0.1.0" };
+
+    await expect(
+      store.appendEvent(run.runId, {
+        type: "human-review-recorded",
+        payload: { review: legacy as never },
+      }),
+    ).rejects.toMatchObject({ code: "invalid-event" });
+  });
+
+  it("rejects path-traversal run ids before they reach the filesystem", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    await expect(store.fetch("../outside")).rejects.toMatchObject({
+      code: "invalid-event",
+    });
   });
 
   it("refuses to read a snapshot format it does not recognise", async () => {
@@ -389,9 +636,7 @@ describe("JsonlQuestionRunStore", () => {
     expect(await store.fetch(run.runId)).toEqual(run);
 
     // The log holds one event per persisted change, not one per stage.
-    const lines = (
-      await fs.readFile(await eventLogPath(run.runId), "utf8")
-    )
+    const lines = (await fs.readFile(await eventLogPath(run.runId), "utf8"))
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
@@ -404,6 +649,33 @@ describe("JsonlQuestionRunStore", () => {
     expect(resynced.revision).toBe(run.revision);
     const after = await fs.readFile(await eventLogPath(run.runId), "utf8");
     expect(after.trim().split("\n")).toHaveLength(lines.length);
+  });
+
+  it("resumes an existing canonical run at its first incomplete stage", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const adapters = createCircuitReplayAdapters();
+    const blueprint = await adapters.plan(circuitReplayRequest());
+    const initial = await store.create(circuitReplayRequest(), {
+      runId: "resume-with-blueprint",
+      createdAt: "2026-09-21T00:00:00.000Z",
+    });
+    await store.syncRun({ ...initial, blueprint });
+    let planCalls = 0;
+    const originalPlan = adapters.plan;
+    adapters.plan = async (request) => {
+      planCalls += 1;
+      return originalPlan(request);
+    };
+
+    const resumed = await runQuestionGraph(circuitReplayRequest(), adapters, {
+      store,
+      runId: initial.runId,
+      now: sequentialClock(10),
+    });
+
+    expect(planCalls).toBe(0);
+    expect(resumed.status).toBe("awaiting-human-review");
+    expect(resumed.questionPackage?.packageId).toBe(CIRCUIT_REPLAY_PACKAGE_ID);
   });
 
   it("refuses to persist a run that rewrites its own history", async () => {
@@ -423,6 +695,42 @@ describe("JsonlQuestionRunStore", () => {
     });
   });
 
+  it("does not mutate either durable representation for a mixed valid and invalid sync diff", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const run = await runQuestionGraph(
+      circuitReplayRequest(),
+      createCircuitReplayAdapters(),
+      { store, now: sequentialClock() },
+    );
+    const logPath = await eventLogPath(run.runId);
+    const indexPath = await snapshotPath(run.runId);
+    const logBefore = await fs.readFile(logPath, "utf8");
+    const snapshotBefore = await fs.readFile(indexPath, "utf8");
+
+    await expect(
+      store.syncRun({
+        ...run,
+        reviews: [
+          ...run.reviews,
+          {
+            reviewerKind: "agent",
+            reviewerId: "preflight-agent",
+            decision: "flag",
+            notes: "This otherwise-valid append must not partially persist.",
+            createdAt: "2026-09-21T00:01:00.000Z",
+          },
+        ],
+        novelty: {
+          ...run.novelty!,
+          schemaVersion: "novelty-assessment/99.0.0",
+        } as unknown as QuestionRun["novelty"],
+      }),
+    ).rejects.toMatchObject({ code: "unsupported-schema-version" });
+
+    expect(await fs.readFile(logPath, "utf8")).toBe(logBefore);
+    expect(await fs.readFile(indexPath, "utf8")).toBe(snapshotBefore);
+  });
+
   it("creates the record when syncing a run the store has never seen", async () => {
     const store = new JsonlQuestionRunStore(rootDir);
     const standalone = createQuestionRun(
@@ -439,6 +747,59 @@ describe("JsonlQuestionRunStore", () => {
     );
     expect(await store.fetch(standalone.runId)).toEqual(stored);
   });
+
+  it("finalizes a torn review-envelope prefix after a process restart without rerunning earlier stages", async () => {
+    const first = new JsonlQuestionRunStore(rootDir);
+    const run = await runQuestionGraph(
+      circuitReplayRequest(),
+      createCircuitReplayAdapters(),
+      { store: first, now: sequentialClock() },
+    );
+    const logPath = await eventLogPath(run.runId);
+    const events = (await fs.readFile(logPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { type: string; payload: unknown });
+    const finalStatusIndex = events.findIndex(
+      (event) =>
+        event.type === "run-status-changed" &&
+        (event.payload as { status?: string }).status ===
+          "awaiting-human-review",
+    );
+    expect(finalStatusIndex).toBeGreaterThan(0);
+    // Preserve the complete canonical prefix through the review envelope and
+    // drop the final status transition as a crash would.
+    await fs.writeFile(
+      logPath,
+      `${events
+        .slice(0, finalStatusIndex)
+        .map((event) => JSON.stringify(event))
+        .join("\n")}\n`,
+      "utf8",
+    );
+
+    const restarted = new JsonlQuestionRunStore(rootDir);
+    const recovered = await restarted.resume(run.runId);
+    expect(recovered.status).toBe("running");
+    expect(recovered.reviewEnvelope).toBeDefined();
+
+    const adapters = createCircuitReplayAdapters();
+    let planCalls = 0;
+    const originalPlan = adapters.plan;
+    adapters.plan = async (request) => {
+      planCalls += 1;
+      return originalPlan(request);
+    };
+    const finalized = await runQuestionGraph(circuitReplayRequest(), adapters, {
+      store: restarted,
+      runId: run.runId,
+      now: sequentialClock(30),
+    });
+
+    expect(planCalls).toBe(0);
+    expect(finalized.status).toBe("awaiting-human-review");
+    expect(finalized.currentStage).toBe("human-review");
+  });
 });
 
 describe("QuestionRun graph with a store and a checkpointer", () => {
@@ -450,7 +811,9 @@ describe("QuestionRun graph with a store and a checkpointer", () => {
       { store, now: sequentialClock() },
     );
 
-    const recovered = await new JsonlQuestionRunStore(rootDir).resume(run.runId);
+    const recovered = await new JsonlQuestionRunStore(rootDir).resume(
+      run.runId,
+    );
     expect(recovered).toEqual(run);
   });
 

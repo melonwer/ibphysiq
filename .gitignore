@@ -214,6 +214,9 @@ data/private/
 data/gemini-batch/
 data/*.jsonl
 data/responses/
+# Question-run store: runtime review state, not source
+
+data/question-runs/
 data/training/
 
 # Hugging Face and AI model caches

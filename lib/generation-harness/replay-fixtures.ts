@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   CIRCUIT_QUESTION_PACKAGES,
   CircuitQuestionPackage,
@@ -43,13 +45,34 @@ function levelFromSourceLabel(sourceLabel: string): QuestionLevel {
   throw new Error(`Question level is not encoded in ${sourceLabel}`);
 }
 
-function textFingerprint(value: string): string {
+export function textFingerprint(value: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 0x01000193);
   }
   return `fnv1a32:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+export function packageContentFingerprint(item: unknown): string {
+  const canonicalize = (value: unknown): string =>
+    JSON.stringify(value, (_key, candidate) => {
+      if (
+        candidate !== null &&
+        typeof candidate === "object" &&
+        !Array.isArray(candidate)
+      ) {
+        return Object.fromEntries(
+          Object.entries(candidate as Record<string, unknown>).sort(
+            ([a], [b]) => a.localeCompare(b),
+          ),
+        );
+      }
+      return candidate;
+    });
+  return `sha256:${createHash("sha256")
+    .update(canonicalize(item), "utf8")
+    .digest("hex")}`;
 }
 
 function renderedVisual(
@@ -220,7 +243,7 @@ function circuitArtifact(
       "circuit_network",
       ...(item.plot ? ["cartesian_plot"] : []),
     ],
-    contentFingerprint: textFingerprint(JSON.stringify(item)),
+    contentFingerprint: packageContentFingerprint(item),
     trainingEligibility: item.trainingEligibility,
     trainingBlockers: [...item.trainingBlockers],
   };
@@ -240,7 +263,7 @@ function fieldArtifact(item: FieldQuestionPackage): QuestionPackageArtifact {
       ...(item.visualSpec ? ["field_map"] : []),
       ...(item.plot ? ["cartesian_plot"] : []),
     ],
-    contentFingerprint: textFingerprint(JSON.stringify(item)),
+    contentFingerprint: packageContentFingerprint(item),
     trainingEligibility: item.trainingEligibility,
     trainingBlockers: [...item.trainingBlockers],
   };
