@@ -15,7 +15,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --only=production --ignore-scripts && npm cache clean --force
 
 # Copy source code with proper ownership
 COPY --chown=nextjs:nodejs . .
@@ -29,7 +29,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install all dependencies (including devDependencies for build)
-RUN npm ci --frozen-lockfile
+RUN npm ci --frozen-lockfile --ignore-scripts
 
 # Build stage
 FROM node:20-alpine AS builder
@@ -69,6 +69,7 @@ RUN apk update && apk upgrade && \
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
 # Create non-root user and group
 RUN addgroup --system --gid 1001 nodejs && \
@@ -86,7 +87,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 
 # Create health check script
-RUN echo '#!/bin/sh\ncurl -f http://localhost:3000/api/generate-question?action=health || exit 1' > /app/healthcheck.sh && \
+RUN echo '#!/bin/sh\ncurl -f http://127.0.0.1:3000/api/generate-question?action=health || exit 1' > /app/healthcheck.sh && \
     chmod +x /app/healthcheck.sh && \
     chown nextjs:nodejs /app/healthcheck.sh
 

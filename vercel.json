@@ -1,4 +1,5 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "name": "ibphysiq",
   "alias": ["ibphysiq.vercel.app", "ibphysiq.com"],
@@ -93,12 +94,7 @@
   "installCommand": "npm ci --frozen-lockfile",
   "devCommand": "npm run dev",
   "outputDirectory": ".next",
-  "public": false,
-  "github": {
-    "enabled": true,
-    "autoAlias": true,
-    "autoJobCancelation": true,
-    "deploymentProtection": false,
-    "silent": false
+  "git": {
+    "deploymentEnabled": false
   }
 }
