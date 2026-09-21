@@ -101,10 +101,10 @@ export class QuestionGenerationOrchestrator {
           const refinedValidation = this.validationEngine.validateRefinedQuestion(refinedQuestion);
 
           if (refinedValidation.overall.isValid && this.validationEngine.isQuestionAcceptable(refinedQuestion)) {
-            finalQuestion = this.createFinalQuestion(refinedQuestion, type, true);
+            finalQuestion = this.createFinalQuestion(refinedQuestion, type, true, topic);
           } else if (this.config.fallbackToOriginal) {
             // Fallback to original if refinement failed validation
-            finalQuestion = this.createFallbackQuestion(rawQuestion, type, 'refinement_validation_failed');
+            finalQuestion = this.createFallbackQuestion(rawQuestion, type, 'refinement_validation_failed', topic);
           } else {
             throw createModelError({
               type: 'validation_failure',
@@ -117,14 +117,14 @@ export class QuestionGenerationOrchestrator {
           if (this.config.fallbackToOriginal) {
             // Fallback to original if refinement failed
             console.warn('[Orchestrator] OpenRouter refinement failed:', refinementError instanceof Error ? refinementError.message : String(refinementError));
-            finalQuestion = this.createFallbackQuestion(rawQuestion, type, 'refinement_failed');
+            finalQuestion = this.createFallbackQuestion(rawQuestion, type, 'refinement_failed', topic);
           } else {
             throw refinementError;
           }
         }
       } else {
         // Skip refinement, use raw question directly
-        finalQuestion = this.createFallbackQuestion(rawQuestion, type, 'refinement_disabled');
+        finalQuestion = this.createFallbackQuestion(rawQuestion, type, 'refinement_disabled', topic);
         console.log(`[Orchestrator] Refinement disabled, using original question`);
       }
 
@@ -202,16 +202,21 @@ export class QuestionGenerationOrchestrator {
   }
 
   /**
-   * Create final question from refined question
+   * Create final question from refined question.
+   *
+   * The topic always comes from the caller's request: a model echo is not
+   * authoritative, and trusting it made batched requests report whichever
+   * topic the model happened to write back.
    */
   private createFinalQuestion(
     refinedQuestion: RefinedQuestion,
     type: QuestionType,
-    wasRefined: boolean
+    wasRefined: boolean,
+    requestedTopic: IBPhysicsSubtopic
   ): GeneratedQuestion {
     return {
       id: uuidv4(),
-      topic: refinedQuestion.topic,
+      topic: requestedTopic,
       questionText: refinedQuestion.questionText,
       options: refinedQuestion.options,
       correctAnswer: refinedQuestion.correctAnswer,
@@ -225,7 +230,7 @@ export class QuestionGenerationOrchestrator {
         processingTime: 0, // Will be set by caller
         refinementApplied: wasRefined,
         validationPassed: true,
-        topic: refinedQuestion.topic,
+        topic: requestedTopic,
         difficulty: 'standard' as QuestionDifficulty // Default, could be enhanced
       },
       type,
@@ -234,16 +239,20 @@ export class QuestionGenerationOrchestrator {
   }
 
   /**
-   * Create fallback question from raw question
+   * Create fallback question from raw question.
+   *
+   * As with `createFinalQuestion`, the requested topic wins over whatever the
+   * raw question claims.
    */
   private createFallbackQuestion(
     rawQuestion: RawQuestion,
     type: QuestionType,
-    fallbackReason: string
+    fallbackReason: string,
+    requestedTopic: IBPhysicsSubtopic
   ): GeneratedQuestion {
     return {
       id: uuidv4(),
-      topic: rawQuestion.topic,
+      topic: requestedTopic,
       questionText: rawQuestion.questionText,
       options: rawQuestion.options,
       correctAnswer: rawQuestion.suggestedAnswer,
@@ -257,7 +266,7 @@ export class QuestionGenerationOrchestrator {
         processingTime: 0,
         refinementApplied: false,
         validationPassed: true,
-        topic: rawQuestion.topic,
+        topic: requestedTopic,
         difficulty: 'standard'
       },
       type,
@@ -467,17 +476,25 @@ export class QuestionGenerationOrchestrator {
       details.push(`Refinement service error: ${error}`);
     }
 
-    // Determine overall health
-    const healthyServices = Object.values(services).filter(status => status === 'healthy').length;
-    const totalServices = Object.keys(services).length;
+    // Determine overall health.
+    //
+    // Validation runs in-process and is always constructible, so counting it as
+    // healthy the way the remote providers are counted made 'unhealthy'
+    // unreachable: a pipeline with no usable provider still reported 'degraded'.
+    // Model providers decide whether generation is possible at all; validation
+    // only upgrades a reachable pipeline to 'healthy'.
+    const statuses = Object.values(services);
+    const healthyServices = statuses.filter(status => status === 'healthy').length;
+    const healthyProviders = [services.llama, services.refinement]
+      .filter(status => status === 'healthy').length;
 
     let overall: 'healthy' | 'degraded' | 'unhealthy';
-    if (healthyServices === totalServices) {
+    if (healthyServices === statuses.length) {
       overall = 'healthy';
-    } else if (healthyServices > 0) {
-      overall = 'degraded';
-    } else {
+    } else if (healthyProviders === 0) {
       overall = 'unhealthy';
+    } else {
+      overall = 'degraded';
     }
 
     return { overall, services, details };

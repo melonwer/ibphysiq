@@ -247,7 +247,7 @@ You can use a Lightning AI hosted inference endpoint for question generation. Th
 2) Configure the app (example `.env.local`)
 ```
 LIT_API_URL=https://8000-dep-01k3m70zjy9sat5he7x29dkvjq-d.cloudspaces.litng.ai/predict
-LIT_API_TOKEN=1816a8fa-5ce1-4b14-8a45-2d9c576fbc7b
+LIT_API_TOKEN=replace-with-your-lightning-api-token
 ```
 
 3) Option A — server-direct (recommended for server deployments)

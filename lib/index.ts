@@ -1,6 +1,8 @@
 // Main library exports
 export * from './types';
 export * from './utils';
+export * from './visuals';
+export * from './generation-harness';
 
 // Re-export commonly used types (avoiding duplicates from above export *)
 export type {

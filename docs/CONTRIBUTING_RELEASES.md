@@ -234,7 +234,7 @@ gh run watch
 - **Git**: Version control and branching
 - **GitHub CLI**: Workflow automation
 - **VS Code**: Recommended editor with extensions
-- **Node.js**: Runtime environment (v18+)
+- **Node.js**: Runtime environment (v20+)
 - **Docker**: Containerization and deployment
 
 ### CI/CD Tools

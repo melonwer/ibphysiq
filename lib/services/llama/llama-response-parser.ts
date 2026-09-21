@@ -88,7 +88,10 @@ export class LlamaResponseParser {
       .trim()
       .replace(/\r\n/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
-      .replace(/^\s+|\s+$/gm, ''); // Trim each line
+      // Trim horizontal whitespace on each line. Using `\s` here would also
+      // swallow line breaks (an `m`-anchored `$` matches just before one) and
+      // glue the next line on, so `D) Fourth option` ran into `ANSWER: A`.
+      .replace(/^[^\S\n]+|[^\S\n]+$/gm, '');
   }
 
   /**
@@ -117,47 +120,52 @@ export class LlamaResponseParser {
   }
 
   /**
-   * Extract options from response
+   * Extract options from response.
+   *
+   * Returns every labelled option it can find -- including ones whose text is
+   * empty -- so callers can report the real number found instead of losing the
+   * count when a response does not have exactly four options.
    */
-  private static extractOptions(response: string): string[] | null {
-    const options: string[] = [];
-    
-    // Extract each option A) A. A: through D)
-    const optionPattern = /([A-D])[\)\.\:]\s*(.+?)(?=\n\s*[A-D][\)\.\:]|\n(?:ANSWER|CORRECT_ANSWER|IMPROVEMENTS_MADE):|$)/g;
-    let match;
-    
-    while ((match = optionPattern.exec(response)) !== null) {
-      const letter = match[1];
-      const text = match[2].trim();
-      if (text.length > 0) {
-        options.push(text);
-      }
+  private static extractOptions(response: string): string[] {
+    // Options are normally emitted one per line, which is also the only layout
+    // where multi-line option text can be told apart from the answer block.
+    const lineAnchored = this.scanOptions(response, true);
+    if (lineAnchored.length >= 4) {
+      return lineAnchored;
     }
-    
-    // If we didn't get 4 options, try alternative extraction
-    if (options.length !== 4) {
-      return this.extractOptionsAlternative(response);
-    }
-    
-    return options.length === 4 ? options : null;
+
+    // Rescue responses that put several options on a single line, but only
+    // when that layout explains more options than the anchored scan did.
+    const inline = this.scanOptions(response, false);
+    return inline.length > lineAnchored.length ? inline : lineAnchored;
   }
 
   /**
-   * Alternative option extraction method
+   * Scan for `A) ...` / `B. ...` / `C: ...` option labels.
+   *
+   * `anchored` restricts matches to the start of a line. The unanchored pass is
+   * a fallback for single-line option grids and can therefore be fooled by
+   * prose containing an option-like label.
    */
-  private static extractOptionsAlternative(response: string): string[] | null {
-    const lines = response.split('\n');
+  private static scanOptions(response: string, anchored: boolean): string[] {
+    const prefix = anchored ? '^[^\\S\\n]*' : '';
+    const boundary = anchored ? '\\n' : '';
+    const optionPattern = new RegExp(
+      `${prefix}([A-D])[\\)\\.\\:][^\\S\\n]*([\\s\\S]*?)` +
+      `(?=${boundary}[^\\S\\n]*[A-D][\\)\\.\\:]` +
+      `|${boundary}[^\\S\\n]*(?:ANSWER|CORRECT_ANSWER|IMPROVEMENTS_MADE)\\s*:` +
+      `|\\s*$)`,
+      anchored ? 'gm' : 'g'
+    );
+
     const options: string[] = [];
-    
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      const optionMatch = trimmedLine.match(/^([A-D])[\)\.\:]\s*(.+)$/);
-      if (optionMatch && optionMatch[2]) {
-        options.push(optionMatch[2].trim());
-      }
+    let match;
+
+    while ((match = optionPattern.exec(response)) !== null) {
+      options.push(match[2].trim());
     }
-    
-    return options.length === 4 ? options : null;
+
+    return options;
   }
 
   /**
@@ -180,9 +188,10 @@ export class LlamaResponseParser {
       }
     }
 
-    // If no answer is provided (as expected from your model), return a placeholder
-    // The correct answer will be determined by Gemini during refinement
-    return 'A'; // Placeholder - will be corrected by Gemini
+    // No answer means the response is unusable as a question. Returning a
+    // default here would silently relabel a wrong option as correct, so the
+    // caller must supply a real answer.
+    return null;
   }
 
   /**
@@ -197,18 +206,18 @@ export class LlamaResponseParser {
       return { isValid: false, error: 'No question text found' };
     }
 
-    // Check for empty options before checking count
-    if (options && options.some(option => !option || option.trim().length === 0)) {
-      return { isValid: false, error: 'One or more options are empty' };
-    }
-
+    // Check the count first so a response with only two options is reported as
+    // "found 2" rather than as a wall of empty options.
     if (!options || options.length !== 4) {
       return { isValid: false, error: `Expected 4 options, found ${options?.length || 0}` };
     }
 
-    // Answer validation is more lenient since your model doesn't provide answers initially
-    if (answer && !['A', 'B', 'C', 'D'].includes(answer)) {
-      return { isValid: false, error: 'Invalid answer choice format' };
+    if (options.some(option => !option || option.trim().length === 0)) {
+      return { isValid: false, error: 'One or more options are empty' };
+    }
+
+    if (!answer || !['A', 'B', 'C', 'D'].includes(answer)) {
+      return { isValid: false, error: 'Invalid or missing answer choice' };
     }
 
     // Check question length

@@ -100,7 +100,7 @@ For developers and advanced users who want more AI options:
 ## 📦 Setup Guide
 
 ### What You Need
-- **Node.js 18+** - [Download here](https://nodejs.org/)
+- **Node.js 20+** - [Download here](https://nodejs.org/)
 - **Git** - For downloading the project
 - **5 minutes** - That's it! ⏱️
 
