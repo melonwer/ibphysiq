@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>IBPhysiq paper review</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        background: #f4f1ea;
+        color: #17211b;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      button,
+      select,
+      textarea {
+        font: inherit;
+      }
+      header {
+        padding: 24px clamp(20px, 5vw, 72px);
+        background: #173f35;
+        color: #fff;
+      }
+      header h1 {
+        margin: 0 0 8px;
+        font-size: clamp(24px, 4vw, 40px);
+      }
+      header p {
+        max-width: 880px;
+        margin: 0;
+        color: #dceae4;
+        line-height: 1.55;
+      }
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+        padding: 18px clamp(20px, 5vw, 72px);
+        background: #e7e1d6;
+      }
+      .metric {
+        background: #fff;
+        border-radius: 12px;
+        padding: 14px;
+        box-shadow: 0 1px 2px #0001;
+      }
+      .metric strong {
+        display: block;
+        font-size: 24px;
+      }
+      .metric span {
+        color: #526057;
+        font-size: 13px;
+      }
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        padding: 16px clamp(20px, 5vw, 72px);
+        border-bottom: 1px solid #d4cec2;
+      }
+      .controls select,
+      .controls button,
+      .review-controls select {
+        border: 1px solid #aaa79f;
+        border-radius: 8px;
+        background: #fff;
+        padding: 9px 11px;
+      }
+      .controls .position {
+        margin-left: auto;
+        color: #526057;
+      }
+      main {
+        max-width: 1250px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .card {
+        background: #fff;
+        border-radius: 16px;
+        box-shadow: 0 4px 22px #20352c17;
+        overflow: hidden;
+      }
+      .card-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid #e7e1d6;
+      }
+      .eyebrow {
+        color: #276550;
+        font-size: 12px;
+        font-weight: 750;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+      h2 {
+        margin: 6px 0;
+        font-size: 23px;
+      }
+      .source {
+        color: #657269;
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+      .issues {
+        display: grid;
+        gap: 10px;
+        padding: 20px 24px;
+        background: #fff8e8;
+      }
+      .issue {
+        border-left: 4px solid #d8951d;
+        padding-left: 13px;
+      }
+      .issue h3 {
+        margin: 0 0 4px;
+        font-size: 16px;
+      }
+      .issue p {
+        margin: 3px 0;
+        line-height: 1.45;
+      }
+      .action {
+        color: #744d08;
+        font-weight: 650;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(300px, 0.8fr) minmax(360px, 1.2fr);
+      }
+      .question {
+        padding: 24px;
+        border-right: 1px solid #e7e1d6;
+      }
+      .question pre {
+        margin: 12px 0 0;
+        white-space: pre-wrap;
+        font:
+          14px/1.55 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      .visuals {
+        padding: 24px;
+        min-width: 0;
+      }
+      .visual-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 14px;
+      }
+      figure {
+        margin: 0;
+        border: 1px solid #ddd7ca;
+        border-radius: 10px;
+        overflow: hidden;
+        background: #faf9f6;
+      }
+      figure img {
+        width: 100%;
+        max-height: 390px;
+        object-fit: contain;
+        display: block;
+        background: #fff;
+      }
+      figcaption {
+        padding: 9px 11px;
+        color: #526057;
+        font-size: 12px;
+      }
+      .figure-control {
+        padding: 0 11px 11px;
+      }
+      .figure-control label {
+        display: block;
+        margin: 0 0 5px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .figure-control select {
+        width: 100%;
+        border: 1px solid #aaa79f;
+        border-radius: 7px;
+        padding: 7px;
+        background: #fff;
+      }
+      details {
+        margin-top: 16px;
+      }
+      details summary {
+        cursor: pointer;
+        color: #276550;
+        font-weight: 650;
+      }
+      .review-controls {
+        padding: 20px 24px 24px;
+        background: #eef4f0;
+        border-top: 1px solid #d9e4dd;
+      }
+      .review-controls label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 650;
+      }
+      .review-controls textarea {
+        width: 100%;
+        min-height: 72px;
+        border: 1px solid #aaa79f;
+        border-radius: 8px;
+        padding: 10px;
+        resize: vertical;
+      }
+      .decision-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+        margin-top: 12px;
+      }
+      button {
+        cursor: pointer;
+      }
+      .decision-row button {
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-weight: 700;
+      }
+      .accept {
+        background: #176c4e;
+        color: #fff;
+      }
+      .correct {
+        background: #255f91;
+        color: #fff;
+      }
+      .exclude {
+        background: #9c3f39;
+        color: #fff;
+      }
+      .defer {
+        background: #ddd6c8;
+        color: #282f2a;
+      }
+      .saved {
+        margin-left: auto;
+        align-self: center;
+        color: #276550;
+        font-weight: 650;
+      }
+      .empty {
+        padding: 70px 24px;
+        text-align: center;
+      }
+      .hidden {
+        display: none !important;
+      }
+      @media (max-width: 780px) {
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+        .question {
+          border-right: 0;
+          border-bottom: 1px solid #e7e1d6;
+        }
+        .controls .position {
+          width: 100%;
+          margin-left: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Paper extraction review</h1>
+      <p>
+        This is not a request to re-solve hundreds of physics questions. Each
+        card shows one place where automation deliberately refused to guess:
+        scanned wording, a missing crop, or an uncertain diagram family. The
+        goal is to protect the template catalogue and training data.
+      </p>
+    </header>
+    <section class="summary" id="summary"></section>
+    <section class="controls">
+      <select id="bucket" aria-label="Review bucket">
+        <option value="all">All review types</option>
+        <option value="extraction">Extraction problems</option>
+        <option value="source_limit">Source limitations</option>
+        <option value="visual_semantics">Uncertain visual types</option>
+      </select>
+      <select id="scope" aria-label="Review scope">
+        <option value="pilot">Representative visual sample</option>
+        <option value="all">Full safety queue</option>
+      </select>
+      <select id="state" aria-label="Decision state">
+        <option value="unreviewed">Unreviewed only</option>
+        <option value="all">All states</option>
+        <option value="reviewed">Reviewed only</option>
+      </select>
+      <button id="previous" type="button">← Previous</button>
+      <button id="next" type="button">Next →</button>
+      <span class="position" id="position"></span>
+    </section>
+    <main>
+      <article class="card" id="card">
+        <div class="card-header">
+          <div class="eyebrow" id="eyebrow"></div>
+          <h2 id="title"></h2>
+          <div class="source" id="source"></div>
+        </div>
+        <section class="issues" id="issues"></section>
+        <div class="workspace">
+          <section class="question">
+            <div class="eyebrow">Question context</div>
+            <pre id="questionText"></pre>
+          </section>
+          <section class="visuals">
+            <div class="eyebrow">Visual evidence</div>
+            <p id="currentFamily"></p>
+            <div class="visual-grid" id="visualGrid"></div>
+            <details id="pagesDetails">
+              <summary>Show original PDF page(s)</summary>
+              <div class="visual-grid" id="pageGrid"></div>
+            </details>
+          </section>
+        </div>
+        <section class="review-controls">
+          <label for="family">Question-level visual family</label>
+          <select id="family"></select>
+          <label for="notes" style="margin-top: 12px">Review note</label>
+          <textarea
+            id="notes"
+            placeholder="What did you verify or change?"
+          ></textarea>
+          <div class="decision-row">
+            <button class="accept" data-status="accepted">
+              Accept current (A)
+            </button>
+            <button class="correct" data-status="corrected">
+              Save corrected family (C)
+            </button>
+            <button class="exclude" data-status="excluded">Exclude (X)</button>
+            <button class="defer" data-status="deferred">Defer (D)</button>
+            <span class="saved" id="saved"></span>
+          </div>
+        </section>
+      </article>
+      <section class="card empty hidden" id="empty">
+        <h2>No records match this filter</h2>
+        <p>Change the filters or review the completed decisions.</p>
+      </section>
+    </main>
+    <script>
+      const state = { items: [], meta: null, filtered: [], index: 0 };
+      const $ = (id) => document.getElementById(id);
+      const escapeHtml = (value) =>
+        String(value ?? "").replace(
+          /[&<>"']/g,
+          (char) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#039;",
+            })[char],
+        );
+
+      function decisionFor(item) {
+        return state.meta.decisions[item.id];
+      }
+      function renderSummary() {
+        const counts = state.meta.bucket_counts;
+        const metrics = [
+          [state.meta.remaining, "still gated"],
+          [state.meta.reviewed, "final decisions saved"],
+          [state.meta.pilot_sample_count, "in visual pilot sample"],
+          [counts.extraction || 0, "extraction problems"],
+          [counts.source_limit || 0, "source limitations"],
+          [counts.visual_semantics || 0, "visual-type decisions"],
+        ];
+        $("summary").innerHTML = metrics
+          .map(
+            ([number, label]) =>
+              `<div class="metric"><strong>${number}</strong><span>${label}</span></div>`,
+          )
+          .join("");
+      }
+
+      function applyFilters() {
+        const bucket = $("bucket").value;
+        const scope = $("scope").value;
+        const decisionState = $("state").value;
+        state.filtered = state.items.filter((item) => {
+          const hasDecision = ["accepted", "corrected", "excluded"].includes(
+            decisionFor(item)?.status,
+          );
+          return (
+            (scope === "all" || item.pilot_sample) &&
+            (bucket === "all" || item.bucket === bucket) &&
+            (decisionState === "all" ||
+              (decisionState === "reviewed") === hasDecision)
+          );
+        });
+        state.index = Math.min(
+          state.index,
+          Math.max(0, state.filtered.length - 1),
+        );
+        renderItem();
+      }
+
+      function figure(image, caption) {
+        return (
+          `<figure><img loading="lazy" src="${escapeHtml(image)}" alt="${escapeHtml(caption)}" />` +
+          `<figcaption>${escapeHtml(caption)}</figcaption></figure>`
+        );
+      }
+
+      function familyOptions(selected) {
+        return state.meta.families
+          .map(
+            (family) =>
+              `<option value="${escapeHtml(family)}" ${family === selected ? "selected" : ""}>` +
+              `${escapeHtml(family.replaceAll("_", " "))}</option>`,
+          )
+          .join("");
+      }
+
+      function renderItem() {
+        const item = state.filtered[state.index];
+        $("card").classList.toggle("hidden", !item);
+        $("empty").classList.toggle("hidden", Boolean(item));
+        $("position").textContent = item
+          ? `${state.index + 1} of ${state.filtered.length}`
+          : "0 items";
+        if (!item) return;
+        const question = item.question;
+        const source = item.source;
+        $("eyebrow").textContent = item.bucket.replaceAll("_", " ");
+        $("title").textContent = question
+          ? `Question ${question.number}`
+          : "Source-level limitation";
+        $("source").textContent = [
+          source.year,
+          source.session,
+          source.level,
+          `Paper ${source.paper}`,
+          source.zone ? `zone ${source.zone}` : null,
+          source.relative_path,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        $("issues").innerHTML = item.issues
+          .map(
+            (issue) =>
+              `<div class="issue"><h3>${escapeHtml(issue.title)}</h3>` +
+              `<p>${escapeHtml(issue.explanation)}</p><p class="action">Decision: ${escapeHtml(issue.action)}</p></div>`,
+          )
+          .join("");
+        $("questionText").textContent = question
+          ? question.normalized_text
+          : "This issue applies to the paper source rather than one extracted question.";
+        const plan = item.visual_plan;
+        $("currentFamily").textContent = plan
+          ? `Current proposal: ${plan.primary_family} (${Math.round(plan.confidence * 100)}% rule confidence; ${plan.composition})`
+          : "No visual plan is linked to this record.";
+        const existing = decisionFor(item);
+        $("visualGrid").innerHTML = plan?.figures.length
+          ? plan.figures
+              .map((visual) => {
+                const chosen =
+                  existing?.figure_families?.[visual.figure_id] ||
+                  visual.primary_family;
+                const images = visual.assets.length
+                  ? visual.assets
+                      .map(
+                        (asset) =>
+                          `<img loading="lazy" src="/api/asset/${escapeHtml(asset.asset_id)}" alt="Figure crop" />`,
+                      )
+                      .join("")
+                  : '<div style="padding:18px">No isolated crop; use the original page.</div>';
+                return (
+                  `<figure>${images}<figcaption>${escapeHtml(visual.primary_family)} · ` +
+                  `${Math.round(visual.confidence * 100)}% · ${escapeHtml(visual.composition_role)}</figcaption>` +
+                  `<div class="figure-control"><label>Family for this figure</label>` +
+                  `<select class="figure-family" data-figure-id="${escapeHtml(visual.figure_id)}">` +
+                  `${familyOptions(chosen)}</select></div></figure>`
+                );
+              })
+              .join("")
+          : "<p>No isolated crop exists. Open the original page below.</p>";
+        $("pagesDetails").classList.toggle("hidden", !question);
+        $("pageGrid").innerHTML = question
+          ? question.pages
+              .map((page) =>
+                figure(
+                  `/api/page/${question.question_id}/${page}`,
+                  `Original source page ${page}`,
+                ),
+              )
+              .join("")
+          : "";
+        $("family").value =
+          existing?.family || plan?.primary_family || "geometry_scene";
+        $("notes").value = existing?.notes || "";
+        $("saved").textContent = existing ? `Saved: ${existing.status}` : "";
+      }
+
+      async function saveDecision(status) {
+        const item = state.filtered[state.index];
+        if (!item) return;
+        const figureFamilies = Object.fromEntries(
+          [...document.querySelectorAll(".figure-family")].map((select) => [
+            select.dataset.figureId,
+            select.value,
+          ]),
+        );
+        const response = await fetch("/api/decision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item_id: item.id,
+            status,
+            family: $("family").value,
+            figure_families: figureFamilies,
+            notes: $("notes").value,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          alert(payload.error || "Could not save decision");
+          return;
+        }
+        state.meta.decisions[item.id] = payload;
+        state.meta.reviewed = state.items.filter((candidate) =>
+          ["accepted", "corrected", "excluded"].includes(
+            state.meta.decisions[candidate.id]?.status,
+          ),
+        ).length;
+        state.meta.remaining = state.meta.total - state.meta.reviewed;
+        renderSummary();
+        if ($("state").value === "unreviewed") applyFilters();
+        else {
+          $("saved").textContent = `Saved: ${status}`;
+          move(1);
+        }
+      }
+
+      function move(delta) {
+        if (!state.filtered.length) return;
+        state.index =
+          (state.index + delta + state.filtered.length) % state.filtered.length;
+        renderItem();
+      }
+
+      async function start() {
+        [state.items, state.meta] = await Promise.all([
+          fetch("/api/items").then((response) => response.json()),
+          fetch("/api/meta").then((response) => response.json()),
+        ]);
+        $("family").innerHTML = familyOptions("");
+        renderSummary();
+        applyFilters();
+      }
+
+      $("bucket").addEventListener("change", applyFilters);
+      $("scope").addEventListener("change", applyFilters);
+      $("state").addEventListener("change", applyFilters);
+      $("previous").addEventListener("click", () => move(-1));
+      $("next").addEventListener("click", () => move(1));
+      document
+        .querySelectorAll("[data-status]")
+        .forEach((button) =>
+          button.addEventListener("click", () =>
+            saveDecision(button.dataset.status),
+          ),
+        );
+      document.addEventListener("keydown", (event) => {
+        if (["TEXTAREA", "SELECT"].includes(document.activeElement.tagName))
+          return;
+        const key = event.key.toLowerCase();
+        if (key === "arrowleft") move(-1);
+        if (key === "arrowright") move(1);
+        if (
+          { a: "accepted", c: "corrected", x: "excluded", d: "deferred" }[key]
+        )
+          saveDecision(
+            { a: "accepted", c: "corrected", x: "excluded", d: "deferred" }[
+              key
+            ],
+          );
+      });
+      start();
+    </script>
+  </body>
+</html>

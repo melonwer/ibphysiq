@@ -12,7 +12,70 @@ import {
 } from '../../types/question-generation';
 import { TOPIC_CONTEXTS, TOPIC_DISPLAY_NAMES } from '../../constants/ib-physics-topics';
 
+/**
+ * Words that carry no topic signal: ordinary function words plus the
+ * boilerplate that every `TOPIC_CONTEXTS` entry is written with.
+ */
+const TOPIC_STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+  'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
+  'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+  'as', 'into', 'its', 'it', 'this', 'that', 'these', 'those', 'their',
+  'between', 'more', 'most', 'than', 'then', 'when', 'where', 'which',
+  'while', 'also', 'such', 'from', 'not', 'only',
+  // Instruction boilerplate used to describe topics.
+  'focus', 'include', 'including', 'cover', 'advanced', 'based'
+]);
+
+/**
+ * How many distinct topic concepts a question is expected to engage before it
+ * counts as fully relevant. Short questions legitimately touch only one or two
+ * concepts, so requiring coverage of the whole topic would be unrealistic.
+ */
+const CONCEPTS_FOR_FULL_RELEVANCE = 2;
+
 export class IBComplianceValidator {
+  /**
+   * Reduce a word to a comparable stem so `acceleration`, `accelerates` and
+   * `accelerating` all match, and `orbits` matches `orbital`.
+   *
+   * Both sides of a comparison run through this, so consistency matters more
+   * than linguistic correctness.
+   */
+  private static stemWord(word: string): string {
+    return word
+      .replace(/(ations|ation|ating|ated|ates|ate)$/, 'at')
+      .replace(/ies$/, 'y')
+      .replace(/(ions|ion)$/, 'ion')
+      .replace(/(ally|al)$/, 'al')
+      .replace(/(ing|ers|er|ed|es|s)$/, '');
+  }
+
+  /**
+   * Extract the distinct content words of a passage, deduplicated by stem.
+   */
+  private static contentTerms(text: string): string[] {
+    const terms: string[] = [];
+    const seenStems = new Set<string>();
+
+    for (const word of IBComplianceValidator.tokenize(text)) {
+      const stem = IBComplianceValidator.stemWord(word);
+      if (stem.length === 0 || seenStems.has(stem)) continue;
+      seenStems.add(stem);
+      terms.push(word);
+    }
+
+    return terms;
+  }
+
+  private static tokenize(text: string): string[] {
+    return text
+      .toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 2 && !TOPIC_STOPWORDS.has(word));
+  }
+
   /**
    * Validates IB Physics curriculum compliance
    */
@@ -54,16 +117,27 @@ export class IBComplianceValidator {
     warnings: ValidationWarning[], 
     suggestions: string[]
   ): number {
-    const questionText = question.questionText.toLowerCase();
-    const topicContext = TOPIC_CONTEXTS[question.topic].toLowerCase();
-    
-    // Extract key terms from topic context
-    const topicKeywords = this.extractKeywords(topicContext);
-    const questionKeywords = this.extractKeywords(questionText);
-    
-    // Calculate relevance score based on keyword overlap
-    const relevanceScore = this.calculateKeywordOverlap(topicKeywords, questionKeywords);
-    
+    const topicKeywords = IBComplianceValidator.contentTerms(TOPIC_CONTEXTS[question.topic]);
+    const questionStems = new Set(
+      IBComplianceValidator.tokenize(question.questionText)
+        .map(IBComplianceValidator.stemWord)
+    );
+
+    const matchedTerms = topicKeywords.filter(term =>
+      questionStems.has(IBComplianceValidator.stemWord(term))
+    );
+
+    // Word overlap cannot grade relevance finely: a well-targeted question that
+    // touches one or two concepts scores just as low as an off-topic one under
+    // a set-similarity metric, because the topic description itself contributes
+    // most of the vocabulary. So the score answers a narrower question that the
+    // signal really supports -- does the question engage any concept of this
+    // topic at all -- and then rises with the number of distinct concepts
+    // matched, saturating at CONCEPTS_FOR_FULL_RELEVANCE.
+    const relevanceScore = matchedTerms.length === 0
+      ? 0
+      : Math.min(1, 0.5 + 0.5 * (matchedTerms.length / CONCEPTS_FOR_FULL_RELEVANCE));
+
     if (relevanceScore < 0.5) {
       warnings.push({
         type: 'compliance',
@@ -75,7 +149,7 @@ export class IBComplianceValidator {
     if (relevanceScore < 0.3) {
       suggestions.push(`Consider focusing more on ${question.topic} concepts`);
     }
-    
+
     return relevanceScore;
   }
 
@@ -317,33 +391,6 @@ export class IBComplianceValidator {
   }
 
   // Helper methods
-  private extractKeywords(text: string): string[] {
-    // Remove common words and extract meaningful terms
-    const commonWords = new Set([
-      'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-      'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have',
-      'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should'
-    ]);
-    
-    return text
-      .toLowerCase()
-      .replace(/[^\w\s]/g, ' ')
-      .split(/\s+/)
-      .filter(word => word.length > 2 && !commonWords.has(word))
-      .slice(0, 20); // Limit to most relevant keywords
-  }
-
-  private calculateKeywordOverlap(keywords1: string[], keywords2: string[]): number {
-    if (keywords1.length === 0 || keywords2.length === 0) return 0;
-    
-    const set1 = new Set(keywords1);
-    const set2 = new Set(keywords2);
-    
-    const intersection = new Set([...set1].filter(x => set2.has(x)));
-    const union = new Set([...set1, ...set2]);
-    
-    return intersection.size / union.size; // Jaccard similarity
-  }
 
   private identifyTopicConnections(question: RefinedQuestion): string[] {
     const questionText = question.questionText.toLowerCase();

@@ -1,5 +1,5 @@
 # Use multi-stage build for production optimization
-FROM node:18-alpine AS base
+FROM node:20-alpine AS base
 
 # Install dumb-init for signal handling
 RUN apk add --no-cache dumb-init
@@ -21,7 +21,7 @@ RUN npm ci --only=production && npm cache clean --force
 COPY --chown=nextjs:nodejs . .
 
 # Dependencies stage
-FROM node:18-alpine AS deps
+FROM node:20-alpine AS deps
 RUN apk add --no-cache libc6-compat dumb-init
 WORKDIR /app
 
@@ -32,7 +32,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci --frozen-lockfile
 
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Copy dependencies
@@ -47,7 +47,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # Production stage
-FROM node:18-alpine AS runner
+FROM node:20-alpine AS runner
 LABEL maintainer="melonwer"
 LABEL description="IB Physics Practice Question Generator - AI-powered educational tool"
 LABEL version="1.0.0"
