@@ -430,7 +430,7 @@ jobs:
           sleep 15
           
           # Test health
-          if docker exec ibphysiq-ci-test curl -f http://localhost:3000 > /dev/null 2>&1; then
+            if docker exec ibphysiq-ci-test curl -f http://127.0.0.1:3000 > /dev/null 2>&1; then
             echo "✅ Docker container test passed"
           else
             echo "❌ Docker container test failed"
