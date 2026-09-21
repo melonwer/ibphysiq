@@ -14,7 +14,7 @@ process.env.LLAMA_MODEL_ID = 'test/model';
 
 // Mock the services to avoid actual API calls in tests
 jest.mock('../../../../lib/services/llama/llama-model-service');
-jest.mock('../../../../lib/services/gemini/gemini-refinement-service');
+jest.mock('../../../../lib/services/openrouter/openrouter-refinement-service');
 jest.mock('../../../../lib/services/orchestration/question-generation-orchestrator');
 
 describe('/api/generate-question', () => {

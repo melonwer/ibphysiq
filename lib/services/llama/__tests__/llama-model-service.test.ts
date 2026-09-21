@@ -1,5 +1,10 @@
 /**
  * Unit tests for LlamaModelService
+ *
+ * The provider boundary is the `HfInference` instance the service constructs,
+ * so the mocks are bound to that instance rather than to a throwaway client.
+ * Retry backoff is injected, and the local TGI provider is exercised through a
+ * stubbed `fetch`, so no test touches the network.
  */
 
 import { LlamaModelService, LlamaConfig } from '../llama-model-service';
@@ -15,7 +20,8 @@ jest.mock('@huggingface/inference', () => ({
 describe('LlamaModelService', () => {
   let service: LlamaModelService;
   let mockTextGeneration: jest.Mock;
-  
+  let sleeps: number[];
+
   const testConfig: LlamaConfig = {
     apiKey: 'hf_test-api-key',
     modelId: 'd4ydy/ib-physics-question-generator',
@@ -26,28 +32,40 @@ describe('LlamaModelService', () => {
     topP: 0.9
   };
 
-  beforeEach(() => {
-    // Mock environment variables
-    process.env.LOCAL_TGI_URL = 'http://localhost:5000';
-
+  /**
+   * Build a service and capture the Hugging Face client it actually created,
+   * which is the boundary the assertions below drive.
+   */
+  const createService = (overrides: Partial<LlamaConfig> = {}): LlamaModelService => {
     const { HfInference } = require('@huggingface/inference');
-    const mockHf = new HfInference();
-    mockTextGeneration = mockHf.textGeneration;
+    HfInference.mockClear();
 
-    service = new LlamaModelService(testConfig);
+    sleeps = [];
+    const instance = new LlamaModelService(
+      { ...testConfig, ...overrides },
+      {
+        sleep: async (ms: number) => {
+          sleeps.push(ms);
+        }
+      }
+    );
 
-    // Add logging to verify providers
-    console.log('[Test] LlamaModelService initialized with config:', {
-      apiKey: testConfig.apiKey.substring(0, 10) + '...',
-      provider: testConfig.provider,
-      localTgiUrl: process.env.LOCAL_TGI_URL,
-      litUrl: testConfig.litUrl
-    });
+    const results = HfInference.mock.results;
+    expect(results.length).toBeGreaterThan(0);
+    mockTextGeneration = results[results.length - 1].value.textGeneration;
+
+    return instance;
+  };
+
+  beforeEach(() => {
+    // No local provider configured: the local path must be opt-in, otherwise
+    // these tests would probe localhost.
+    delete process.env.LOCAL_TGI_URL;
+    service = createService();
   });
 
   afterEach(() => {
     jest.clearAllMocks();
-    // Clean up environment variables
     delete process.env.LOCAL_TGI_URL;
   });
 
@@ -63,21 +81,29 @@ describe('LlamaModelService', () => {
       expect(service.getModelInfo().status).toBe('ready');
     });
 
-    it('should handle initialization failure', async () => {
+    it('should degrade to fallback mode when the model cannot be reached', async () => {
       mockTextGeneration.mockRejectedValue(new Error('Model not found'));
 
-      await expect(service.initialize()).rejects.toThrow('Failed to initialize Llama model');
+      // Initialization is documented as best-effort: the service falls back
+      // rather than aborting the whole pipeline.
+      await expect(service.initialize()).resolves.toBeUndefined();
+
       expect(service.isAvailable()).toBe(false);
+      expect(service.getModelInfo().status).toBe('fallback');
     });
   });
 
   describe('generateQuestion', () => {
     beforeEach(async () => {
-      // Mock successful initialization
       mockTextGeneration.mockResolvedValueOnce({
         generated_text: 'Test initialization response'
       });
       await service.initialize();
+
+      // Start each test from a clean call history; the response queue is
+      // already drained by the initialization above.
+      mockTextGeneration.mockClear();
+      sleeps = [];
     });
 
     it('should generate a valid question', async () => {
@@ -128,6 +154,8 @@ ANSWER: A
 
       expect(mockTextGeneration).toHaveBeenCalledTimes(2);
       expect(result.questionText).toContain('Valid question on retry');
+      // One backoff wait between the two attempts.
+      expect(sleeps).toEqual([2000]);
     });
 
     it('should throw error after max retries', async () => {
@@ -140,24 +168,35 @@ ANSWER: A
         .toThrow('Failed to generate question after 2 attempts');
 
       expect(mockTextGeneration).toHaveBeenCalledTimes(2);
+      expect(sleeps).toEqual([2000]);
     });
 
     it('should handle API timeout', async () => {
-      mockTextGeneration.mockImplementation(() => 
-        new Promise(resolve => setTimeout(resolve, 15000)) // Longer than timeout
-      );
+      service = createService({ timeoutMs: 25 });
+      mockTextGeneration.mockResolvedValueOnce({ generated_text: 'init response' });
+      await service.initialize();
+      mockTextGeneration.mockClear();
+
+      // Never settles, so only the per-request timeout can finish the attempt.
+      mockTextGeneration.mockImplementation(() => new Promise(() => {}));
 
       await expect(service.generateQuestion(IBPhysicsSubtopic.KINEMATICS))
         .rejects
-        .toThrow();
+        .toThrow('Model API timeout');
+
+      // The underlying cause is preserved rather than flattened away.
+      expect(mockTextGeneration).toHaveBeenCalledTimes(2);
     });
 
-    it('should handle quota exceeded error', async () => {
+    it('should not retry a quota error that cannot succeed later', async () => {
       mockTextGeneration.mockRejectedValue(new Error('quota exceeded'));
 
       await expect(service.generateQuestion(IBPhysicsSubtopic.KINEMATICS))
         .rejects
         .toThrow('quota');
+
+      expect(mockTextGeneration).toHaveBeenCalledTimes(1);
+      expect(sleeps).toEqual([]);
     });
 
     it('should handle model loading error', async () => {
@@ -166,6 +205,9 @@ ANSWER: A
       await expect(service.generateQuestion(IBPhysicsSubtopic.KINEMATICS))
         .rejects
         .toThrow('Model is still loading');
+
+      // Still loading is transient, so it is retried.
+      expect(mockTextGeneration).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -175,6 +217,8 @@ ANSWER: A
         generated_text: 'Test initialization response'
       });
       await service.initialize();
+      mockTextGeneration.mockClear();
+      sleeps = [];
     });
 
     it('should generate multiple questions', async () => {
@@ -206,7 +250,7 @@ ANSWER: A
         .mockResolvedValueOnce({
           generated_text: `QUESTION: Good question\nA) 1\nB) 2\nC) 3\nD) 4\nANSWER: A`
         })
-        .mockRejectedValueOnce(new Error('Generation failed'));
+        .mockRejectedValue(new Error('Generation failed'));
 
       const topics = [IBPhysicsSubtopic.KINEMATICS, IBPhysicsSubtopic.FORCES_MOMENTUM];
       const results = await service.generateMultipleQuestions(topics);
@@ -219,10 +263,68 @@ ANSWER: A
       mockTextGeneration.mockRejectedValue(new Error('All failed'));
 
       const topics = [IBPhysicsSubtopic.KINEMATICS, IBPhysicsSubtopic.FORCES_MOMENTUM];
-      
+
       await expect(service.generateMultipleQuestions(topics))
         .rejects
         .toThrow('Failed to generate any questions');
+    });
+  });
+
+  describe('local TGI provider', () => {
+    let originalFetch: typeof global.fetch;
+    let mockFetch: jest.Mock;
+
+    beforeEach(() => {
+      originalFetch = global.fetch;
+      mockFetch = jest.fn();
+      global.fetch = mockFetch as unknown as typeof global.fetch;
+      process.env.LOCAL_TGI_URL = 'http://localhost:5000';
+      service = createService();
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      delete process.env.LOCAL_TGI_URL;
+    });
+
+    it('should use the local server when it responds', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ results: [{ text: 'Local provider response' }] })
+      });
+
+      await service.initialize();
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mockFetch.mock.calls[0][0]).toBe('http://localhost:5000/api/v1/generate');
+      expect(mockTextGeneration).not.toHaveBeenCalled();
+      expect(service.getModelInfo().status).toBe('ready');
+    });
+
+    it('should stop trying the local server after an auth failure', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 403,
+        text: async () => 'forbidden'
+      });
+      mockTextGeneration.mockResolvedValueOnce({
+        generated_text: 'Response from Hugging Face'
+      });
+
+      // Falls back to Hugging Face and marks the local provider unusable.
+      await service.initialize();
+      expect(service.getModelInfo().status).toBe('ready');
+
+      mockFetch.mockClear();
+      mockTextGeneration.mockResolvedValue({
+        generated_text: `QUESTION: A valid question\nA) 1\nB) 2\nC) 3\nD) 4\nANSWER: A`
+      });
+
+      await service.generateQuestion(IBPhysicsSubtopic.KINEMATICS);
+
+      // The 403 must not be retried on every subsequent request.
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 
@@ -242,17 +344,15 @@ ANSWER: A
   describe('updateConfig', () => {
     it('should update configuration', () => {
       service.updateConfig({ temperature: 0.5, maxTokens: 300 });
-      
+
       const stats = service.getStats();
       expect(stats.config.temperature).toBe(0.5);
       expect(stats.config.maxTokens).toBe(300);
     });
 
     it('should reinitialize on API key change', () => {
-      const initialStatus = service.getModelInfo().status;
-      
       service.updateConfig({ apiKey: 'new-api-key' });
-      
+
       expect(service.isAvailable()).toBe(false);
       expect(service.getModelInfo().status).toBe('not_initialized');
     });

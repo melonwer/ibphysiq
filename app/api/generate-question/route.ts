@@ -425,24 +425,26 @@ export async function POST(request: NextRequest) {
       // ignore logging errors
     }
 
+    // Validate the request before checking credentials: a malformed or
+    // unsupported request should get an actionable error about the request
+    // itself rather than one about server configuration.
+    const validation = validateRequest(body);
+    if (!validation.isValid) {
+      return NextResponse.json(
+        { error: validation.error, code: 'INVALID_REQUEST' },
+        { status: 400 }
+      );
+    }
+
     // Validate that OpenRouter service is configured
     const hasOpenRouter = openRouterApiKey || process.env.OPENROUTER_API_KEY;
-    
+
     if (!hasOpenRouter) {
       return NextResponse.json(
         {
           error: 'OpenRouter API key is required. Please provide an OpenRouter API key in the settings.',
           code: 'MISSING_API_KEY'
         },
-        { status: 400 }
-      );
-    }
-    
-    // Validate request
-    const validation = validateRequest(body);
-    if (!validation.isValid) {
-      return NextResponse.json(
-        { error: validation.error, code: 'INVALID_REQUEST' }, 
         { status: 400 }
       );
     }
@@ -526,13 +528,27 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action');
 
     if (action === 'health') {
-      // Health check
+      // Health check. Monitoring depends on this endpoint always answering with
+      // a status code, so a broken or unconfigured service reports 503 here
+      // rather than bubbling up as a 500.
       if (!orchestrator) {
         return NextResponse.json({ status: 'not_initialized' }, { status: 503 });
       }
 
-      const health = await orchestrator.healthCheck();
-      return NextResponse.json(health);
+      try {
+        const health = await orchestrator.healthCheck();
+        if (!health || typeof health !== 'object') {
+          return NextResponse.json({ status: 'unavailable' }, { status: 503 });
+        }
+
+        return NextResponse.json(health);
+      } catch (healthError) {
+        console.error('Health check failed:', healthError);
+        return NextResponse.json(
+          { status: 'unhealthy', error: 'Health check failed' },
+          { status: 503 }
+        );
+      }
     }
 
     if (action === 'stats') {
@@ -565,8 +581,8 @@ export async function GET(request: NextRequest) {
     // Default: API information
     return NextResponse.json({
       name: 'IB Physics Question Generator API',
-      version: '1.0.0',
-      description: 'AI-powered question generation using fine-tuned Llama 3.1 8B and Gemini 2.5 Flash',
+      version: '2.0.0',
+      description: 'AI-powered question generation using a fine-tuned Llama model with OpenRouter refinement',
       endpoints: {
         'POST /': 'Generate a physics question',
         'GET /?action=health': 'Service health check',
@@ -575,7 +591,7 @@ export async function GET(request: NextRequest) {
       },
       supportedTopics: Object.keys(IBPhysicsSubtopic).length,
       features: [
-        'Two-model AI pipeline (Llama + Gemini)',
+        'Two-model AI pipeline (Llama + OpenRouter refinement)',
         'Comprehensive validation',
         'Rate limiting and cost control',
         'Real-time monitoring',

@@ -48,8 +48,20 @@ export interface RateLimitConfig {
   };
 }
 
+/**
+ * Injectable time source. Supplying a fake clock and sleep keeps quota tests
+ * deterministic and free of real waiting.
+ */
+export interface RateLimiterOptions {
+  /** Current wall-clock time in milliseconds. Defaults to `Date.now`. */
+  now?: () => number;
+  /** Wait implementation. Defaults to a real `setTimeout` delay. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
 interface UsageRecord {
-  timestamp: Date;
+  /** Epoch milliseconds. */
+  timestamp: number;
   tokens: number;
   cost: number;
 }
@@ -58,7 +70,22 @@ interface APIUsage {
   requests: UsageRecord[];
   tokens: number;
   cost: number;
-  lastReset: Date;
+  lastReset: number;
+}
+
+const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Costs are computed as `tokens * costPerToken` and accumulated over a day.
+ * Binary floating point cannot represent those products exactly, so sums drift
+ * by ~1e-17 and can sit just below a limit that they logically equal. Rounding
+ * to nanodollars keeps comparisons meaningful without visible precision loss.
+ */
+const USD_SCALE = 1e9;
+
+function roundUsd(amount: number): number {
+  return Math.round(amount * USD_SCALE) / USD_SCALE;
 }
 
 export class RateLimiter implements IRateLimiter {
@@ -68,13 +95,17 @@ export class RateLimiter implements IRateLimiter {
     huggingface: APIUsage;
   };
   private requestQueues: {
-    openrouter: Array<{ resolve: Function; reject: Function; timestamp: Date }>;
-    huggingface: Array<{ resolve: Function; reject: Function; timestamp: Date }>;
+    openrouter: Array<{ timestamp: number }>;
+    huggingface: Array<{ timestamp: number }>;
   };
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly now: () => number;
+  private readonly sleep: (ms: number) => Promise<void>;
 
-  constructor(config: RateLimitConfig) {
+  constructor(config: RateLimitConfig, options: RateLimiterOptions = {}) {
     this.config = config;
+    this.now = options.now ?? (() => Date.now());
+    this.sleep = options.sleep ?? ((ms: number) => new Promise(resolve => setTimeout(resolve, ms)));
     this.usage = {
       openrouter: this.initializeUsage(),
       huggingface: this.initializeUsage()
@@ -92,39 +123,32 @@ export class RateLimiter implements IRateLimiter {
    * Check if API call is within rate limits
    */
   async checkLimit(apiType: 'openrouter' | 'huggingface'): Promise<boolean> {
-    const now = new Date();
+    const nowMs = this.now();
     const usage = this.usage[apiType];
     const limits = this.config[apiType];
 
     // Clean old records
     this.cleanupOldRecords(apiType);
 
-    // Check daily cost limit
-    if (usage.cost >= limits.maxDailyCost) {
+    const oneMinuteAgoMs = nowMs - MINUTE_MS;
+    const oneDayAgoMs = nowMs - DAY_MS;
+
+    const recentRequests = usage.requests.filter(r => r.timestamp >= oneMinuteAgoMs);
+    const dailyRequests = usage.requests.filter(r => r.timestamp >= oneDayAgoMs);
+    const dailyTokens = dailyRequests.reduce((sum, r) => sum + r.tokens, 0);
+    const dailyCost = roundUsd(dailyRequests.reduce((sum, r) => sum + r.cost, 0));
+
+    // Hard daily quotas are terminal: surface them immediately rather than
+    // sleeping on the soft per-minute queue and only then rejecting the call.
+    // A non-positive cap means "no cost ceiling" (free tiers set it to 0.0).
+    if (limits.maxDailyCost > 0 && dailyCost >= limits.maxDailyCost) {
       throw new APIErrorImpl({
         type: 'quota_exceeded',
-        message: `Daily cost limit exceeded for ${apiType}: $${usage.cost.toFixed(4)} >= $${limits.maxDailyCost}`,
+        message: `Daily cost limit exceeded for ${apiType}: $${dailyCost.toFixed(4)} >= $${limits.maxDailyCost}`,
         statusCode: 429
       });
     }
 
-    // Check requests per minute
-    const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
-    const recentRequests = usage.requests.filter(r => r.timestamp >= oneMinuteAgo);
-    
-    if (recentRequests.length >= limits.requestsPerMinute) {
-      const oldestRequest = recentRequests[0];
-      const waitTime = 60000 - (now.getTime() - oldestRequest.timestamp.getTime());
-      
-      if (waitTime > 0) {
-        await this.queueRequest(apiType, waitTime);
-      }
-    }
-
-    // Check requests per day
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const dailyRequests = usage.requests.filter(r => r.timestamp >= oneDayAgo);
-    
     if (dailyRequests.length >= limits.requestsPerDay) {
       throw new APIErrorImpl({
         type: 'quota_exceeded',
@@ -133,23 +157,29 @@ export class RateLimiter implements IRateLimiter {
       });
     }
 
-    // Check tokens per minute
-    const recentTokens = recentRequests.reduce((sum, r) => sum + r.tokens, 0);
-    if (recentTokens >= limits.tokensPerMinute) {
-      const waitTime = this.calculateTokenWaitTime(apiType, limits.tokensPerMinute);
-      if (waitTime > 0) {
-        await this.queueRequest(apiType, waitTime);
-      }
-    }
-
-    // Check tokens per day
-    const dailyTokens = dailyRequests.reduce((sum, r) => sum + r.tokens, 0);
     if (dailyTokens >= limits.tokensPerDay) {
       throw new APIErrorImpl({
         type: 'quota_exceeded',
         message: `Daily token limit exceeded for ${apiType}: ${dailyTokens} >= ${limits.tokensPerDay}`,
         statusCode: 429
       });
+    }
+
+    // Soft per-minute limits: pause until the window has room again.
+    if (recentRequests.length >= limits.requestsPerMinute) {
+      const oldestRequest = recentRequests[0];
+      const waitTime = MINUTE_MS - (nowMs - oldestRequest.timestamp);
+      if (waitTime > 0) {
+        await this.queueRequest(apiType, waitTime);
+      }
+    }
+
+    const recentTokens = recentRequests.reduce((sum, r) => sum + r.tokens, 0);
+    if (recentTokens >= limits.tokensPerMinute) {
+      const waitTime = this.calculateTokenWaitTime(apiType, limits.tokensPerMinute);
+      if (waitTime > 0) {
+        await this.queueRequest(apiType, waitTime);
+      }
     }
 
     return true;
@@ -159,18 +189,17 @@ export class RateLimiter implements IRateLimiter {
    * Track API usage after successful call
    */
   trackUsage(apiType: 'openrouter' | 'huggingface', tokens: number): void {
-    const now = new Date();
-    const cost = tokens * this.config[apiType].costPerToken;
-    
+    const cost = roundUsd(tokens * this.config[apiType].costPerToken);
+
     const record: UsageRecord = {
-      timestamp: now,
+      timestamp: this.now(),
       tokens,
       cost
     };
 
     this.usage[apiType].requests.push(record);
     this.usage[apiType].tokens += tokens;
-    this.usage[apiType].cost += cost;
+    this.usage[apiType].cost = roundUsd(this.usage[apiType].cost + cost);
 
     // Log significant usage
     if (cost > 0.01) { // More than 1 cent
@@ -180,8 +209,8 @@ export class RateLimiter implements IRateLimiter {
     // Alert on high usage
     const dailyCost = this.getDailyCost(apiType);
     const costThreshold = this.config[apiType].maxDailyCost * 0.8; // 80% threshold
-    
-    if (dailyCost > costThreshold) {
+
+    if (this.config[apiType].maxDailyCost > 0 && dailyCost > costThreshold) {
       console.warn(`${apiType} daily cost approaching limit: $${dailyCost.toFixed(4)} / $${this.config[apiType].maxDailyCost}`);
     }
   }
@@ -190,16 +219,16 @@ export class RateLimiter implements IRateLimiter {
    * Get current quota status
    */
   getQuotaStatus(): QuotaStatus {
-    const now = new Date();
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const nextReset = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const nowMs = this.now();
+    const oneDayAgoMs = nowMs - DAY_MS;
+    const nextReset = new Date(nowMs + DAY_MS);
 
     const getAPIStatus = (apiType: 'openrouter' | 'huggingface') => {
       const usage = this.usage[apiType];
       const limits = this.config[apiType];
-      const dailyRequests = usage.requests.filter(r => r.timestamp >= oneDayAgo);
+      const dailyRequests = usage.requests.filter(r => r.timestamp >= oneDayAgoMs);
       const dailyTokens = dailyRequests.reduce((sum, r) => sum + r.tokens, 0);
-      const dailyCost = dailyRequests.reduce((sum, r) => sum + r.cost, 0);
+      const dailyCost = roundUsd(dailyRequests.reduce((sum, r) => sum + r.cost, 0));
 
       return {
         used: dailyRequests.length,
@@ -251,7 +280,7 @@ export class RateLimiter implements IRateLimiter {
     const totalWait = waitTime + jitter;
 
     console.log(`Implementing backoff: waiting ${totalWait}ms for ${error.type}`);
-    await this.delay(totalWait);
+    await this.sleep(totalWait);
   }
 
   /**
@@ -263,9 +292,9 @@ export class RateLimiter implements IRateLimiter {
     canAfford: boolean;
   } {
     const costPerToken = this.config[apiType].costPerToken;
-    const cost = estimatedTokens * costPerToken;
+    const cost = roundUsd(estimatedTokens * costPerToken);
     const dailyCost = this.getDailyCost(apiType);
-    const remainingBudget = this.config[apiType].maxDailyCost - dailyCost;
+    const remainingBudget = roundUsd(this.config[apiType].maxDailyCost - dailyCost);
     const canAfford = cost <= remainingBudget;
 
     return {
@@ -295,25 +324,25 @@ export class RateLimiter implements IRateLimiter {
     };
   } {
     const getStats = (apiType: 'openrouter' | 'huggingface') => {
-      const now = new Date();
-      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const dailyRequests = this.usage[apiType].requests.filter(r => r.timestamp >= oneDayAgo);
-      
+      const nowMs = this.now();
+      const oneDayAgoMs = nowMs - DAY_MS;
+      const dailyRequests = this.usage[apiType].requests.filter(r => r.timestamp >= oneDayAgoMs);
+
       const requestsToday = dailyRequests.length;
       const tokensToday = dailyRequests.reduce((sum, r) => sum + r.tokens, 0);
-      const costToday = dailyRequests.reduce((sum, r) => sum + r.cost, 0);
-      
+      const costToday = roundUsd(dailyRequests.reduce((sum, r) => sum + r.cost, 0));
+
       // Requests per hour for last 24 hours
       const requestsPerHour: number[] = [];
       for (let i = 0; i < 24; i++) {
-        const hourStart = new Date(now.getTime() - (i + 1) * 60 * 60 * 1000);
-        const hourEnd = new Date(now.getTime() - i * 60 * 60 * 1000);
-        const hourRequests = dailyRequests.filter(r => 
+        const hourStart = nowMs - (i + 1) * 60 * 60 * 1000;
+        const hourEnd = nowMs - i * 60 * 60 * 1000;
+        const hourRequests = dailyRequests.filter(r =>
           r.timestamp >= hourStart && r.timestamp < hourEnd
         ).length;
         requestsPerHour.unshift(hourRequests);
       }
-      
+
       const averageTokensPerRequest = requestsToday > 0 ? tokensToday / requestsToday : 0;
 
       return {
@@ -360,66 +389,56 @@ export class RateLimiter implements IRateLimiter {
       requests: [],
       tokens: 0,
       cost: 0,
-      lastReset: new Date()
+      lastReset: this.now()
     };
   }
 
   private cleanupOldRecords(apiType: 'openrouter' | 'huggingface'): void {
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const oneDayAgoMs = this.now() - DAY_MS;
     const usage = this.usage[apiType];
-    
+
     const oldCount = usage.requests.length;
-    usage.requests = usage.requests.filter(r => r.timestamp >= oneDayAgo);
-    
+    usage.requests = usage.requests.filter(r => r.timestamp >= oneDayAgoMs);
+
     // Recalculate totals
     usage.tokens = usage.requests.reduce((sum, r) => sum + r.tokens, 0);
-    usage.cost = usage.requests.reduce((sum, r) => sum + r.cost, 0);
-    
+    usage.cost = roundUsd(usage.requests.reduce((sum, r) => sum + r.cost, 0));
+
     if (oldCount > usage.requests.length) {
       console.log(`Cleaned up ${oldCount - usage.requests.length} old ${apiType} records`);
     }
   }
 
   private calculateTokenWaitTime(apiType: 'openrouter' | 'huggingface', tokenLimit: number): number {
-    const now = new Date();
-    const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
-    const recentRequests = this.usage[apiType].requests.filter(r => r.timestamp >= oneMinuteAgo);
-    
+    const nowMs = this.now();
+    const oneMinuteAgoMs = nowMs - MINUTE_MS;
+    const recentRequests = this.usage[apiType].requests.filter(r => r.timestamp >= oneMinuteAgoMs);
+
     if (recentRequests.length === 0) return 0;
-    
+
     const oldestRequest = recentRequests[0];
-    return 60000 - (now.getTime() - oldestRequest.timestamp.getTime());
+    return MINUTE_MS - (nowMs - oldestRequest.timestamp);
   }
 
   private async queueRequest(apiType: 'openrouter' | 'huggingface', waitTime: number): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const queueItem = {
-        resolve,
-        reject,
-        timestamp: new Date()
-      };
-      
-      this.requestQueues[apiType].push(queueItem);
-      
-      setTimeout(() => {
-        const index = this.requestQueues[apiType].indexOf(queueItem);
-        if (index > -1) {
-          this.requestQueues[apiType].splice(index, 1);
-          resolve();
-        }
-      }, waitTime);
-    });
+    const queueItem = { timestamp: this.now() };
+    this.requestQueues[apiType].push(queueItem);
+
+    try {
+      await this.sleep(waitTime);
+    } finally {
+      const index = this.requestQueues[apiType].indexOf(queueItem);
+      if (index > -1) {
+        this.requestQueues[apiType].splice(index, 1);
+      }
+    }
   }
 
   private getDailyCost(apiType: 'openrouter' | 'huggingface'): number {
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    return this.usage[apiType].requests
-      .filter(r => r.timestamp >= oneDayAgo)
-      .reduce((sum, r) => sum + r.cost, 0);
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    const oneDayAgoMs = this.now() - DAY_MS;
+    return roundUsd(this.usage[apiType].requests
+      .filter(r => r.timestamp >= oneDayAgoMs)
+      .reduce((sum, r) => sum + r.cost, 0));
   }
 
   private startCleanupInterval(): void {
@@ -428,6 +447,8 @@ export class RateLimiter implements IRateLimiter {
       this.cleanupOldRecords('openrouter');
       this.cleanupOldRecords('huggingface');
     }, 60 * 60 * 1000);
+    // Do not hold the event loop open purely for housekeeping.
+    this.cleanupInterval.unref?.();
   }
 
   /**

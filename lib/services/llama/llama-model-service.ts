@@ -7,6 +7,7 @@ import {
   RawQuestion,
   IBPhysicsSubtopic,
   QuestionDifficulty,
+  ModelErrorImpl,
   createModelError
 } from '../../types/question-generation';
 import { LlamaModelService as ILlamaModelService } from '../../interfaces/question-generation-services';
@@ -38,6 +39,14 @@ export interface LlamaConfig {
   provider?: 'lit' | 'huggingface';
 }
 
+/**
+ * Injectable seams. Supplying a fake sleep keeps retry/backoff tests
+ * deterministic instead of making them wait out real backoff windows.
+ */
+export interface LlamaServiceOptions {
+  sleep?: (ms: number) => Promise<void>;
+}
+
 export class LlamaModelService implements ILlamaModelService {
   private hf: HfInference | null;
   private config: LlamaConfig;
@@ -45,9 +54,11 @@ export class LlamaModelService implements ILlamaModelService {
   private modelInfo: { version: string; status: string } = { version: 'unknown', status: 'not_initialized' };
   // If local TGI returns auth errors (403) we disable further attempts to it for the life of this process
   private localTgiDisabled: boolean = false;
+  private readonly sleep: (ms: number) => Promise<void>;
 
-  constructor(config: LlamaConfig) {
+  constructor(config: LlamaConfig, options: LlamaServiceOptions = {}) {
     this.config = config;
+    this.sleep = options.sleep ?? ((ms: number) => new Promise(resolve => setTimeout(resolve, ms)));
     console.log('[LlamaModelService] Constructor called with config:', {
       provider: config.provider,
       modelId: config.modelId,
@@ -135,22 +146,31 @@ export class LlamaModelService implements ILlamaModelService {
         lastError = error instanceof Error ? error : new Error(String(error));
         
         console.warn(`Llama generation attempt ${attempt} failed:`, lastError.message);
-        
+
+        // Quota exhaustion or misconfiguration will not resolve on a later
+        // attempt, so report it now instead of burning the retry budget and
+        // degrading the diagnosis into a generic failure.
+        if (lastError instanceof ModelErrorImpl && lastError.retryable === false) {
+          throw lastError;
+        }
+
         // If this is not the last attempt, wait before retrying
         if (attempt < this.config.maxRetries) {
-          await this.delay(this.getRetryDelay(attempt));
+          await this.sleep(this.getRetryDelay(attempt));
         }
       }
     }
 
-    // All attempts failed
+    // All attempts failed. Keep the underlying error type so callers can still
+    // tell a timeout from a quota error from a parse failure.
     throw createModelError({
-      type: 'llama_failure',
+      type: lastError instanceof ModelErrorImpl ? lastError.type : 'llama_failure',
       message: `Failed to generate question after ${this.config.maxRetries} attempts: ${lastError?.message}`,
       context: {
         topic,
         difficulty,
-        lastError: lastError?.message
+        lastError: lastError?.message,
+        lastErrorType: lastError instanceof ModelErrorImpl ? lastError.type : 'unknown'
       },
       retryable: true
     });
@@ -174,8 +194,6 @@ export class LlamaModelService implements ILlamaModelService {
    * Call the Hugging Face model
    */
   private async callModel(prompt: string): Promise<string> {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
     // First try a local text-generation API if configured (e.g. text-generation-webui / TGI)
     const localUrl = process.env.LOCAL_TGI_URL;
     if (localUrl && !this.localTgiDisabled) {
@@ -345,18 +363,25 @@ export class LlamaModelService implements ILlamaModelService {
       });
 
       // Create a per-request timeout for the Hugging Face call
+      let hfTimeoutId: ReturnType<typeof setTimeout> | null = null;
       const hfTimeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => reject(new Error('Model API timeout')), this.config.timeoutMs);
+        hfTimeoutId = setTimeout(() => reject(new Error('Model API timeout')), this.config.timeoutMs);
       });
 
-      const result = await Promise.race([requestPromise, hfTimeoutPromise]);
+      let result: unknown;
+      try {
+        result = await Promise.race([requestPromise, hfTimeoutPromise]);
+      } finally {
+        // Release the timer on every path. Clearing it only on success left a
+        // pending timer behind after each failed call, keeping the process
+        // alive well past the request that created it.
+        if (hfTimeoutId) clearTimeout(hfTimeoutId);
+      }
 
       if (!result || typeof result !== "object" || !("generated_text" in result)) {
-        if (timeoutId) clearTimeout(timeoutId);
         throw new Error("Empty response from model");
       }
 
-      if (timeoutId) clearTimeout(timeoutId);
       return (result as any).generated_text;
 
     } catch (error) {
@@ -413,13 +438,6 @@ export class LlamaModelService implements ILlamaModelService {
    */
   private getRetryDelay(attempt: number): number {
     return Math.min(2000 * Math.pow(2, attempt - 1), 30000); // Max 30 seconds
-  }
-
-  /**
-   * Delay utility
-   */
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
