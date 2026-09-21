@@ -1,6 +1,6 @@
 {
   "litUrl": "https://8000-dep-01k3m70zjy9sat5he7x29dkvjq-d.cloudspaces.litng.ai/predict",
-  "litToken": "replace-with-your-lightning-api-token",
+  "litToken": "",
   "litProxyUrl": "http://localhost:3000/api/predict-proxy",
   "huggingfaceApiKey": "",
   "llamaModelId": "valid-model-id",

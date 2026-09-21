@@ -42,7 +42,7 @@ except ImportError:
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_REFINEMENT_MODEL = "deepseek/deepseek-v3"  # Free model on OpenRouter
 LIT_API_URL = "https://8000-dep-01k3m70zjy9sat5he7x29dkvjq-d.cloudspaces.litng.ai/predict"
-LIT_API_TOKEN = "replace-with-your-lightning-api-token"
+LIT_API_TOKEN = ""
 APP_VERSION = "2.0.0"
 
 # IB Physics Topics Structure
