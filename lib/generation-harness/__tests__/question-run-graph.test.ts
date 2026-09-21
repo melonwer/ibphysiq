@@ -131,7 +131,10 @@ describe("QuestionRun v0.1 graph", () => {
     [string, (artifact: QuestionPackageArtifact) => QuestionPackageArtifact]
   >([
     ["kind", (artifact) => ({ ...artifact, kind: "field-question-package" })],
-    ["schema", (artifact) => ({ ...artifact, schemaVersion: "wrong/9.9" })],
+    [
+      "schema",
+      (artifact) => ({ ...artifact, packageSchemaVersion: "wrong/9.9" }),
+    ],
     ["source", (artifact) => ({ ...artifact, sourceQuestionId: "wrong" })],
     ["marks", (artifact) => ({ ...artifact, marks: artifact.marks + 1 })],
     [

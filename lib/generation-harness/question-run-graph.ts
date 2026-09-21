@@ -1,7 +1,14 @@
-import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import {
+  Annotation,
+  BaseCheckpointSaver,
+  END,
+  START,
+  StateGraph,
+} from "@langchain/langgraph";
 
 import {
   createQuestionRun,
+  createQuestionRunId,
   NoveltyAssessment,
   QuestionBlueprint,
   QuestionPackageArtifact,
@@ -12,8 +19,10 @@ import {
   QuestionRunRejectionCode,
   QuestionRunRequest,
   QuestionRunStage,
+  REJECTION_RECORD_SCHEMA_VERSION,
   VerifiedQuestionArtifacts,
 } from "./question-run";
+import type { QuestionRunStore } from "./question-run-store";
 
 export interface QuestionRunAdapters {
   plan(request: QuestionRunRequest): Promise<QuestionBlueprint>;
@@ -62,6 +71,19 @@ export type QuestionRunRetryLimits = Partial<
 export interface QuestionRunGraphOptions {
   retryLimits?: QuestionRunRetryLimits;
   now?: () => string;
+  /**
+   * Optional durable record store. When supplied, every stage that completes is
+   * appended to it, so a run survives a process restart. `QuestionRun` stays the
+   * canonical record; the checkpointer below only stores execution state.
+   */
+  store?: QuestionRunStore;
+  /**
+   * Optional LangGraph checkpointer. This is an orchestration detail used to
+   * resume execution; it is never the source of truth for a run.
+   */
+  checkpointer?: BaseCheckpointSaver;
+  /** Checkpoint thread to bind to. Defaults to the run id. */
+  threadId?: string;
 }
 
 export interface RunQuestionOptions extends QuestionRunGraphOptions {
@@ -241,6 +263,7 @@ async function executeStage<T>(
           status: "rejected",
           currentStage: stage,
           rejection: {
+            schemaVersion: REJECTION_RECORD_SCHEMA_VERSION,
             stage,
             code: rejectionCode,
             causeCode: failure.retryable ? failure.code : undefined,
@@ -267,9 +290,7 @@ function retryLimits(
   const limits = { ...DEFAULT_RETRY_LIMITS, ...overrides };
   for (const [stage, value] of Object.entries(limits)) {
     if (!Number.isInteger(value) || value < 1 || value > 5) {
-      throw new Error(
-        `Retry limit for ${stage} must be an integer from 1 to 5`,
-      );
+      throw new Error(`Retry limit for ${stage} must be an integer from 1 to 5`);
     }
   }
   return limits;
@@ -285,124 +306,151 @@ export function createQuestionRunGraph(
 ) {
   const now = options.now ?? (() => new Date().toISOString());
   const limits = retryLimits(options.retryLimits);
+  const store = options.store;
 
-  return new StateGraph(QuestionRunState)
-    .addNode("plan", async ({ run }) => ({
-      run: await executeStage(
-        run,
-        "plan",
-        limits.plan,
-        now,
-        () => adapters.plan(run.request),
-        (current, blueprint) => ({ ...current, blueprint }),
-        (blueprint) => ({
-          code: "blueprint-created",
-          message: `Created blueprint ${blueprint.id}`,
-        }),
+  /**
+   * Persist the run after a stage settles. Stage persistence goes through the
+   * store's diff, which appends only what is new, so an already-current run is
+   * a no-op rather than a duplicate event.
+   */
+  const settle = async (
+    work: QuestionRun | Promise<QuestionRun>,
+  ): Promise<{ run: QuestionRun }> => {
+    const completed = await work;
+    if (!store) return { run: completed };
+    return { run: await store.syncRun(completed) };
+  };
+
+  const graph = new StateGraph(QuestionRunState)
+    .addNode("plan", async ({ run }) =>
+      settle(
+        executeStage(
+          run,
+          "plan",
+          limits.plan,
+          now,
+          () => adapters.plan(run.request),
+          (current, blueprint) => ({ ...current, blueprint }),
+          (blueprint) => ({
+            code: "blueprint-created",
+            message: `Created blueprint ${blueprint.id}`,
+          }),
+        ),
       ),
-    }))
-    .addNode("validateBlueprint", async ({ run }) => ({
-      run: await executeStage(
-        run,
-        "validate-blueprint",
-        limits["validate-blueprint"],
-        now,
-        () =>
-          adapters.validateBlueprint(
-            run.request,
-            requireValue(run.blueprint, "blueprint"),
-          ),
-        (current) => current,
-        () => ({
-          code: "blueprint-valid",
-          message: "Blueprint passed deterministic validation",
-        }),
+    )
+    .addNode("validateBlueprint", async ({ run }) =>
+      settle(
+        executeStage(
+          run,
+          "validate-blueprint",
+          limits["validate-blueprint"],
+          now,
+          () =>
+            adapters.validateBlueprint(
+              run.request,
+              requireValue(run.blueprint, "blueprint"),
+            ),
+          (current) => current,
+          () => ({
+            code: "blueprint-valid",
+            message: "Blueprint passed deterministic validation",
+          }),
+        ),
       ),
-    }))
-    .addNode("solveAndRender", async ({ run }) => ({
-      run: await executeStage(
-        run,
-        "solve-and-render",
-        limits["solve-and-render"],
-        now,
-        () => adapters.solveAndRender(requireValue(run.blueprint, "blueprint")),
-        (current, verifiedArtifacts) => ({
-          ...current,
-          verifiedArtifacts,
-        }),
-        (artifacts) => ({
-          code: "physics-and-visuals-verified",
-          message: `Verified physics and rendered ${artifacts.renderedVisuals.length} visual artifact(s)`,
-        }),
+    )
+    .addNode("solveAndRender", async ({ run }) =>
+      settle(
+        executeStage(
+          run,
+          "solve-and-render",
+          limits["solve-and-render"],
+          now,
+          () =>
+            adapters.solveAndRender(requireValue(run.blueprint, "blueprint")),
+          (current, verifiedArtifacts) => ({ ...current, verifiedArtifacts }),
+          (artifacts) => ({
+            code: "physics-and-visuals-verified",
+            message: `Verified physics and rendered ${artifacts.renderedVisuals.length} visual artifact(s)`,
+          }),
+        ),
       ),
-    }))
-    .addNode("author", async ({ run }) => ({
-      run: await executeStage(
-        run,
-        "author",
-        limits.author,
-        now,
-        () =>
-          adapters.author(
-            requireValue(run.blueprint, "blueprint"),
-            requireValue(run.verifiedArtifacts, "verified artifacts"),
-          ),
-        (current, questionPackage) => ({ ...current, questionPackage }),
-        (questionPackage) => ({
-          code: "package-authored",
-          message: `Authored package ${questionPackage.packageId}`,
-        }),
+    )
+    .addNode("author", async ({ run }) =>
+      settle(
+        executeStage(
+          run,
+          "author",
+          limits.author,
+          now,
+          () =>
+            adapters.author(
+              requireValue(run.blueprint, "blueprint"),
+              requireValue(run.verifiedArtifacts, "verified artifacts"),
+            ),
+          (current, questionPackage) => ({ ...current, questionPackage }),
+          (questionPackage) => ({
+            code: "package-authored",
+            message: `Authored package ${questionPackage.packageId}`,
+          }),
+        ),
       ),
-    }))
-    .addNode("validatePackage", async ({ run }) => ({
-      run: await executeStage(
-        run,
-        "validate-package",
-        limits["validate-package"],
-        now,
-        async () => {
-          const questionPackage = requireValue(
-            run.questionPackage,
-            "question package",
-          );
-          const blueprint = requireValue(run.blueprint, "blueprint");
-          const artifacts = requireValue(
-            run.verifiedArtifacts,
-            "verified artifacts",
-          );
-          validateArtifactAgreement(questionPackage, blueprint, artifacts);
-          await adapters.validatePackage(questionPackage, blueprint, artifacts);
-        },
-        (current) => current,
-        () => ({
-          code: "package-valid",
-          message:
-            "Question, solution, source, and deterministic results agree",
-        }),
+    )
+    .addNode("validatePackage", async ({ run }) =>
+      settle(
+        executeStage(
+          run,
+          "validate-package",
+          limits["validate-package"],
+          now,
+          async () => {
+            const questionPackage = requireValue(
+              run.questionPackage,
+              "question package",
+            );
+            const blueprint = requireValue(run.blueprint, "blueprint");
+            const artifacts = requireValue(
+              run.verifiedArtifacts,
+              "verified artifacts",
+            );
+            validateArtifactAgreement(questionPackage, blueprint, artifacts);
+            await adapters.validatePackage(
+              questionPackage,
+              blueprint,
+              artifacts,
+            );
+          },
+          (current) => current,
+          () => ({
+            code: "package-valid",
+            message: "Question, solution, source, and deterministic results agree",
+          }),
+        ),
       ),
-    }))
-    .addNode("checkNovelty", async ({ run }) => ({
-      run: await executeStage(
-        run,
-        "novelty-check",
-        limits["novelty-check"],
-        now,
-        () =>
-          adapters.checkNovelty(
-            requireValue(run.questionPackage, "question package"),
-            requireValue(run.blueprint, "blueprint"),
-          ),
-        (current, novelty) => ({ ...current, novelty }),
-        (novelty) => ({
-          code: `novelty-${novelty.status}`,
-          message: novelty.reason,
-          outcome: novelty.status === "flagged" ? "flagged" : novelty.status,
-          kind: "policy",
-        }),
+    )
+    .addNode("checkNovelty", async ({ run }) =>
+      settle(
+        executeStage(
+          run,
+          "novelty-check",
+          limits["novelty-check"],
+          now,
+          () =>
+            adapters.checkNovelty(
+              requireValue(run.questionPackage, "question package"),
+              requireValue(run.blueprint, "blueprint"),
+            ),
+          (current, novelty) => ({ ...current, novelty }),
+          (novelty) => ({
+            code: `novelty-${novelty.status}`,
+            message: novelty.reason,
+            outcome: novelty.status === "flagged" ? "flagged" : novelty.status,
+            kind: "policy",
+          }),
+        ),
       ),
-    }))
-    .addNode("prepareReview", async ({ run }) => ({
-      run: await executeStage(
+    )
+    .addNode("prepareReview", async ({ run }) => {
+      const completed = await executeStage(
         run,
         "prepare-review",
         limits["prepare-review"],
@@ -425,17 +473,20 @@ export function createQuestionRunGraph(
             "Prepared review envelope; no automatic acceptance performed",
           kind: "policy",
         }),
-      ).then((completed) => {
-        if (completed.status !== "awaiting-human-review") return completed;
-        const at = now();
-        return appendHistory(completed, {
+      );
+
+      if (completed.status !== "awaiting-human-review") return settle(completed);
+
+      const at = now();
+      return settle(
+        appendHistory(completed, {
           type: "awaiting-human-review",
           stage: "human-review",
           message: "Run stopped at the human acceptance boundary",
           createdAt: at,
-        });
-      }),
-    }))
+        }),
+      );
+    })
     .addEdge(START, "plan")
     .addConditionalEdges("plan", routeAfterStage, {
       continue: "validateBlueprint",
@@ -461,12 +512,16 @@ export function createQuestionRunGraph(
       continue: "prepareReview",
       rejected: END,
     })
-    .addEdge("prepareReview", END)
-    .compile();
+    .addEdge("prepareReview", END);
+
+  return options.checkpointer
+    ? graph.compile({ checkpointer: options.checkpointer })
+    : graph.compile();
 }
 
-function defaultRunId(): string {
-  return `question-run-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+function checkpointConfig(options: RunQuestionOptions, runId: string) {
+  if (!options.checkpointer && !options.threadId) return undefined;
+  return { configurable: { thread_id: options.threadId ?? runId } };
 }
 
 export async function runQuestionGraph(
@@ -475,12 +530,39 @@ export async function runQuestionGraph(
   options: RunQuestionOptions = {},
 ): Promise<QuestionRun> {
   const now = options.now ?? (() => new Date().toISOString());
-  const initialRun = createQuestionRun(
-    options.runId ?? defaultRunId(),
-    request,
-    now(),
-  );
+  const runId = options.runId ?? createQuestionRunId();
+
+  let initialRun = createQuestionRun(runId, request, now());
+  if (options.store) {
+    // Reusing an existing record makes re-running the same id a resume rather
+    // than a destructive restart.
+    const stored = await options.store.fetch(runId);
+    initialRun =
+      stored ??
+      (await options.store.create(request, {
+        runId,
+        createdAt: initialRun.createdAt,
+      }));
+  }
+
   const graph = createQuestionRunGraph(adapters, { ...options, now });
-  const result = await graph.invoke({ run: initialRun });
+  const result = await graph.invoke({ run: initialRun }, checkpointConfig(options, runId));
+  return result.run;
+}
+
+/**
+ * Continue a graph that was interrupted, using its LangGraph checkpoint.
+ *
+ * The canonical record of what happened is still the stored `QuestionRun`; this
+ * only restores the execution position so the remaining stages can finish.
+ */
+export async function resumeQuestionGraph(
+  adapters: QuestionRunAdapters,
+  options: RunQuestionOptions & { threadId: string },
+): Promise<QuestionRun> {
+  const graph = createQuestionRunGraph(adapters, options);
+  const result = await graph.invoke(null, {
+    configurable: { thread_id: options.threadId },
+  });
   return result.run;
 }

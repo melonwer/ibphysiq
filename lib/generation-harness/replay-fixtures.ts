@@ -14,8 +14,11 @@ import { renderCartesianPlot } from "../visuals/render-cartesian";
 import { renderCircuitNetwork } from "../visuals/render-circuit";
 import { renderFieldMap } from "../visuals/render-field-map";
 import {
+  NOVELTY_ASSESSMENT_SCHEMA_VERSION,
   NoveltyAssessment,
   QUESTION_BLUEPRINT_SCHEMA_VERSION,
+  QUESTION_PACKAGE_ARTIFACT_SCHEMA_VERSION,
+  VERIFIED_ARTIFACTS_SCHEMA_VERSION,
   QuestionBlueprint,
   QuestionLevel,
   QuestionPackageArtifact,
@@ -118,6 +121,7 @@ function validateReplayBlueprint(
 
 function replayNoveltyAssessment(): NoveltyAssessment {
   return {
+    schemaVersion: NOVELTY_ASSESSMENT_SCHEMA_VERSION,
     status: "not-run",
     reason:
       "Novelty is not scored for a source-backed replay; this run tests the harness, not originality",
@@ -205,8 +209,9 @@ function circuitArtifact(
 ): QuestionPackageArtifact {
   return {
     kind: "circuit-question-package",
+    schemaVersion: QUESTION_PACKAGE_ARTIFACT_SCHEMA_VERSION,
     packageId: item.id,
-    schemaVersion: item.schemaVersion,
+    packageSchemaVersion: item.schemaVersion,
     sourceQuestionId: item.source.questionId,
     paper: item.paper,
     structure: item.question.kind,
@@ -224,8 +229,9 @@ function circuitArtifact(
 function fieldArtifact(item: FieldQuestionPackage): QuestionPackageArtifact {
   return {
     kind: "field-question-package",
+    schemaVersion: QUESTION_PACKAGE_ARTIFACT_SCHEMA_VERSION,
     packageId: item.id,
-    schemaVersion: item.schemaVersion,
+    packageSchemaVersion: item.schemaVersion,
     sourceQuestionId: item.source.questionId,
     paper: item.paper,
     structure: item.question.kind,
@@ -319,6 +325,7 @@ export function createCircuitReplayAdapters(
         );
       }
       return {
+        schemaVersion: VERIFIED_ARTIFACTS_SCHEMA_VERSION,
         solverId: `circuit-solver/${item.scenario.kind}/0.1.0`,
         resultKeys: Object.keys(results).sort(),
         renderedVisuals,
@@ -403,6 +410,7 @@ export function createFieldReplayAdapters(
         );
       }
       return {
+        schemaVersion: VERIFIED_ARTIFACTS_SCHEMA_VERSION,
         solverId: `field-solver/${item.scenario.kind}/0.1.0`,
         resultKeys: Object.keys(results).sort(),
         renderedVisuals,

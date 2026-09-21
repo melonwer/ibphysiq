@@ -1,8 +1,28 @@
+import { v4 as uuidv4 } from "uuid";
+
 export const QUESTION_RUN_SCHEMA_VERSION = "question-run/0.1.0" as const;
+export const QUESTION_RUN_REQUEST_SCHEMA_VERSION =
+  "question-run-request/0.1.0" as const;
 export const QUESTION_BLUEPRINT_SCHEMA_VERSION =
   "question-blueprint/0.1.0" as const;
+export const VERIFIED_ARTIFACTS_SCHEMA_VERSION =
+  "verified-question-artifacts/0.1.0" as const;
+export const QUESTION_PACKAGE_ARTIFACT_SCHEMA_VERSION =
+  "question-package-artifact/0.1.0" as const;
+export const NOVELTY_ASSESSMENT_SCHEMA_VERSION =
+  "novelty-assessment/0.1.0" as const;
 export const REVIEW_ENVELOPE_SCHEMA_VERSION =
   "question-review-envelope/0.1.0" as const;
+export const REJECTION_RECORD_SCHEMA_VERSION =
+  "question-run-rejection/0.1.0" as const;
+
+/**
+ * Robust run identifier. Timestamp-plus-random was collision-prone once runs
+ * could be created concurrently, and it leaked creation order into the ID.
+ */
+export function createQuestionRunId(): string {
+  return `question-run-${uuidv4()}`;
+}
 
 export type QuestionPaper = "1A" | "2";
 export type QuestionLevel = "SL" | "HL";
@@ -51,6 +71,15 @@ export interface QuestionRunRequest {
   sourcePackageRef?: string;
 }
 
+/**
+ * The request as persisted on a run. Callers pass the plain request and the
+ * harness stamps the contract version, so the version cannot be omitted by
+ * forgetting it at a call site.
+ */
+export interface VersionedQuestionRunRequest extends QuestionRunRequest {
+  schemaVersion: typeof QUESTION_RUN_REQUEST_SCHEMA_VERSION;
+}
+
 export interface QuestionBlueprint {
   schemaVersion: typeof QUESTION_BLUEPRINT_SCHEMA_VERSION;
   id: string;
@@ -81,6 +110,7 @@ export interface RenderedVisualArtifact {
 }
 
 export interface VerifiedQuestionArtifacts {
+  schemaVersion: typeof VERIFIED_ARTIFACTS_SCHEMA_VERSION;
   solverId: string;
   resultKeys: string[];
   renderedVisuals: RenderedVisualArtifact[];
@@ -89,8 +119,10 @@ export interface VerifiedQuestionArtifacts {
 
 export interface QuestionPackageArtifact {
   kind: "circuit-question-package" | "field-question-package";
+  schemaVersion: typeof QUESTION_PACKAGE_ARTIFACT_SCHEMA_VERSION;
   packageId: string;
-  schemaVersion: string;
+  /** Schema version of the checked package this artifact summarises. */
+  packageSchemaVersion: string;
   sourceQuestionId: string;
   paper: QuestionPaper;
   structure: QuestionStructure;
@@ -102,6 +134,7 @@ export interface QuestionPackageArtifact {
 }
 
 export interface NoveltyAssessment {
+  schemaVersion: typeof NOVELTY_ASSESSMENT_SCHEMA_VERSION;
   status: "passed" | "flagged" | "not-run";
   reason: string;
   nearestCandidateIds: string[];
@@ -149,6 +182,7 @@ export type QuestionRunReview =
     };
 
 export interface QuestionRunRejection {
+  schemaVersion: typeof REJECTION_RECORD_SCHEMA_VERSION;
   stage: QuestionRunStage;
   code: QuestionRunRejectionCode;
   causeCode?: QuestionRunRejectionCode;
@@ -177,10 +211,16 @@ export interface QuestionRunHistoryEntry {
  */
 export interface QuestionRun {
   schemaVersion: typeof QUESTION_RUN_SCHEMA_VERSION;
+  /**
+   * Monotonic revision assigned by the store. The graph leaves this at 0; a
+   * persisted run increments it once per appended event, which is what lets
+   * writers detect a concurrent update via compare-and-swap.
+   */
+  revision: number;
   runId: string;
   status: QuestionRunStatus;
   currentStage?: QuestionRunStage;
-  request: QuestionRunRequest;
+  request: VersionedQuestionRunRequest;
   blueprint?: QuestionBlueprint;
   verifiedArtifacts?: VerifiedQuestionArtifacts;
   questionPackage?: QuestionPackageArtifact;
@@ -209,9 +249,10 @@ export function createQuestionRun(
   }
   return {
     schemaVersion: QUESTION_RUN_SCHEMA_VERSION,
+    revision: 0,
     runId,
     status: "requested",
-    request,
+    request: { ...request, schemaVersion: QUESTION_RUN_REQUEST_SCHEMA_VERSION },
     attempts: {},
     checks: [],
     reviews: [],
