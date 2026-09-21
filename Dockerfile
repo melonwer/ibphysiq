@@ -15,7 +15,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+RUN npm ci --only=production --ignore-scripts && npm cache clean --force
 
 # Copy source code with proper ownership
 COPY --chown=nextjs:nodejs . .
@@ -29,7 +29,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install all dependencies (including devDependencies for build)
-RUN npm ci --frozen-lockfile
+RUN npm ci --frozen-lockfile --ignore-scripts
 
 # Build stage
 FROM node:20-alpine AS builder
