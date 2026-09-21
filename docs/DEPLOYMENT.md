@@ -197,7 +197,7 @@ gh workflow run rollback.yml \
 
 ```dockerfile
 # Dockerfile
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -355,7 +355,7 @@ services:
 
 ```bash
 # Install Node.js
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 # Clone repository

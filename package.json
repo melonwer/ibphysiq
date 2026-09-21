@@ -76,7 +76,7 @@
   },
   "homepage": "https://github.com/melonwer/ibphysiq#readme",
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=20.0.0",
     "npm": ">=8.0.0"
   },
   "scripts": {
@@ -98,6 +98,8 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@huggingface/inference": "^4.7.1",
+    "@langchain/core": "^1.2.12",
+    "@langchain/langgraph": "^1.4.16",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-progress": "^1.1.7",
     "@radix-ui/react-select": "^2.2.6",

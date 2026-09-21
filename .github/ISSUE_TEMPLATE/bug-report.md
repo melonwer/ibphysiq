@@ -31,7 +31,7 @@ If applicable, add screenshots to help explain your problem.
 - **OS:** [e.g., macOS, Windows, Linux]
 - **Browser:** [e.g., Chrome, Safari, Firefox]
 - **Version:** [e.g., 22]
-- **Node.js Version:** [e.g., 18.17.0]
+- **Node.js Version:** [e.g., 20.18.0]
 - **Deployment:** [e.g., Local, Vercel, Railway]
 
 ### Additional Context

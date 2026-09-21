@@ -2,7 +2,7 @@
 
 Created: 2026-09-18
 
-Status: Working plan; paper mining, source-backed Cartesian, circuit and field-map renderers, and checked eight-package circuit and field vertical slices are implemented locally. Human review, broader package coverage, and the remaining renderer families are still outstanding.
+Status: Working plan; paper mining, source-backed Cartesian, circuit and field-map renderers, checked eight-package circuit and field vertical slices, and the `QuestionRun v0.1` deterministic harness replay are implemented locally. Live model adapters, persistence, human review, broader package coverage, and the remaining renderer families are still outstanding.
 
 Working label: V2; the release version and delivery date are not yet assigned.
 
@@ -10,7 +10,7 @@ Working label: V2; the release version and delivery date are not yet assigned.
 
 Upgrade IBPhysiq from the current Paper 1-focused fine-tuning approach to a question-generation system supporting Paper 1 MCQs and coherent, multipart Paper 2 questions, including accurate graphs and diagrams.
 
-The intended recipients are IB Physics SL and HL students. Success means useful, solvable practice questions whose wording, figures, answers and mark schemes agree. The primary quality metric is the human-reviewed proportion of generated question packages passing all applicable correctness and usability checks. Report automatic acceptance rate, diversity, latency and cost alongside it.
+The intended recipients are IB Physics SL and HL students. Success means useful, solvable practice questions whose wording, figures, answers and mark schemes agree. The primary quality metric is the human-reviewed proportion of generated question packages passing all applicable correctness and usability checks. Report deterministic gate pass-through, agent pass/flag/reject outcomes, diversity, latency and cost alongside it; automated checks do not grant final acceptance during the pilot.
 
 - Cover the five themes and overlapping topics. The user's planning inventory is 24 HL topics and 19 SL topics; reconcile the exact taxonomy and syllabus version during cataloguing.
 - Include numerical, conceptual, graphical and cross-topic questions, with and without figures.
@@ -43,7 +43,7 @@ Qwen authors question text and marking points using verified results
 Deterministic figure rendering + complete-package validation
                               |
                               v
-Accept and store / bounded repair and revalidation / reject
+Await human review / bounded repair and revalidation / reject
 ```
 
 The model must not silently change verified quantities or assumptions during question writing. A changed scenario returns through calculation and validation. Schema-constrained output helps with structure but does not prove physical correctness.
@@ -184,6 +184,7 @@ Existing integration areas identified from the repository layout are listed belo
 | Existing area                        | Planned use                                                               |
 | ------------------------------------ | ------------------------------------------------------------------------- |
 | `app/api/generate-question/`         | Accept generation controls and return versioned question packages         |
+| `lib/generation-harness/`            | Persist framework-independent runs and execute bounded V2 quality gates   |
 | `lib/types/` and `lib/interfaces/`   | Define scenario, figure, package and provider contracts                   |
 | `lib/services/orchestration/`        | Coordinate generation, calculation, validation, retries and rendering     |
 | `lib/services/validation/`           | Add scenario and package checks; audit existing validation guarantees     |
