@@ -1,206 +1,109 @@
----
-title: IB Physics Practice Generator
-emoji: 🎓
-colorFrom: blue
-colorTo: green
-sdk: gradio
-sdk_version: 4.44.0
-app_file: app.py
-pinned: false
-license: mit
-short_description: IB-Styled Physics MCQ Generatoc
----
+# IBPhysiq
 
-# 🎓 IB Physics Practice Generator
+IBPhysiq is a local research project for generating IB Physics practice questions. It is being built around a question-generation harness that combines a language model with deterministic physics calculations, graph and diagram rendering, validation, and human review.
 
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](RELEASE_NOTES.md)
-[![Next.js](https://img.shields.io/badge/Next.js-15.5.2-black)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)](https://www.typescriptlang.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
+The goal is to produce complete question packages for SL and HL: Paper 1 multiple-choice questions and coherent, multipart Paper 2 questions, with figures, worked solutions, and marking points that agree.
 
-**Never run out of physics practice questions again!** 🚀
+The delivery plan is straightforward: build the harness, assemble and review the dataset, train and evaluate the model, then release the harness on GitHub and the model or adapter on Hugging Face. The Next.js app provides a local interface for development and review. Running a hosted website or community service is outside the project scope.
 
-This AI-powered tool creates unlimited, curriculum-aligned IB Physics questions instantly. Perfect for students cramming for exams, teachers preparing lessons, or anyone curious about educational AI.
+## Current status
 
-![pipeline](pipeline.png)
+**V2 is in development.** The [V2 upgrade plan](docs/V2_UPGRADE_PLAN.md) records the architecture, delivery phases, and remaining work.
 
-## ✨ What Makes This Special?
+| Area | Where it stands |
+| --- | --- |
+| Paper mining | Extraction, provenance tracking, and source-review tools are implemented; pilot corpus review remains open. |
+| Visuals and physics | Cartesian, circuit, and field-map renderers are implemented, with eight complete circuit packages and eight complete field packages checked against source targets. Coverage is still limited to supported families. |
+| Harness | `QuestionRun v0.1` deterministically replays one checked circuit package and one checked field package through calculation, rendering, validation, and review preparation. |
+| Persistence and review | A persistent run store and authenticated local review UI are implemented. |
+| Live generation | V2 planning and authoring model adapters, broader coverage, and integration with the app's generation route remain to be built. |
+| Dataset and model | Reviewed dataset assembly, baseline evaluation, V2 training, and the evaluated Hugging Face release are still ahead. |
 
-### 🎯 **Built for IB Students**
-- **Covers all 24 IB Physics topics** - From kinematics to quantum physics
-- **Paper 1 style questions** - Multiple choice just like your exams
-- **Free to use** - No subscriptions, no limits (with basic setup)
-- **Works offline** - Demo mode needs no internet
-- **Mobile friendly** - Study anywhere, anytime
+The current replay makes no model calls. It tests the execution and review workflow; it does not establish the quality or diversity of a live generator. The existing root-page generator uses the older provider-based path and is separate from V2.
 
-### 🤖 **Powered by Smart AI**
-- **Custom-trained model** - Learned from real IB Physics questions
-- **Quality checking** - AI reviews every question for accuracy
-- **Multiple AI options** - Free and premium choices available
-- **Always improving** - Gets smarter with community feedback
+## How the system is intended to work
 
-### 🛠️ **Perfect for Learning**
-- **Open source** - See how it works, improve it yourself
-- **Modern tech stack** - Learn web development with Next.js
-- **Real-world project** - Great for portfolios and learning
-- **Welcoming community** - Help from students and educators
+One structured physics scenario is the shared source for the question, calculations, figures, and solution:
 
-## 📋 Table of Contents
+1. Select supported topics, skills, and question families for a generation request.
+2. Have the model propose a scenario and question plan.
+3. Validate the specification and calculate the supported physics deterministically.
+4. Have the model write the question and marking points using the verified results.
+5. Render figures and validate the complete package, including answer consistency and visibility.
+6. Send the package for human review, bounded repair and revalidation, or rejection.
 
-- [🚀 Quick Start](#-quick-start) - Get running in 5 minutes
-- [📦 Setup Guide](#-setup-guide) - Step-by-step installation
-- [💡 How to Use](#-how-to-use) - Generate your first question
-- [🤝 Join the Community](#-join-the-community) - Help make it better
-- [📚 Learn More](#-learn-more) - Detailed documentation
+The initial model experiment proposed in the plan is `Qwen/Qwen3-8B` with a mixed QLoRA adapter. The untuned checkpoint must be evaluated in the same harness before training; the final model and adapter choices depend on measured results.
 
-## 🚀 Quick Start
+The initial scope covers Paper 1 MCQs and Paper 2, including graphical and non-graphical questions. Paper 1B is outside this upgrade's initial scope. Full syllabus coverage is a goal, not a current capability.
 
-**Want to try it right now?** Here are your options:
+## Run locally
 
-### 🎯 Option 1: Instant Demo (No Setup!)
-Just run the project - it includes demo questions to get you started:
+Use **Node.js 22** and **npm 10+**. The Node version is recorded in [`.nvmrc`](.nvmrc).
+
 ```bash
 git clone https://github.com/melonwer/ibphysiq.git
 cd ibphysiq
-npm install
-npm run dev
-```
-Open [localhost:3000](http://localhost:3000) and start generating questions! 🎉
-
-### 🆓 Option 2: Free AI Power (Recommended)
-Get unlimited questions with free AI:
-1. Get a free OpenRouter API key at [openrouter.ai](https://openrouter.ai) 🆓
-2. Copy `.env.example` to `.env.local`
-3. Add your key: `OPENROUTER_API_KEY=sk-or-your-key-here`
-4. Start the app: `npm run dev`
-
-**That's it!** You now have unlimited, AI-generated IB Physics questions. 🤯
-
-### 👤 Option 3: Advanced Setup (Optional)
-For developers and advanced users who want more AI options:
-
-**Lightning AI (Custom Model)**
-- Get 15 free credits for our custom IB Physics model
-- More specialized for physics questions
-- See [Lightning AI Guide](docs/DEPLOYMENT.md) for setup
-
-**Google Gemini**
-- Premium quality AI refinement
-- Requires API key from [Google AI Studio](https://aistudio.google.com/)
-
-**Local Models**
-- Run everything on your computer
-- Perfect for offline use or customization
-- See our [Local Setup Notebook](notebooks/setup_local_model.ipynb) for details
-
-> 💡 **Pro tip**: Start with Option 2 (free OpenRouter) - it's perfect for most students!
-
----
-
-## 📦 Setup Guide
-
-### What You Need
-- **Node.js 20+** - [Download here](https://nodejs.org/)
-- **Git** - For downloading the project
-- **5 minutes** - That's it! ⏱️
-
-### Step-by-Step Setup
-
-```bash
-# 1. Download the project
-git clone https://github.com/melonwer/ibphysiq.git
-cd ibphysiq
-
-# 2. Install everything
-npm install
-
-# 3. Set up your environment (optional for demo)
-cp .env.example .env.local
-# Edit .env.local to add your API keys
-
-# 4. Start the magic! ✨
+npm ci
 npm run dev
 ```
 
-**Open [localhost:3000](http://localhost:3000)** and you're ready to generate questions!
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). The development server binds to the local machine.
 
-## 💡 How to Use
+- **Existing generator:** the root page uses the older provider integrations. For that path, copy [`.env.example`](.env.example) to `.env.local` and configure the provider settings you need.
+- **Review UI:** visit `/review` after setting a long random `REVIEW_ADMIN_TOKEN` in `.env.local`. It reads stored question runs from `data/question-runs/` by default; `REVIEW_RUN_STORE_DIR` selects another directory.
+- **V2 replay:** the deterministic replay and ordinary tests require no model API credentials. Starting the app does not start V2 model generation or populate the review queue.
 
-### 🖥️ Web Interface (Easy!)
-1. **Open the app** at `localhost:3000`
-2. **Pick your topic** from the dropdown (like "Kinematics" or "Waves")
-3. **Choose difficulty** (Easy, Standard, or Hard)
-4. **Click "Generate Question"** 🎲
-5. **Study away!** Get explanations, try different topics
+For local setup, Python research tooling, and optional configuration, see [Getting started](docs/GETTING_STARTED.md). The [harness documentation](docs/QUESTION_GENERATION_HARNESS.md) describes the run, persistence, and review contracts.
 
-### ⚙️ Settings Panel
-Visit `/settings` to configure:
-- **OpenRouter** - Free AI (recommended!)
-- **Google Gemini** - Premium AI refinement
-- **Lightning AI** - Custom physics model
-- **Local Models** - Run on your computer
+## Development checks
 
-### 🔧 For Developers
 ```bash
-# Generate via API
-curl -X POST "http://localhost:3000/api/generate-question" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "topic": "kinematics",
-    "difficulty": "standard",
-    "openRouterApiKey": "your-key-here"
-  }'
+npm run check
 ```
 
-## 🤝 Join the Community
+This runs lint, TypeScript checks, the self-contained tests, and a local app build.
 
-### 🌟 How to Contribute
-**Never contributed to open source?** Perfect! This is a great place to start:
+Source-backed research fixture suites run separately with `npm run test:research-fixtures` and require the local paper corpus and derived records described in the [visual pilot guide](scripts/visual-pilot/README.md).
 
-1. **🍴 Fork the project** on GitHub
-2. **🔧 Make improvements** (fix bugs, add features, improve docs)
-3. **📤 Submit a pull request** - we'll help you through the process!
+## Repository map
 
-**Ideas for contributions:**
-- Add new physics topics
-- Improve question quality
-- Make the UI more beautiful
-- Write better documentation
-- Fix bugs and typos
+| Path | Purpose |
+| --- | --- |
+| `lib/generation-harness/` | Versioned run contracts, deterministic replay, validation stages, and persistence |
+| `lib/visuals/` | Physics calculations, figure specifications, SVG renderers, and pilot fixtures |
+| `lib/review/`, `app/review/` | Review service and local review interface |
+| `scripts/paper-mining/` | PDF extraction, source provenance, and extraction review |
+| `scripts/visual-pilot/` | Figure reconstruction and question-package pilot tooling |
+| `app/`, `components/` | Next.js routes and local UI |
+| `lib/services/` | Existing provider integrations |
+| `docs/` | Architecture, implementation notes, setup, and the V2 plan |
 
-### 💬 Get Help & Connect
-- **💬 Questions?** [GitHub Discussions](https://github.com/melonwer/ibphysiq/discussions)
-- **🐛 Found a bug?** [Report it here](https://github.com/melonwer/ibphysiq/issues)
-- **💡 Have ideas?** Share them in discussions!
+The root Python frontends and training notebooks are earlier experiments. The current workflow is documented in the local setup and V2 guides.
 
-## 📚 Learn More
+## Dataset and release path
 
-### 📖 Documentation
-- **[Getting Started Guide](docs/GETTING_STARTED.md)** - Friendly intro for newcomers
-- **[API Reference](docs/API.md)** - Technical details for developers
-- **[Deployment Guide](docs/DEPLOYMENT.md)** - How to deploy your own version
-- **[Contributing Guide](docs/CONTRIBUTING_RELEASES.md)** - How to help improve the project
+The harness comes before bulk dataset assembly so training examples match the tasks the system actually performs: proposing structured scenarios and writing questions from verified results.
 
-### 🛠️ Technical Details
-Built with modern technologies:
-- **Next.js 15** - React framework for web apps
-- **TypeScript** - Better JavaScript with types
-- **OpenRouter** - Free AI API access
-- **Lightning AI** - Custom model hosting
+The next milestones are to finish the reviewed pilot, connect live model adapters, assemble versioned training and evaluation splits, and compare the trained model against the untuned baseline. Source questions and their derivatives stay grouped in the same split.
 
-## 📄 License
+Passing automated checks does not grant final acceptance. Training readiness also requires human acceptance, source-use clearance, training metadata, and a grouped split assignment. Private source papers and unapproved derived data stay out of the releases.
 
-This project is MIT licensed - use it for anything! See [LICENSE](LICENSE) for details.
+The intended outputs are:
 
-## 🙏 Acknowledgments
+- **GitHub:** harness source, local setup instructions, and reproducible evaluation tooling.
+- **Hugging Face:** the evaluated V2 model or adapter, model card, and reproducible training configuration.
 
-Huge thanks to:
-- **OpenRouter** for free AI access 🆓❤️
-- **Lightning AI** for model hosting ⚡❤️
-- **IB Physics Community** for guidance and feedback 🎓❤️
-- **All contributors** who make this better every day 🤝❤️
+Release timing, dataset scale, compute budget, and quality thresholds remain open experiment choices. See the [V2 plan](docs/V2_UPGRADE_PLAN.md) for details.
 
----
+## Documentation
 
-<p align="center">Made with ❤️ for IB Physics students and educators worldwide</p>
-<p align="center">🌟 <strong>Star us on GitHub if this helps your studies!</strong> 🌟</p>
+- [Local setup](docs/GETTING_STARTED.md)
+- [V2 upgrade plan](docs/V2_UPGRADE_PLAN.md)
+- [Question generation harness](docs/QUESTION_GENERATION_HARNESS.md)
+- [Visual system](docs/VISUAL_SYSTEM.md)
+- [Visual pilot and reconstruction work](docs/VISUAL_PILOT.md)
+- [Paper mining tools](scripts/paper-mining/README.md)
+
+## License
+
+The code is available under the [MIT License](LICENSE.md). Source papers, datasets, and model artifacts are subject to their own terms.
