@@ -2,13 +2,15 @@
 
 Created: 2026-09-18
 
-Status: Working plan; paper mining, source-backed Cartesian, circuit and field-map renderers, checked eight-package circuit and field vertical slices, and the `QuestionRun v0.1` deterministic harness replay are implemented locally. Live model adapters, persistence, human review, broader package coverage, and the remaining renderer families are still outstanding.
+Status: Working plan; paper mining, source-backed Cartesian, circuit and field-map renderers, checked eight-package circuit and field vertical slices, and the `QuestionRun v0.1` deterministic harness replay are implemented locally. The persistent run store and authenticated human-review UI are also implemented. Live model adapters, review of the pilot corpus, broader package coverage, dataset assembly, training, and the remaining renderer families are still outstanding.
 
 Working label: V2; the release version and delivery date are not yet assigned.
 
+Delivery direction, updated 2026-09-27: build and run the harness locally, publish its source on GitHub, assemble the reviewed dataset, then train and publish the model on Hugging Face. Website hosting, automatic deployment, container publication, and community-service operations are outside this plan.
+
 ## 1. Outcome and scope
 
-Upgrade IBPhysiq from the current Paper 1-focused fine-tuning approach to a question-generation system supporting Paper 1 MCQs and coherent, multipart Paper 2 questions, including accurate graphs and diagrams.
+Build a local question-generation harness supporting Paper 1 MCQs and coherent, multipart Paper 2 questions, including accurate graphs and diagrams. Develop the harness before bulk dataset assembly and training so the training tasks match the actual generation workflow.
 
 The intended recipients are IB Physics SL and HL students. Success means useful, solvable practice questions whose wording, figures, answers and mark schemes agree. The primary quality metric is the human-reviewed proportion of generated question packages passing all applicable correctness and usability checks. Report deterministic gate pass-through, agent pass/flag/reject outcomes, diversity, latency and cost alongside it; automated checks do not grant final acceptance during the pilot.
 
@@ -143,7 +145,7 @@ Keep layout separate from physical relationships. Allow only supported specifica
 
 ### Phase 5 — Training dataset assembly
 
-**Work:** Convert reviewed records into examples matching the deployed workflow:
+**Work:** Convert reviewed records into examples matching the local generation workflow:
 
 ```text
 Task A: generation request -> structured scenario + question plan
@@ -175,28 +177,27 @@ Suggested stop rules: data leakage, invalid targets, exceeded compute budget, or
 
 **Exit evidence:** Compare untuned and tuned models within the identical generation pipeline on held-out requests. Report raw-generation failures and final accepted-package quality separately. A fluent answer or a passing JSON schema is insufficient evidence of improvement.
 
-### Phase 7 — Application integration and controlled rollout
+### Phase 7 — Local harness and model release
 
-**Work:** Integrate the validated generation pipeline with the Next.js application, including paper/level selection, inline figures, mathematical text, MCQ interaction and multipart questions with solutions revealed separately.
+**Work:** Connect the validated generation pipeline to a documented local entry point. Use the existing Next.js app for local generation and review where useful. Support paper and level selection, inline figures, mathematical text, MCQ interaction, and multipart questions with solutions revealed separately.
 
-Existing integration areas identified from the repository layout are listed below; inspect their behavior before modifying them. The API documentation describes long-answer support, but that does not establish current Paper 2 training quality or production behavior.
+The current repository areas are listed below. The older generation API is still separate from the deterministic V2 replay; it does not establish V2 model quality.
 
-| Existing area                        | Planned use                                                               |
-| ------------------------------------ | ------------------------------------------------------------------------- |
-| `app/api/generate-question/`         | Accept generation controls and return versioned question packages         |
-| `lib/generation-harness/`            | Persist framework-independent runs and execute bounded V2 quality gates   |
-| `lib/types/` and `lib/interfaces/`   | Define scenario, figure, package and provider contracts                   |
-| `lib/services/orchestration/`        | Coordinate generation, calculation, validation, retries and rendering     |
-| `lib/services/validation/`           | Add scenario and package checks; audit existing validation guarantees     |
-| `lib/services/llama/`                | Inspect current provider coupling and introduce the Qwen adapter boundary |
-| `lib/constants/ib-physics-topics.ts` | Reconcile syllabus taxonomy and level applicability                       |
-| `components/`, `components/ui/`      | Present figures and both paper formats accessibly                         |
+| Existing area                        | Planned use                                                                 |
+| ------------------------------------ | --------------------------------------------------------------------------- |
+| `lib/generation-harness/`            | Run the V2 stages and retain versioned runs, checks, and artifacts          |
+| `lib/visuals/`                       | Calculate supported physics and render deterministic figures                |
+| `lib/review/`, `app/review/`         | Review packages and record acceptance, rights, metadata, and grouped splits |
+| `app/api/generate-question/`         | Integrate validated V2 packages into the local app                          |
+| `lib/services/`                      | Inspect existing provider integration before adding live Qwen adapters      |
+| `lib/constants/ib-physics-topics.ts` | Reconcile syllabus taxonomy and level applicability                         |
+| `components/`, `components/ui/`      | Present figures and both paper formats accessibly                           |
 
-Preserve existing client compatibility through an adapter or versioned response. Keep assessment level separate from difficulty. Record checkpoint/adapter, schema, renderer, solver and seed versions for each generated package. Apply bounded retries, cost limits and failure reporting. Use caching or a reviewed question bank where useful; do not serve failed output merely to satisfy a request.
+Keep assessment level separate from difficulty. Record checkpoint, adapter, schema, renderer, solver, and seed versions for each generated package. Apply bounded retries, cost limits, and explicit failure reporting. Failed packages remain rejected or queued for review.
 
-**Deliverables:** Integrated pilot, focused tests, operational metrics and release/rollback checklist.
+**Deliverables:** Harness source and local setup instructions on GitHub; evaluated model or adapter artifacts, model card, and reproducible training configuration on Hugging Face. Include the exact model revision and supported families in the harness configuration. Keep private source papers and unapproved derived data out of both releases.
 
-**Exit evidence:** End-to-end checks cover both paper types, figures, answer visibility, provider failure and invalid generation. Complete relevant lint, type checks, tests and production build. When deployment is requested, preserve recoverable artifacts, stage the update and verify the actual target/public endpoint before reporting it live.
+**Exit evidence:** A clean checkout can install dependencies and run the documented local workflow with the released model. End-to-end checks cover both paper types, figures, answer visibility, provider failure, and invalid generation. Complete relevant lint, type checks, tests, and the local app build. Report measured quality and known coverage limits with the model release.
 
 ## 5. Dataset scale and diversity
 
@@ -245,9 +246,10 @@ Report sample sizes and uncertainty, and slice results by paper, level, topic an
 - [ ] Freeze grouped evaluation examples and capture the untuned baseline.
 - [ ] Assemble the initial training dataset and agree the experiment contract.
 - [ ] Train, compare and decide whether to expand data or revise the architecture.
-- [ ] Integrate validated output into the application, then plan the first release.
+- [ ] Connect live model adapters to the local harness and review workflow.
+- [ ] Publish the harness on GitHub and the evaluated model on Hugging Face with reproducible setup instructions.
 
-Open choices: extraction tooling, renderer libraries, solver implementation, compute budget/hardware, final adapter strategy, quality thresholds, hosting target and milestone dates. The first concrete artifact is the reviewed pilot dataset and reconstruction report; completing a catalogue alone does not establish a working generator.
+Open choices: extraction tooling, renderer libraries, solver implementation, compute budget/hardware, final adapter strategy, quality thresholds, local inference setup and milestone dates. The first concrete artifact is the reviewed pilot dataset and reconstruction report; completing a catalogue alone does not establish a working generator.
 
 ### Implementation note — 2026-09-18
 

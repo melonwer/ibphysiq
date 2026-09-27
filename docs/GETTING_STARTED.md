@@ -1,107 +1,89 @@
-# 🎓 Getting Started Guide for Students & Educators
+# Work locally
 
-**Welcome!** This guide is written especially for IB Physics students, teachers, and anyone curious about AI in education. No prior coding experience? No problem! We'll start from the basics.
+IBPhysiq is a local research project for an IB Physics question-generation harness.
+The delivery plan is to publish the harness on GitHub and the trained model on
+Hugging Face. Dataset assembly and the V2 training experiment are still ahead.
 
-## 🚀 What Is This Project?
+## Start the local app
 
-The IB Physics Practice Generator is an AI-powered tool that creates unlimited physics practice questions tailored to the IB curriculum. Think of it as having a super-smart tutor that never runs out of problems for you to solve!
+Use Node.js 22, as recorded in [`.nvmrc`](../.nvmrc). If you use nvm, run `nvm use`
+from the repository root. Then install the locked dependencies and start Next.js:
 
-### What Makes It Special?
-- **Free to use** - No subscriptions or hidden costs
-- **IB-specific** - Questions match your exact syllabus
-- **Always available** - Practice anytime, anywhere
-- **AI-powered** - Gets smarter over time
-- **Open source** - You can learn from and improve the code
+```bash
+npm ci
+npm run dev
+```
 
-## 🎯 Who This Is For
+Open <http://127.0.0.1:3000>. Installation does not build the app.
+The development server listens on the local machine.
 
-### 📚 IB Physics Students
-- Get unlimited practice questions for any topic
-- Practice Paper 1 (multiple choice) and Paper 2 (long answer)
-- Available 24/7 for last-minute study sessions
-- Learn about AI and coding while studying physics!
+The root page still uses the older provider-based generator. To use that path,
+copy [`.env.example`](../.env.example) to `.env.local` if the local file does not
+exist, then supply the provider settings you need. Keep real credentials local.
+The V2 replay and ordinary tests do not require model API credentials.
 
-### 👩‍🏫 Educators & Teachers
-- Create custom quizzes for your classes
-- Generate homework assignments instantly
-- Supplement your teaching materials
-- Show students real-world AI applications
+The review UI is at `/review`. It reads stored question runs and requires
+`REVIEW_ADMIN_TOKEN` in `.env.local`. Runs default to `data/question-runs/`;
+`REVIEW_RUN_STORE_DIR` selects another directory. See the
+[review and persistence documentation](QUESTION_GENERATION_HARNESS.md) for the
+current authentication and run contracts.
 
-### 💻 Future Developers
-- Learn about web development with Next.js
-- Understand how AI APIs work
-- Practice deployment and DevOps
-- Contribute to an educational open-source project
+To run a built copy locally:
 
-## 🛠️ Three Ways to Use This
+```bash
+npm run build
+npm start
+```
 
-### 1. 🌐 Just Use It (Easiest)
-Visit the live website and start generating questions immediately. No setup required!
+## Find the code
 
-### 2. 🏠 Run It Locally (Learning)
-Perfect for students who want to:
-- Customize the questions
-- Learn web development
-- Add new features
-- Understand how AI works
+| Path                         | Contents                                                                             |
+| ---------------------------- | ------------------------------------------------------------------------------------ |
+| `lib/generation-harness/`    | V2 run contracts, deterministic replay, validation stages, and persistent run store  |
+| `lib/visuals/`               | Visual specifications, SVG renderers, physics calculations, and pilot fixtures       |
+| `lib/review/`, `app/review/` | Authenticated review service and local review UI                                     |
+| `scripts/paper-mining/`      | PDF extraction, provenance, and source review tools                                  |
+| `scripts/visual-pilot/`      | Source-backed visual and question-package reconstruction tools                       |
+| `app/`, `components/`        | Next.js routes and UI, including the older generator                                 |
+| `lib/services/`              | Older provider integration and generation services                                   |
+| `dataset/`, `data/`          | Local source corpus, derived artifacts, and run data; keep private inputs out of Git |
 
-### 3. 🚀 Deploy Your Own (Advanced)
-Great for:
-- Schools wanting their own version
-- Students learning about deployment
-- Teachers creating custom versions for their classes
+The current V2 adapters replay checked circuit and field packages without model
+calls. They exercise calculations, rendering, validation, persistence, and review.
+Live planning and authoring adapters remain to be built. Start with the
+[V2 upgrade plan](V2_UPGRADE_PLAN.md), then read the
+[generation harness](QUESTION_GENERATION_HARNESS.md) and
+[visual system](VISUAL_SYSTEM.md) docs.
 
-## 🎓 Learning Opportunities
+## Run the checks
 
-This project is perfect for learning about:
-- **Web Development**: Modern React and Next.js
-- **AI Integration**: Working with language models
-- **API Design**: Building and consuming REST APIs
-- **Deployment**: Getting apps live on the internet
-- **Open Source**: Contributing to real projects
+```bash
+npm run check
+```
 
-## 📖 Quick Start Guides
+This runs lint, type checking, the self-contained tests, and a local app build.
+Each step is also available through `npm run lint`, `npm run type-check`,
+`npm test`, and `npm run build`.
 
-- **[API Guide](API.md)** - Learn to build your own physics apps
-- **[Deployment Guide](DEPLOYMENT.md)** - Host your own version
-- **[Security Guide](SECURITY.md)** - Keep everything safe
-- **[Model Guide](MODEL_CARD.md)** - Understand the AI behind it all
+`npm test` runs the tests that can work from a checkout. To run the source-backed
+fixture suites against your local paper corpus and derived records, use
+`npm run test:research-fixtures`. Their inputs are described in the
+[visual pilot guide](../scripts/visual-pilot/README.md).
 
-## 🤝 Get Involved
+## Use the Python research tools
 
-### For Students
-1. **Use it for study** - Generate practice questions
-2. **Report issues** - Found a wrong answer? Let us know!
-3. **Suggest features** - What would make studying easier?
-4. **Learn to code** - Start with small contributions
+Python is optional for the Next.js app. For paper mining and visual pilot tooling,
+use Python 3.12, create a virtual environment, and install their dependencies:
 
-### For Educators
-1. **Try it in class** - See how students respond
-2. **Share feedback** - What works? What doesn't?
-3. **Collaborate** - Help us align with real IB needs
-4. **Spread the word** - Share with other teachers
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r scripts/paper-mining/requirements.txt
+python -m unittest discover -s scripts/paper-mining -p 'test_*.py'
+python -m unittest discover -s scripts/visual-pilot -p 'test_*.py'
+```
 
-### For Developers
-1. **Check the code** - Everything is open source
-2. **Fix bugs** - Help make it better for everyone  
-3. **Add features** - Make it more useful
-4. **Write docs** - Help others learn
-
-## 💡 Ideas for School Projects
-
-- **Physics Study App** - Build a mobile version
-- **Question Analytics** - Track which topics are hardest
-- **Collaboration Tools** - Let students share questions
-- **Progress Tracking** - Monitor improvement over time
-- **Multi-language Support** - Translate for international schools
-
-## 🤔 Need Help?
-
-- **Questions about physics?** Ask your teacher or classmates
-- **Technical issues?** Check our [GitHub Issues](https://github.com/melonwer/ibphysiq/issues)
-- **Want to contribute?** See our [Contributing Guide](CONTRIBUTING_RELEASES.md)
-- **General questions?** Start a [Discussion](https://github.com/melonwer/ibphysiq/discussions)
-
----
-
-Ready to start? Pick your path above and dive in! Remember, every expert was once a beginner. 🌟
+Follow the [paper mining guide](../scripts/paper-mining/README.md) for extraction,
+OCR dependencies, and source review. The root Python frontends and training
+notebooks are earlier experiments; their dependencies are separate from these
+tools. Preserve source PDFs and generate derived copies.

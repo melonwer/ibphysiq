@@ -2,10 +2,9 @@
 
 `QuestionRun v0.1` is the first safe execution slice for the V2 question
 pipeline. It lives beside the legacy generation orchestrator; it does not route
-production requests through the new path yet.
+the local app's generation requests through the new path yet.
 
-The harness uses the maintained LangGraph line and therefore raises the project
-runtime floor from Node.js 18 (end-of-life) to Node.js 20.
+Use Node.js 22, as recorded in [`.nvmrc`](../.nvmrc), for the harness and local app.
 
 ## Boundary
 
