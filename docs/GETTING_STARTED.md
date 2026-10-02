@@ -44,16 +44,22 @@ npm start
 | `lib/review/`, `app/review/` | Authenticated review service and local review UI                                     |
 | `scripts/paper-mining/`      | PDF extraction, provenance, and source review tools                                  |
 | `scripts/visual-pilot/`      | Source-backed visual and question-package reconstruction tools                       |
+| `scripts/pilot-dataset/`     | Source sampler, frozen splits, model experiment and fresh synthetic-pilot tools      |
 | `app/`, `components/`        | Next.js routes and UI, including the older generator                                 |
 | `lib/services/`              | Older provider integration and generation services                                   |
 | `dataset/`, `data/`          | Local source corpus, derived artifacts, and run data; keep private inputs out of Git |
 
-The current V2 adapters replay checked circuit and field packages without model
+The current V2 adapters replay checked circuit, field and mechanics packages without model
 calls. They exercise calculations, rendering, validation, persistence, and review.
-Live planning and authoring adapters remain to be built. Start with the
+Local Qwen planner and source-conditioned author adapters are also implemented.
+The separate [new question pilot](SYNTHETIC_QUESTION_PILOT.md) generates 20 complete
+fresh questions with deterministic code. Connecting those fresh scenarios to Qwen
+and the native run/review workflow is the next engineering step. Start with the
 [V2 upgrade plan](V2_UPGRADE_PLAN.md), then read the
 [generation harness](QUESTION_GENERATION_HARNESS.md) and
 [visual system](VISUAL_SYSTEM.md) docs.
+The [session handoff](SESSION_HANDOFF.md) records the current artifacts, checks
+and remaining work.
 
 ## Run the checks
 

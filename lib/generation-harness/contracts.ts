@@ -165,7 +165,12 @@ export const QUESTION_PACKAGE_ARTIFACT_SCHEMA_NODE: SchemaNode = {
   kind: "object",
   description: "Student-facing question package plus its marking information",
   properties: {
-    kind: stringField(["circuit-question-package", "field-question-package"]),
+    kind: stringField([
+      "circuit-question-package",
+      "field-question-package",
+      "mechanics-question-package",
+      "model-authored-question-package",
+    ]),
     schemaVersion: stringField([QUESTION_PACKAGE_ARTIFACT_SCHEMA_VERSION]),
     packageId: stringField(),
     packageSchemaVersion: stringField(),

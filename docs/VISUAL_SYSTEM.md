@@ -1,7 +1,7 @@
 # IB Physics visual system
 
-Status: schema and catalogue foundation implemented; deterministic Cartesian, circuit
-and field-map SVG renderers have source-backed engineering pilots. Other renderer
+Status: schema and catalogue foundation implemented; deterministic Cartesian, circuit,
+field-map and mechanics SVG renderers have source-backed engineering pilots. Other renderer
 families remain incomplete.
 
 This system separates the physics meaning of a figure from its layout. A question
@@ -181,9 +181,9 @@ move from `planned` to `supported`:
 
 The pilot backlog is evidence-driven:
 
-1. `plot.cartesian.v1`, `network.circuit.v1`, and `field.map.v1` now have source-backed
+1. `plot.cartesian.v1`, `network.circuit.v1`, `field.map.v1` and `scene.mechanics.v1` have source-backed
    renderer and complete-package evidence.
-2. Build mechanics and electromagnetic scene primitives as reusable layers, then
+2. Extend mechanics primitives into a general force-diagram family and electromagnetic scenes, then
    implement ray/wave, thermal, matter, energy-level, orbital, table, and apparatus
    templates according to reviewed frequency.
 3. Keep particle-interaction and annotated-image templates reserved until reviewed

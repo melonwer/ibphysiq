@@ -72,7 +72,11 @@ export type VisualPrimitiveId =
   | "wire";
 
 export type CoordinateSpace =
-  "cartesian" | "network" | "scene" | "table" | "image";
+  | "cartesian"
+  | "network"
+  | "scene"
+  | "table"
+  | "image";
 
 export interface Point2D {
   x: number;
@@ -103,7 +107,11 @@ export interface AxisSpec {
 export interface PlotSeriesSpec {
   id: string;
   kind:
-    "analytical-curve" | "measured-points" | "histogram" | "step" | "waveform";
+    | "analytical-curve"
+    | "measured-points"
+    | "histogram"
+    | "step"
+    | "waveform";
   xParameterId: string;
   yParameterId: string;
   dataRef: string;
@@ -280,6 +288,56 @@ export interface ScenePayload {
   }>;
 }
 
+export interface MechanicsLabel {
+  parameterId: string;
+  text: string;
+}
+
+export interface MechanicsBody {
+  id: string;
+  kind: "block" | "ball" | "cart";
+  position: Point2D;
+  angleDegrees: number;
+  label?: MechanicsLabel;
+}
+
+export interface MechanicsPath {
+  id: string;
+  kind: "surface" | "connector" | "trajectory" | "dimension" | "spring";
+  points: Point2D[];
+  closed?: boolean;
+  dashed?: boolean;
+  label?: MechanicsLabel;
+}
+
+export interface MechanicsVector {
+  id: string;
+  originRef: string;
+  direction: Point2D;
+  label?: MechanicsLabel;
+}
+
+export interface MechanicsAngle {
+  id: string;
+  vertex: Point2D;
+  startDegrees: number;
+  endDegrees: number;
+  label: MechanicsLabel;
+}
+
+export interface MechanicsPanel {
+  id: string;
+  label?: MechanicsLabel;
+  bodies: MechanicsBody[];
+  paths: MechanicsPath[];
+  vectors: MechanicsVector[];
+  angles: MechanicsAngle[];
+}
+
+export interface MechanicsScenePayload {
+  panels: MechanicsPanel[];
+}
+
 export interface TablePayload {
   columns: Array<{ id: string; label: string; unit?: string }>;
   rowDataRef: string;
@@ -313,7 +371,7 @@ export interface VisualPayloadByFamily {
   energy_level: EnergyLevelPayload;
   particle_interaction: ScenePayload;
   material_particle_model: ScenePayload;
-  mechanics_scene: ScenePayload;
+  mechanics_scene: MechanicsScenePayload;
   electromagnetic_scene: ScenePayload;
   thermal_energy_scene: ScenePayload;
   spatial_orbital: ScenePayload;

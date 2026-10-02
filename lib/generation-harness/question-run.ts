@@ -125,7 +125,11 @@ export interface VerifiedQuestionArtifacts {
 }
 
 export interface QuestionPackageArtifact {
-  kind: "circuit-question-package" | "field-question-package";
+  kind:
+    | "circuit-question-package"
+    | "field-question-package"
+    | "mechanics-question-package"
+    | "model-authored-question-package";
   schemaVersion: typeof QUESTION_PACKAGE_ARTIFACT_SCHEMA_VERSION;
   packageId: string;
   /** Schema version of the checked package this artifact summarises. */

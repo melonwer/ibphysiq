@@ -16,6 +16,7 @@ import {
   REJECTION_RECORD_SCHEMA_VERSION,
   resumeQuestionGraph,
   runQuestionGraph,
+  QuestionRunStageError,
   withoutRevisionFields,
 } from "..";
 import { createHumanReviewEvent } from "../human-review";
@@ -142,6 +143,35 @@ describe("JsonlQuestionRunStore", () => {
 
     const stored = await store.resume(run.runId);
     expect(stored.rejection).toEqual(rejection());
+  });
+
+  it("persists an author rejection at its failing stage and recovers it after restart", async () => {
+    const store = new JsonlQuestionRunStore(rootDir);
+    const adapters = createCircuitReplayAdapters();
+    const run = await runQuestionGraph(
+      circuitReplayRequest(),
+      {
+        ...adapters,
+        async author() {
+          throw new QuestionRunStageError(
+            "incorrect-answer",
+            "The author changed a checked answer target",
+          );
+        },
+      },
+      { store, retryLimits: { author: 1 } },
+    );
+    expect(run.status).toBe("rejected");
+    expect(run.currentStage).toBe("author");
+    expect(run.rejection).toMatchObject({
+      stage: "author",
+      code: "incorrect-answer",
+      attempts: 1,
+    });
+    const recovered = await new JsonlQuestionRunStore(rootDir).resume(
+      run.runId,
+    );
+    expect(recovered).toEqual(run);
   });
 
   it("rejects an artifact with an unsupported schema version before it is durable", async () => {

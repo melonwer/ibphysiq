@@ -199,13 +199,24 @@ only on the `ReviewSession` shape, so the swap is contained.
 
 ## Current deterministic replay
 
-The v0.1 adapters make no model calls. They replay one checked circuit package
-and one checked field package by rerunning their deterministic solver,
+The v0.1 adapters make no model calls. They replay checked circuit, field and
+mechanics packages by rerunning their deterministic solver,
 rerendering their SVG, and invoking the existing package validator. Novelty is
 recorded as `not-run` because source replay tests execution integrity rather
 than originality. Independent agent review is likewise recorded as `not-run`.
 
-This slice proves the orchestration, persistence, audit, and human-review
-contract before live planner, author, novelty-ledger, Gemini-review, or
-batch-generation adapters are added. Replayed runs are recorded as blocked, and
-nothing here makes them training-ready.
+This slice proves orchestration, persistence, audit and human review. Replayed
+runs remain blocked for training. Separate local Qwen planner and source-conditioned
+author adapters now support the [20-request authoring pilot](UNTUNED_AUTHOR_BASELINE.md).
+The separate [synthetic pilot](SYNTHETIC_QUESTION_PILOT.md) produces 20 fresh complete
+questions with deterministic code. Independent agent checks cover their physics
+and student views. They are not yet native `QuestionRun` packages. Parameter-bearing
+Qwen scenario generation, fresh-package review integration, novelty-ledger and
+independent model-review adapters remain open.
+
+`mechanicsReplayRequest(packageId)` and `createMechanicsReplayAdapters(packageId)`
+support all eight mechanics packages. The mechanics generator writes these runs to
+`data/question-runs/`, or the directory selected by `--run-store` or
+`REVIEW_RUN_STORE_DIR`. The authenticated `/review` workflow resolves their complete
+questions, diagrams, worked solutions, marking points and outstanding training
+decisions. See [the mechanics workflow](VISUAL_PILOT.md#mechanics-package-pipeline).

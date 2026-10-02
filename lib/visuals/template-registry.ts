@@ -303,7 +303,7 @@ export const VISUAL_TEMPLATE_REGISTRY = {
       "source-signs-consistent",
       "field-force-directions-consistent",
     ],
-    implementationStatus: "pilot",
+    implementationStatus: "planned",
   },
   thermal_energy_scene: {
     family: "thermal_energy_scene",
@@ -379,7 +379,7 @@ export const VISUAL_TEMPLATE_REGISTRY = {
       "relationships-resolve",
       "dimensions-positive",
     ],
-    implementationStatus: "pilot",
+    implementationStatus: "planned",
   },
   annotated_image: {
     family: "annotated_image",

@@ -16,6 +16,13 @@ import { renderCartesianPlot } from "../visuals/render-cartesian";
 import { renderCircuitNetwork } from "../visuals/render-circuit";
 import { renderFieldMap } from "../visuals/render-field-map";
 import {
+  MECHANICS_QUESTION_PACKAGES,
+  MechanicsQuestionPackage,
+  solveMechanicsScenario,
+  validateMechanicsQuestionPackage,
+} from "../visuals/mechanics-question-packages";
+import { renderMechanicsScene } from "../visuals/render-mechanics";
+import {
   NOVELTY_ASSESSMENT_SCHEMA_VERSION,
   NoveltyAssessment,
   QUESTION_BLUEPRINT_SCHEMA_VERSION,
@@ -460,6 +467,131 @@ export function createFieldReplayAdapters(
           validation.issues.join("; "),
         );
       }
+    },
+    async checkNovelty() {
+      return replayNoveltyAssessment();
+    },
+    async prepareReview(questionPackage, checks) {
+      return reviewEnvelope(questionPackage, checks);
+    },
+  };
+}
+
+export const MECHANICS_REPLAY_PACKAGE_ID = MECHANICS_QUESTION_PACKAGES[0].id;
+
+function mechanicsPackage(packageId: string): MechanicsQuestionPackage {
+  const item = MECHANICS_QUESTION_PACKAGES.find(
+    (candidate) => candidate.id === packageId,
+  );
+  if (!item) throw new Error(`Unknown mechanics package: ${packageId}`);
+  return item;
+}
+function mechanicsBlueprint(item: MechanicsQuestionPackage): QuestionBlueprint {
+  return {
+    schemaVersion: QUESTION_BLUEPRINT_SCHEMA_VERSION,
+    id: `${item.id}-blueprint`,
+    paper: item.paper,
+    level: levelFromSourceLabel(item.source.questionLabel),
+    topic: "mechanics",
+    assessedSkills: [`apply the ${item.scenario.kind} model`],
+    structure: item.question.kind,
+    scenarioKind: item.scenario.kind,
+    visual: {
+      required: true,
+      purposes: ["supply geometric and motion givens"],
+      families: ["mechanics_scene"],
+    },
+    novelty: {
+      strategy: "source-replay",
+      sourceFamilyId: item.source.fixtureId,
+    },
+    sourcePackageRef: item.id,
+  };
+}
+function mechanicsArtifact(
+  item: MechanicsQuestionPackage,
+): QuestionPackageArtifact {
+  return {
+    kind: "mechanics-question-package",
+    schemaVersion: QUESTION_PACKAGE_ARTIFACT_SCHEMA_VERSION,
+    packageId: item.id,
+    packageSchemaVersion: item.schemaVersion,
+    sourceQuestionId: item.source.questionId,
+    paper: item.paper,
+    structure: item.question.kind,
+    marks: item.marks,
+    visualFamilies: ["mechanics_scene"],
+    contentFingerprint: packageContentFingerprint(item),
+    trainingEligibility: item.trainingEligibility,
+    trainingBlockers: [...item.trainingBlockers],
+  };
+}
+export function mechanicsReplayRequest(
+  packageId = MECHANICS_REPLAY_PACKAGE_ID,
+): QuestionRunRequest {
+  const item = mechanicsPackage(packageId),
+    blueprint = mechanicsBlueprint(item);
+  return {
+    mode: "source-replay",
+    paper: item.paper,
+    level: blueprint.level,
+    topics: [blueprint.topic],
+    assessedSkills: [...blueprint.assessedSkills],
+    difficulty: "standard",
+    visualPolicy: "required",
+    sourcePackageRef: item.id,
+  };
+}
+export function createMechanicsReplayAdapters(
+  packageId = MECHANICS_REPLAY_PACKAGE_ID,
+): QuestionRunAdapters {
+  const item = mechanicsPackage(packageId);
+  return {
+    async plan() {
+      return mechanicsBlueprint(item);
+    },
+    async validateBlueprint(request, blueprint) {
+      validateReplayBlueprint(request, blueprint, item.id);
+    },
+    async solveAndRender() {
+      const results = solveMechanicsScenario(item.scenario);
+      if (JSON.stringify(results) !== JSON.stringify(item.results))
+        throw new QuestionRunStageError(
+          "incorrect-answer",
+          "Mechanics replay results differ from the checked package",
+        );
+      return {
+        schemaVersion: VERIFIED_ARTIFACTS_SCHEMA_VERSION,
+        solverId: `mechanics-solver/${item.scenario.kind}/0.1.0`,
+        resultKeys: Object.keys(results).sort(),
+        sourceBacked: true,
+        renderedVisuals: [
+          renderedVisual(
+            item.visualSpec.id,
+            "mechanics_scene",
+            renderMechanicsScene(item.visualSpec),
+          ),
+        ],
+      };
+    },
+    async author() {
+      return mechanicsArtifact(item);
+    },
+    async validatePackage(questionPackage) {
+      if (
+        JSON.stringify(questionPackage) !==
+        JSON.stringify(mechanicsArtifact(item))
+      )
+        throw new QuestionRunStageError(
+          "package-validation-failed",
+          "Authored artifact differs from the replayed mechanics package",
+        );
+      const validation = validateMechanicsQuestionPackage(item);
+      if (!validation.valid)
+        throw new QuestionRunStageError(
+          "package-validation-failed",
+          validation.issues.join("; "),
+        );
     },
     async checkNovelty() {
       return replayNoveltyAssessment();
