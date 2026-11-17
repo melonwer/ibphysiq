@@ -171,9 +171,10 @@ export const DEFAULT_SIXTHPHYSICS_CONCEPT_CATALOGUE: readonly ConceptSliceSpec[]
   );
 
 const PURE_CALCULATION_SOURCE_CONCEPT_IDS = [
-  "error-propagation-uncertainties",
-  "uniform-acceleration-suvat",
-  "work-energy-power-efficiency",
+  "si-units-dimensional-analysis",
+  "uncertainties-error-propagation",
+  "kinematics-suvat",
+  "work-energy-power",
 ] as const;
 
 export const PURE_CALCULATION_CONCEPT_CATALOGUE: readonly ConceptSliceSpec[] =

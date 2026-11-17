@@ -15,6 +15,7 @@ import {
   PHYSICS_DOMAIN_IDS,
   PhysicsDomainId,
   planWorkOrders,
+  PURE_CALCULATION_CONCEPT_CATALOGUE,
   readShardRecords,
   resetDomainRegistryToDefaults,
   SIXTHPHYSICS_BANK_ITEM_SCHEMA_VERSION,
@@ -930,6 +931,42 @@ describe("Wave 1 unified 10-domain + 3-syllabus harness integration", () => {
           (s) => s.syllabus === "ib" && s.level === "SL",
         ),
       ).toBe(true);
+
+      // 6. Verify PURE_CALCULATION_CONCEPT_CATALOGUE, domains: ["pure-calculation"], and --include-pure-calculation
+      expect(PURE_CALCULATION_CONCEPT_CATALOGUE.length).toBeGreaterThan(0);
+      const pureOnlyManifest = planWorkOrders({
+        domains: ["pure-calculation"],
+        itemsPerSlice: 10,
+      });
+      expect(pureOnlyManifest.totalSlices).toBeGreaterThan(0);
+      expect(
+        pureOnlyManifest.slices.every(
+          (s) => s.domain === "pure-calculation" && s.visualFamily === "none",
+        ),
+      ).toBe(true);
+
+      const withPureManifest = planWorkOrders({
+        includePureCalculation: true,
+        itemsPerSlice: 10,
+      });
+      expect(withPureManifest.totalSlices).toBe(
+        fullManifest.totalSlices + pureOnlyManifest.totalSlices,
+      );
+
+      const cliWithPureOut = path.join(tempRoot, "with-pure-orders.json");
+      expect(
+        runPlanWorkOrdersCli([
+          "--include-pure-calculation",
+          "--output",
+          cliWithPureOut,
+        ]),
+      ).toBe(0);
+      const cliWithPureManifest = JSON.parse(
+        fs.readFileSync(cliWithPureOut, "utf8"),
+      ) as WorkOrderManifest;
+      expect(cliWithPureManifest.totalSlices).toBe(
+        fullManifest.totalSlices + pureOnlyManifest.totalSlices,
+      );
     } finally {
       logSpy.mockRestore();
     }
