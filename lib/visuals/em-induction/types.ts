@@ -472,6 +472,8 @@ export type EmInductionSolution =
 export interface EmInductionRenderOptions {
   width?: number;
   height?: number;
+  /** Optional additional hidden quantities merged with scenario visibility rules. */
+  hiddenQuantities?: readonly string[];
 }
 
 export type EmInductionValidationIssue = VisualValidationIssue;
@@ -480,14 +482,57 @@ export type EmInductionValidationResult = VisualValidationResult;
 const QUANTITY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   plateAreaM2: ["A", "area", "plateArea"],
   plateSeparationM: ["d", "separation", "plateSeparation"],
+  afterSeparationM: ["newSeparationM", "d'", "d′", "d2", "d_2"],
   relativePermittivity: ["epsilon_r", "epsilonR", "er", "dielectricConstant"],
+  afterRelativePermittivity: [
+    "newRelativePermittivity",
+    "epsilon_r'",
+    "epsilon_r′",
+    "er'",
+    "er′",
+  ],
   voltageV: ["V", "potentialDifferenceV"],
+  afterVoltageV: ["V'", "V′", "newVoltageV"],
   capacitanceF: ["C", "capacitance"],
-  chargeC: ["Q", "q", "charge"],
+  afterCapacitanceF: ["C'", "C′", "newCapacitanceF"],
+  chargeC: ["Q", "q", "charge", "chargeMagnitudeC"],
+  chargeMagnitudeC: ["Q", "q", "charge", "chargeC"],
+  afterChargeC: ["Q'", "Q′", "newChargeC"],
   electricFieldVm: ["E", "electricField", "electricFieldMagnitudeVm"],
+  afterElectricFieldVm: ["E'", "E′", "newElectricFieldVm"],
   storedEnergyJ: ["U", "energyJ", "storedEnergy"],
+  afterStoredEnergyJ: ["U'", "U′", "newStoredEnergyJ"],
+  energyChangeJ: ["deltaU", "deltaE"],
   energyDensityJm3: ["uE", "energyDensity"],
   equivalentCapacitanceF: ["Ceq", "C_eq", "totalCapacitanceF"],
+  seriesCapacitanceF: ["Cs", "C_s", "Cs_capacitanceF"],
+  Cs_capacitanceF: ["Cs", "C_s", "seriesCapacitanceF"],
+  Cs_voltageV: ["seriesVoltageV"],
+  seriesVoltageV: ["Cs_voltageV"],
+  Cs_chargeC: ["Qs", "Q_s"],
+  parallelBankCapacitanceF: ["Cp", "C_p"],
+  parallelVoltageV: ["Vp_bank"],
+  Cp1_capacitanceF: ["Cp1", "C_p1", "cp1F"],
+  Cp2_capacitanceF: ["Cp2", "C_p2", "cp2F"],
+  Cp3_capacitanceF: ["Cp3", "C_p3", "cp3F"],
+  Cp4_capacitanceF: ["Cp4", "C_p4", "cp4F"],
+  c1F: ["C1", "C_1"],
+  c2F: ["C2", "C_2"],
+  c3F: ["C3", "C_3"],
+  c4F: ["C4", "C_4"],
+  c5F: ["C5", "C_5"],
+  v1V: ["V1", "V_1"],
+  v2V: ["V2", "V_2"],
+  v3V: ["V3", "V_3"],
+  v4V: ["V4", "V_4"],
+  v5V: ["V5", "V_5"],
+  q1C: ["Q1", "Q_1"],
+  q2C: ["Q2", "Q_2"],
+  q3C: ["Q3", "Q_3"],
+  q4C: ["Q4", "Q_4"],
+  q5C: ["Q5", "Q_5"],
+  v1InitialV: ["V1", "V_1"],
+  v2InitialV: ["V2", "V_2"],
   totalChargeC: ["Qtotal", "Q_total"],
   totalStoredEnergyJ: ["Utotal", "U_total"],
   finalCommonVoltageV: ["Vf", "V_f", "commonVoltageV"],
@@ -516,16 +561,24 @@ const QUANTITY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   initialFluxWb: ["Phi1", "Phi", "fluxWb"],
   finalFluxWb: ["Phi2"],
   fluxChangeWb: ["deltaPhi"],
+  initialFluxLinkageWbTurns: ["NPhi1", "Lambda1"],
+  finalFluxLinkageWbTurns: ["NPhi2", "Lambda2"],
   fluxLinkageChangeWbTurns: ["deltaNPhi", "NPhi"],
-  signedAverageEmfV: ["emf", "inducedEmfV"],
-  averageEmfMagnitudeV: ["emf", "emfMagnitudeV", "inducedEmfV"],
+  signedAverageEmfV: ["emf", "inducedEmfV", "averageEmfMagnitudeV"],
+  averageEmfMagnitudeV: [
+    "emf",
+    "emfMagnitudeV",
+    "inducedEmfV",
+    "signedAverageEmfV",
+  ],
   averageInducedCurrentA: ["I", "inducedCurrentA"],
   inducedChargeC: ["deltaQ", "inducedCharge"],
   magneticFieldT: ["B", "magneticField"],
   railSeparationM: ["L", "railLengthM"],
   rodSpeedMs: ["v", "speedMs"],
-  loadResistanceOhm: ["R", "Rload", "R_s"],
+  loadResistanceOhm: ["R", "Rload", "R_s", "R_L"],
   rodResistanceOhm: ["r", "internalResistanceOhm"],
+  totalResistanceOhm: ["Rtotal", "R_total", "R_tot"],
   motionalEmfV: ["emf", "E_mot", "inducedEmfV"],
   inducedCurrentA: ["I", "currentA"],
   terminalVoltageV: ["Vterm", "terminalV"],
@@ -547,6 +600,8 @@ const QUANTITY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   emfAtQueryV: ["emfAtQuery"],
   primaryVoltageRmsV: ["Vp", "V_p"],
   secondaryVoltageRmsV: ["Vs", "V_s"],
+  primaryVoltagePeakV: ["Vp_peak", "V_p0"],
+  secondaryVoltagePeakV: ["Vs_peak", "V_s0"],
   primaryTurns: ["Np", "N_p"],
   secondaryTurns: ["Ns", "N_s"],
   turnsRatio: ["n", "Ns/Np"],
@@ -562,8 +617,31 @@ const QUANTITY_ALIASES: Readonly<Record<string, readonly string[]>> = {
   plateLengthM: ["L"],
   plateVoltageV: ["V"],
   transitTimeS: ["t", "tTransit"],
-  plateDeflectionYM: ["y", "deltaY", "deflectionM"],
-  deflectionAngleDegrees: ["theta", "deflectionAngle"],
+  exitXM: ["xExit", "x_exit"],
+  exitYM: ["yExit", "y_exit"],
+  exitVyMs: ["vy", "v_y"],
+  plateDeflectionYM: [
+    "y",
+    "deltaY",
+    "deflectionM",
+    "signedPlateDeflectionYM",
+  ],
+  signedPlateDeflectionYM: [
+    "y",
+    "deltaY",
+    "deflectionM",
+    "plateDeflectionYM",
+  ],
+  deflectionAngleDegrees: [
+    "theta",
+    "deflectionAngle",
+    "signedDeflectionAngleDegrees",
+  ],
+  signedDeflectionAngleDegrees: [
+    "theta",
+    "deflectionAngle",
+    "deflectionAngleDegrees",
+  ],
   exitSpeedMs: ["vExit", "v_f"],
   kineticEnergyGainJ: ["deltaEk", "workJ"],
   screenYM: ["yScreen"],
@@ -592,12 +670,101 @@ function normalizeKey(raw: string): string {
   return raw.trim();
 }
 
+export function mergeEmVisibilityControls<T extends EmVisibilityControls>(
+  spec: T,
+  options?: EmInductionRenderOptions,
+): T {
+  if (!options?.hiddenQuantities || options.hiddenQuantities.length === 0) {
+    return spec;
+  }
+  const merged: string[] = [...(spec.hiddenQuantities ?? [])];
+  const seen = new Set(merged.map(normalizeKey));
+  for (const [index, entry] of options.hiddenQuantities.entries()) {
+    if (typeof entry !== "string" || !entry.trim()) {
+      throw new Error(
+        `Invalid hiddenQuantities.${index} in render options: must be a non-empty string`,
+      );
+    }
+    const trimmed = normalizeKey(entry);
+    if (!seen.has(trimmed)) {
+      seen.add(trimmed);
+      merged.push(trimmed);
+    }
+  }
+  return {
+    ...spec,
+    hiddenQuantities: merged,
+  };
+}
+
 export function expandQuantityKeys(
   canonicalId: string,
   extraAliases: readonly string[] = [],
 ): string[] {
-  const aliases = QUANTITY_ALIASES[canonicalId] ?? [];
-  return [canonicalId, ...aliases, ...extraAliases];
+  const visited = new Set<string>();
+  const queue: string[] = [
+    normalizeKey(canonicalId),
+    ...extraAliases.map(normalizeKey),
+  ];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (!current || visited.has(current)) {
+      continue;
+    }
+    visited.add(current);
+    const mapped = QUANTITY_ALIASES[current];
+    if (mapped) {
+      for (const alias of mapped) {
+        const norm = normalizeKey(alias);
+        if (norm && !visited.has(norm)) {
+          queue.push(norm);
+        }
+      }
+    }
+  }
+  return Array.from(visited);
+}
+
+export function isExplicitlyHidden(
+  controls: EmVisibilityControls,
+  canonicalId: string,
+  extraAliases: readonly string[] = [],
+): boolean {
+  const hiddenSet = new Set(
+    (controls.hiddenQuantities ?? []).map(normalizeKey),
+  );
+  if (hiddenSet.size === 0) {
+    return false;
+  }
+  const candidates = expandQuantityKeys(canonicalId, extraAliases);
+  return candidates.some((key) => hiddenSet.has(key));
+}
+
+export function inferQuantityUnit(canonicalId: string): string {
+  if (canonicalId.endsWith("F")) return "F";
+  if (canonicalId.endsWith("Ohm")) return "Ω";
+  if (canonicalId.endsWith("Vm")) return "V m⁻¹";
+  if (canonicalId.endsWith("Ev")) return "eV";
+  if (canonicalId.endsWith("V")) return "V";
+  if (canonicalId.endsWith("A")) return "A";
+  if (canonicalId.endsWith("W")) return "W";
+  if (canonicalId.endsWith("Jm3")) return "J m⁻³";
+  if (canonicalId.endsWith("J")) return "J";
+  if (canonicalId.endsWith("T")) return "T";
+  if (canonicalId.endsWith("Wb")) return "Wb";
+  if (canonicalId.endsWith("Hz")) return "Hz";
+  if (canonicalId.endsWith("RadS")) return "rad s⁻¹";
+  if (canonicalId.endsWith("Ms2")) return "m s⁻²";
+  if (canonicalId.endsWith("Ms")) return "m s⁻¹";
+  if (canonicalId.endsWith("S")) return "s";
+  if (canonicalId.endsWith("CPerKg")) return "C kg⁻¹";
+  if (canonicalId.endsWith("C")) return "C";
+  if (canonicalId.endsWith("M2")) return "m²";
+  if (canonicalId.endsWith("M")) return "m";
+  if (canonicalId.endsWith("Kg")) return "kg";
+  if (canonicalId.endsWith("N")) return "N";
+  if (canonicalId.endsWith("Degrees")) return "°";
+  return "";
 }
 
 export function isQuantityHidden(

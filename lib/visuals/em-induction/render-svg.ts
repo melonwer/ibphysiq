@@ -6,6 +6,7 @@ import {
   BainbridgeSpectrometerSpec,
   CapacitorNetworkSolution,
   CapacitorNetworkSpec,
+  ELEMENTARY_CHARGE_C,
   ElectricDeflectionSolution,
   ElectricDeflectionSpec,
   EmInductionRenderOptions,
@@ -27,10 +28,11 @@ import {
   TransformerSpec,
   VelocitySelectorSolution,
   VelocitySelectorSpec,
-  formatLabeledQuantity,
   formatSiQuantity,
-  isQuantityHidden,
+  inferQuantityUnit,
+  isExplicitlyHidden,
   isQuantityVisible,
+  mergeEmVisibilityControls,
 } from "./types";
 
 interface Box {
@@ -38,6 +40,224 @@ interface Box {
   top: number;
   right: number;
   bottom: number;
+}
+
+const SUBSCRIPT_DIGITS: Readonly<Record<string, string>> = {
+  "0": "₀",
+  "1": "₁",
+  "2": "₂",
+  "3": "₃",
+  "4": "₄",
+  "5": "₅",
+  "6": "₆",
+  "7": "₇",
+  "8": "₈",
+  "9": "₉",
+};
+
+function toSubscriptInt(n: number): string {
+  return [...String(n)].map((ch) => SUBSCRIPT_DIGITS[ch] ?? ch).join("");
+}
+
+interface EmVisibilityContext {
+  controls: EmVisibilityControls;
+  hiddenMagnitudes: readonly number[];
+  hiddenNumberTokens: ReadonlySet<string>;
+  hiddenAxisTickTokens: ReadonlySet<string>;
+  hiddenFormattedWithUnit: ReadonlySet<string>;
+  zeroIsHidden: boolean;
+}
+
+function buildEmVisibilityContext(
+  spec: EmInductionScenarioSpec,
+  solution: EmInductionSolution,
+  options: EmInductionRenderOptions,
+): EmVisibilityContext {
+  const controls = mergeEmVisibilityControls(spec, options);
+  const hiddenMagnitudes: number[] = [];
+  const hiddenNumberTokens = new Set<string>();
+  const hiddenAxisTickTokens = new Set<string>();
+  const hiddenFormattedWithUnit = new Set<string>();
+  let zeroIsHidden = false;
+
+  const registerHiddenValue = (key: string, val: number): void => {
+    if (!Number.isFinite(val)) {
+      return;
+    }
+    if (Math.abs(val) < 1e-18) {
+      zeroIsHidden = true;
+      return;
+    }
+    const mag = Math.abs(val);
+    hiddenMagnitudes.push(mag);
+    hiddenNumberTokens.add(formatSiQuantity(mag, ""));
+    if (mag >= 1e-3 && mag < 1e5) {
+      const prec3 = Number(mag.toPrecision(3)).toString();
+      if (!prec3.includes("e")) {
+        hiddenNumberTokens.add(prec3);
+      }
+      const prec2 = Number(mag.toPrecision(2)).toString();
+      if (!prec2.includes("e")) {
+        hiddenAxisTickTokens.add(prec2);
+      }
+    }
+    const unit = inferQuantityUnit(key);
+    if (unit) {
+      hiddenFormattedWithUnit.add(formatSiQuantity(mag, unit));
+    }
+    if (key === "efficiency") {
+      const pct = Number((mag * 100).toPrecision(3)).toString();
+      hiddenFormattedWithUnit.add(`${pct}%`);
+      hiddenNumberTokens.add(pct);
+    }
+  };
+
+  for (const [qKey, qVal] of Object.entries(solution.quantities)) {
+    if (isExplicitlyHidden(controls, qKey)) {
+      registerHiddenValue(qKey, qVal);
+    }
+  }
+
+  return {
+    controls,
+    hiddenMagnitudes,
+    hiddenNumberTokens,
+    hiddenAxisTickTokens,
+    hiddenFormattedWithUnit,
+    zeroIsHidden,
+  };
+}
+
+function matchesAnyHiddenValue(
+  ctx: EmVisibilityContext,
+  candidateValue: number,
+  candidateUnit = "",
+): boolean {
+  if (!Number.isFinite(candidateValue)) {
+    return false;
+  }
+  if (Math.abs(candidateValue) < 1e-18) {
+    return ctx.zeroIsHidden;
+  }
+  const mag = Math.abs(candidateValue);
+  if (ctx.hiddenMagnitudes.some((hMag) => Math.abs(mag - hMag) <= 1e-6 * hMag)) {
+    return true;
+  }
+  const candUnprefixed = formatSiQuantity(mag, "");
+  if (ctx.hiddenNumberTokens.has(candUnprefixed)) {
+    return true;
+  }
+  if (mag >= 1e-3 && mag < 1e5) {
+    const candPrec3 = Number(mag.toPrecision(3)).toString();
+    if (!candPrec3.includes("e") && ctx.hiddenNumberTokens.has(candPrec3)) {
+      return true;
+    }
+  }
+  if (candidateUnit) {
+    const candWithUnit = formatSiQuantity(mag, candidateUnit);
+    if (ctx.hiddenFormattedWithUnit.has(candWithUnit)) {
+      return true;
+    }
+    const spaceIdx = candWithUnit.lastIndexOf(" ");
+    if (spaceIdx > 0) {
+      const candNumPart = candWithUnit.slice(0, spaceIdx);
+      if (ctx.hiddenNumberTokens.has(candNumPart)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function matchesAnyHiddenAxisTick(
+  ctx: EmVisibilityContext,
+  tickValue: number,
+  unit: string,
+): boolean {
+  if (matchesAnyHiddenValue(ctx, tickValue, unit)) {
+    return true;
+  }
+  if (Math.abs(tickValue) >= 1e-18) {
+    const tickLabel = Number(Math.abs(tickValue).toPrecision(2)).toString();
+    if (
+      ctx.hiddenNumberTokens.has(tickLabel) ||
+      ctx.hiddenAxisTickTokens.has(tickLabel)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+interface GuardedLabelOptions {
+  isDerived?: boolean;
+  aliases?: readonly string[];
+  hiddenCompanions?: readonly string[];
+  forceSymbolic?: boolean;
+}
+
+function canRenderNumericQuantity(
+  ctx: EmVisibilityContext,
+  canonicalId: string,
+  value: number,
+  unit: string,
+  options: GuardedLabelOptions = {},
+): boolean {
+  if (options.forceSymbolic) {
+    return false;
+  }
+  if (
+    !isQuantityVisible(ctx.controls, canonicalId, {
+      isDerived: options.isDerived,
+      aliases: options.aliases,
+    })
+  ) {
+    return false;
+  }
+  if (
+    options.hiddenCompanions?.some((comp) =>
+      isExplicitlyHidden(ctx.controls, comp),
+    )
+  ) {
+    return false;
+  }
+  return !matchesAnyHiddenValue(ctx, value, unit);
+}
+
+function guardedLabeledQuantity(
+  ctx: EmVisibilityContext,
+  canonicalId: string,
+  symbol: string,
+  value: number,
+  unit: string,
+  options: GuardedLabelOptions = {},
+): string {
+  if (!canRenderNumericQuantity(ctx, canonicalId, value, unit, options)) {
+    return symbol;
+  }
+  return `${symbol} = ${formatSiQuantity(value, unit)}`;
+}
+
+function containsAnyHiddenToken(
+  ctx: EmVisibilityContext,
+  text: string,
+): boolean {
+  if (ctx.zeroIsHidden && /(?<![\d.])0(?![\d.])/.test(text)) {
+    return true;
+  }
+  for (const full of ctx.hiddenFormattedWithUnit) {
+    if (text.includes(full)) {
+      return true;
+    }
+  }
+  for (const tok of ctx.hiddenNumberTokens) {
+    const escaped = tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`(?<![\\d.])${escaped}(?![\\d.])`);
+    if (re.test(text)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function escapeXml(value: string): string {
@@ -122,17 +342,19 @@ function renderUniformBFieldGrid(
 }
 
 function fieldDirectionBadgeText(
-  controls: EmVisibilityControls,
+  ctx: EmVisibilityContext,
   canonicalId: string,
   symbol: string,
   fieldT: number,
   direction: MagneticFieldPageDirection,
   aliases: readonly string[] = [],
+  hiddenCompanions: readonly string[] = [],
 ): string {
   const dirGlyph =
     direction === "into-page" ? "⊗ into page" : "⊙ out of page";
-  const base = formatLabeledQuantity(controls, canonicalId, symbol, fieldT, "T", {
+  const base = guardedLabeledQuantity(ctx, canonicalId, symbol, fieldT, "T", {
     aliases,
+    hiddenCompanions,
   });
   return `${base} (${dirGlyph})`;
 }
@@ -164,6 +386,8 @@ function drawDcCellH(cx: number, cy: number): string {
 function renderParallelPlatePanel(
   box: Box,
   spec: ParallelPlateCapacitorSpec,
+  solution: ParallelPlateCapacitorSolution,
+  ctx: EmVisibilityContext,
   areaM2: number,
   sepM: number,
   er: number,
@@ -181,6 +405,23 @@ function renderParallelPlatePanel(
   const topY = cy - halfGapPx;
   const botY = cy + halfGapPx;
 
+  const initEr = spec.relativePermittivity ?? 1;
+  const afterSep = spec.afterChange
+    ? (spec.afterChange.newSeparationM ?? spec.plateSeparationM)
+    : undefined;
+  const afterEr = spec.afterChange
+    ? (spec.afterChange.newRelativePermittivity ?? initEr)
+    : undefined;
+  const sameSep =
+    afterSep !== undefined &&
+    Math.abs(afterSep - spec.plateSeparationM) <= 1e-9 * spec.plateSeparationM;
+  const sameEr =
+    afterEr !== undefined && Math.abs(afterEr - initEr) <= 1e-9 * initEr;
+  const sameVoltage =
+    solution.afterChange !== undefined &&
+    Math.abs(solution.afterChange.voltageV - spec.voltageV) <=
+      1e-9 * Math.max(1, spec.voltageV);
+
   const parts: string[] = [];
 
   // Optional dielectric block between plates
@@ -189,15 +430,17 @@ function renderParallelPlatePanel(
       `<rect x="${fmt(cx - plateHalfW + 6)}" y="${fmt(topY + 4)}" width="${fmt(2 * plateHalfW - 12)}" height="${fmt(botY - topY - 8)}" rx="3" fill="#e6eff7" stroke="#7b93a8" stroke-width="1.2"/>`,
     );
     const erLabel = isAfterPanel
-      ? formatLabeledQuantity(
-          spec,
+      ? guardedLabeledQuantity(
+          ctx,
           "afterRelativePermittivity",
           "εᵣ′",
           er,
           "",
           { aliases: ["relativePermittivity", "epsilon_r"] },
         )
-      : formatLabeledQuantity(spec, "relativePermittivity", "εᵣ", er, "");
+      : guardedLabeledQuantity(ctx, "relativePermittivity", "εᵣ", er, "", {
+          hiddenCompanions: sameEr ? ["afterRelativePermittivity"] : [],
+        });
     parts.push(
       `<text x="${fmt(cx)}" y="${fmt(cy + 5)}" text-anchor="middle" font-size="14" fill="#243b53">${escapeXml(erLabel)}</text>`,
     );
@@ -241,7 +484,13 @@ function renderParallelPlatePanel(
       `<line x1="${fmt(leadX)}" y1="${fmt(cy + 5)}" x2="${fmt(leadX)}" y2="${fmt(cy + 18)}" stroke="#171b1f" stroke-width="1.8"/>`,
       drawDcCellV(leadX, cy),
     );
-    const vLabel = formatLabeledQuantity(spec, "voltageV", "V", voltageV, "V");
+    const vLabel = isAfterPanel
+      ? guardedLabeledQuantity(ctx, "afterVoltageV", "V", voltageV, "V", {
+          aliases: ["voltageV", "V"],
+        })
+      : guardedLabeledQuantity(ctx, "voltageV", "V", voltageV, "V", {
+          hiddenCompanions: sameVoltage ? ["afterVoltageV"] : [],
+        });
     parts.push(
       `<text x="${fmt(leadX + 22)}" y="${fmt(cy + 5)}" font-size="14" fill="#171b1f">${escapeXml(vLabel)}</text>`,
     );
@@ -255,15 +504,23 @@ function renderParallelPlatePanel(
     `<line x1="${fmt(dimX)}" y1="${fmt(topY + 4)}" x2="${fmt(dimX)}" y2="${fmt(botY - 4)}" stroke="#52606d" stroke-width="1.4" marker-end="url(#${arrowId})"/>`,
   );
   const dLabel = isAfterPanel
-    ? formatLabeledQuantity(spec, "afterSeparationM", "d′", sepM, "m", {
+    ? guardedLabeledQuantity(ctx, "afterSeparationM", "d′", sepM, "m", {
         aliases: ["plateSeparationM", "d"],
       })
-    : formatLabeledQuantity(spec, "plateSeparationM", "d", sepM, "m");
+    : guardedLabeledQuantity(ctx, "plateSeparationM", "d", sepM, "m", {
+        hiddenCompanions: sameSep ? ["afterSeparationM"] : [],
+      });
   parts.push(
     `<text x="${fmt(dimX + 10)}" y="${fmt(cy + 5)}" font-size="14" fill="#171b1f">${escapeXml(dLabel)}</text>`,
   );
 
-  const areaLabel = formatLabeledQuantity(spec, "plateAreaM2", "A", areaM2, "m²");
+  const areaLabel = guardedLabeledQuantity(
+    ctx,
+    "plateAreaM2",
+    "A",
+    areaM2,
+    "m²",
+  );
   parts.push(
     `<text x="${fmt(cx)}" y="${fmt(topY - 30)}" text-anchor="middle" font-size="14" fill="#171b1f">${escapeXml(areaLabel)}</text>`,
   );
@@ -274,6 +531,7 @@ function renderParallelPlatePanel(
 function renderParallelPlateCapacitorSvg(
   spec: ParallelPlateCapacitorSpec,
   solution: ParallelPlateCapacitorSolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
   arrowId: string,
@@ -285,6 +543,8 @@ function renderParallelPlateCapacitorSvg(
       renderParallelPlatePanel(
         box,
         spec,
+        solution,
+        ctx,
         spec.plateAreaM2,
         spec.plateSeparationM,
         spec.relativePermittivity ?? 1,
@@ -293,9 +553,13 @@ function renderParallelPlateCapacitorSvg(
         arrowId,
       ),
     );
-    if (isQuantityVisible(spec, "capacitanceF", { isDerived: true })) {
+    if (
+      canRenderNumericQuantity(ctx, "capacitanceF", solution.capacitanceF, "F", {
+        isDerived: true,
+      })
+    ) {
       parts.push(
-        `<text x="${fmt(width / 2)}" y="${fmt(height - 20)}" text-anchor="middle" font-size="14" fill="#243b53">${escapeXml(formatLabeledQuantity(spec, "capacitanceF", "C", solution.capacitanceF, "F", { isDerived: true }))}</text>`,
+        `<text x="${fmt(width / 2)}" y="${fmt(height - 20)}" text-anchor="middle" font-size="14" fill="#243b53">${escapeXml(guardedLabeledQuantity(ctx, "capacitanceF", "C", solution.capacitanceF, "F", { isDerived: true }))}</text>`,
       );
     }
     return parts.join("");
@@ -317,6 +581,8 @@ function renderParallelPlateCapacitorSvg(
     renderParallelPlatePanel(
       leftBox,
       spec,
+      solution,
+      ctx,
       spec.plateAreaM2,
       spec.plateSeparationM,
       spec.relativePermittivity ?? 1,
@@ -327,6 +593,8 @@ function renderParallelPlateCapacitorSvg(
     renderParallelPlatePanel(
       rightBox,
       spec,
+      solution,
+      ctx,
       spec.plateAreaM2,
       spec.afterChange.newSeparationM ?? spec.plateSeparationM,
       spec.afterChange.newRelativePermittivity ?? spec.relativePermittivity ?? 1,
@@ -341,6 +609,7 @@ function renderParallelPlateCapacitorSvg(
 function renderCapacitorNetworkSvg(
   spec: CapacitorNetworkSpec,
   solution: CapacitorNetworkSolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
 ): string {
@@ -363,8 +632,8 @@ function renderCapacitorNetworkSvg(
       `<line x1="${fmt(midX + 5)}" y1="${fmt(bot)}" x2="${fmt(right)}" y2="${fmt(bot)}" stroke="#171b1f" stroke-width="2"/>`,
       drawDcCellH(midX, bot),
     );
-    const vText = formatLabeledQuantity(
-      spec,
+    const vText = guardedLabeledQuantity(
+      ctx,
       "supplyVoltageV",
       "V₀",
       topology.supplyVoltageV,
@@ -383,13 +652,21 @@ function renderCapacitorNetworkSvg(
         drawCapacitorSymbolH(cx, top),
         `<line x1="${fmt(cx + 6)}" y1="${fmt(top)}" x2="${fmt(nextX)}" y2="${fmt(top)}" stroke="#171b1f" stroke-width="2"/>`,
       );
-      const cText = formatLabeledQuantity(
-        spec,
+      const cText = guardedLabeledQuantity(
+        ctx,
         `c${idx + 1}F`,
-        `C${idx + 1}`,
+        `C${toSubscriptInt(idx + 1)}`,
         cVal,
         "F",
-        { aliases: [`C${idx + 1}`, "capacitanceF", "C"] },
+        {
+          aliases: [
+            `C${idx + 1}`,
+            `C_${idx + 1}`,
+            "capacitancesF",
+            "capacitanceF",
+            "C",
+          ],
+        },
       );
       parts.push(
         `<text x="${fmt(cx)}" y="${fmt(top - 28)}" text-anchor="middle" font-size="14" fill="#171b1f">${escapeXml(cText)}</text>`,
@@ -410,12 +687,16 @@ function renderCapacitorNetworkSvg(
       `<line x1="${fmt(midX + 5)}" y1="${fmt(supplyY)}" x2="${fmt(right)}" y2="${fmt(supplyY)}" stroke="#171b1f" stroke-width="2"/>`,
       drawDcCellH(midX, supplyY),
     );
-    const vText = formatLabeledQuantity(
-      spec,
+    const branchVoltageKeys = topology.capacitancesF.map(
+      (_, idx) => `v${idx + 1}V`,
+    );
+    const vText = guardedLabeledQuantity(
+      ctx,
       "supplyVoltageV",
       "V₀",
       topology.supplyVoltageV,
       "V",
+      { hiddenCompanions: branchVoltageKeys },
     );
     parts.push(
       `<text x="${fmt(midX)}" y="${fmt(supplyY + 34)}" text-anchor="middle" font-size="15" fill="#171b1f">${escapeXml(vText)}</text>`,
@@ -434,13 +715,21 @@ function renderCapacitorNetworkSvg(
           `<circle cx="${fmt(right)}" cy="${fmt(y)}" r="3.5" fill="#171b1f"/>`,
         );
       }
-      const cText = formatLabeledQuantity(
-        spec,
+      const cText = guardedLabeledQuantity(
+        ctx,
         `c${idx + 1}F`,
-        `C${idx + 1}`,
+        `C${toSubscriptInt(idx + 1)}`,
         cVal,
         "F",
-        { aliases: [`C${idx + 1}`, "capacitanceF", "C"] },
+        {
+          aliases: [
+            `C${idx + 1}`,
+            `C_${idx + 1}`,
+            "capacitancesF",
+            "capacitanceF",
+            "C",
+          ],
+        },
       );
       parts.push(
         `<text x="${fmt(midX + 22)}" y="${fmt(y - 12)}" font-size="14" fill="#171b1f">${escapeXml(cText)}</text>`,
@@ -472,13 +761,13 @@ function renderCapacitorNetworkSvg(
       `<line x1="${fmt(midX + 5)}" y1="${fmt(bot)}" x2="${fmt(right)}" y2="${fmt(bot)}" stroke="#171b1f" stroke-width="2"/>`,
       drawDcCellH(midX, bot),
     );
-    const csText = formatLabeledQuantity(
-      spec,
+    const csText = guardedLabeledQuantity(
+      ctx,
       "seriesCapacitanceF",
       "Cₛ",
       topology.seriesCapacitanceF,
       "F",
-      { aliases: ["Cs", "capacitanceF", "C"] },
+      { aliases: ["Cs_capacitanceF", "Cs", "C_s", "capacitanceF", "C"] },
     );
     parts.push(
       `<text x="${fmt(csX)}" y="${fmt(centerTopY - 28)}" text-anchor="middle" font-size="14" fill="#171b1f">${escapeXml(csText)}</text>`,
@@ -490,20 +779,29 @@ function renderCapacitorNetworkSvg(
         drawCapacitorSymbolH(cpX, y, 5, 14),
         `<line x1="${fmt(cpX + 6)}" y1="${fmt(y)}" x2="${fmt(joinX)}" y2="${fmt(y)}" stroke="#171b1f" stroke-width="2"/>`,
       );
-      const cpText = formatLabeledQuantity(
-        spec,
+      const cpText = guardedLabeledQuantity(
+        ctx,
         `Cp${idx + 1}_capacitanceF`,
-        `Cₚ${idx + 1}`,
+        `Cₚ${toSubscriptInt(idx + 1)}`,
         cVal,
         "F",
-        { aliases: [`Cp${idx + 1}`, "capacitanceF", "C"] },
+        {
+          aliases: [
+            `Cp${idx + 1}`,
+            `C_p${idx + 1}`,
+            `cp${idx + 1}F`,
+            "parallelCapacitancesF",
+            "capacitanceF",
+            "C",
+          ],
+        },
       );
       parts.push(
         `<text x="${fmt(cpX + 14)}" y="${fmt(y - 10)}" font-size="13" fill="#171b1f">${escapeXml(cpText)}</text>`,
       );
     });
-    const vText = formatLabeledQuantity(
-      spec,
+    const vText = guardedLabeledQuantity(
+      ctx,
       "supplyVoltageV",
       "V₀",
       topology.supplyVoltageV,
@@ -531,37 +829,37 @@ function renderCapacitorNetworkSvg(
       drawCapacitorSymbolV(right, midY),
       `<line x1="${fmt(right)}" y1="${fmt(midY + 6)}" x2="${fmt(right)}" y2="${fmt(bot)}" stroke="#171b1f" stroke-width="2"/>`,
     );
-    const c1Text = formatLabeledQuantity(
-      spec,
+    const c1Text = guardedLabeledQuantity(
+      ctx,
       "c1F",
       "C₁",
       topology.c1F,
       "F",
-      { aliases: ["C1", "capacitanceF", "C"] },
+      { aliases: ["C1", "C_1", "capacitanceF", "C"] },
     );
-    const v1Text = formatLabeledQuantity(
-      spec,
+    const v1Text = guardedLabeledQuantity(
+      ctx,
       "v1InitialV",
       "V₁",
       topology.v1InitialV,
       "V",
-      { aliases: ["V1"] },
+      { aliases: ["V1", "V_1"] },
     );
-    const c2Text = formatLabeledQuantity(
-      spec,
+    const c2Text = guardedLabeledQuantity(
+      ctx,
       "c2F",
       "C₂",
       topology.c2F,
       "F",
-      { aliases: ["C2", "capacitanceF", "C"] },
+      { aliases: ["C2", "C_2", "capacitanceF", "C"] },
     );
-    const v2Text = formatLabeledQuantity(
-      spec,
+    const v2Text = guardedLabeledQuantity(
+      ctx,
       "v2InitialV",
       "V₂",
       topology.v2InitialV ?? 0,
       "V",
-      { aliases: ["V2"] },
+      { aliases: ["V2", "V_2"] },
     );
     parts.push(
       `<text x="${fmt(left + 28)}" y="${fmt(midY - 6)}" font-size="14" fill="#171b1f">${escapeXml(c1Text)}</text>`,
@@ -571,15 +869,28 @@ function renderCapacitorNetworkSvg(
     );
   }
 
-  if (isQuantityVisible(spec, "equivalentCapacitanceF", { isDerived: true })) {
+  if (
+    canRenderNumericQuantity(
+      ctx,
+      "equivalentCapacitanceF",
+      solution.equivalentCapacitanceF,
+      "F",
+      { isDerived: true },
+    )
+  ) {
     parts.push(
-      `<text x="${fmt(width / 2)}" y="${fmt(height - 14)}" text-anchor="middle" font-size="14" fill="#243b53">${escapeXml(formatLabeledQuantity(spec, "equivalentCapacitanceF", "Cₑq", solution.equivalentCapacitanceF, "F", { isDerived: true }))}</text>`,
+      `<text x="${fmt(width / 2)}" y="${fmt(height - 14)}" text-anchor="middle" font-size="14" fill="#243b53">${escapeXml(guardedLabeledQuantity(ctx, "equivalentCapacitanceF", "Cₑq", solution.equivalentCapacitanceF, "F", { isDerived: true }))}</text>`,
     );
   }
   return parts.join("");
 }
 
-function renderRcCircuitPanel(box: Box, spec: RcTransientSpec): string {
+function renderRcCircuitPanel(
+  box: Box,
+  spec: RcTransientSpec,
+  solution: RcTransientSolution,
+  ctx: EmVisibilityContext,
+): string {
   const left = box.left + 44;
   const right = box.right - 44;
   const top = box.top + 62;
@@ -587,6 +898,17 @@ function renderRcCircuitPanel(box: Box, spec: RcTransientSpec): string {
   const midX = (left + right) / 2;
   const midY = (top + bot) / 2;
   const parts: string[] = [];
+
+  const v0MatchesCapQuery =
+    Math.abs(solution.capacitorVoltageAtQueryV - spec.supplyVoltageV) <=
+    1e-6 * spec.supplyVoltageV;
+  const v0MatchesResQuery =
+    Math.abs(solution.resistorVoltageAtQueryV - spec.supplyVoltageV) <=
+    1e-6 * spec.supplyVoltageV;
+  const v0Companions = [
+    ...(v0MatchesCapQuery ? ["capacitorVoltageAtQueryV"] : []),
+    ...(v0MatchesResQuery ? ["resistorVoltageAtQueryV"] : []),
+  ];
 
   if (spec.mode === "charging") {
     // Left vertical branch: DC source V0; Top branch: switch + resistor R; Right branch: capacitor C
@@ -609,22 +931,23 @@ function renderRcCircuitPanel(box: Box, spec: RcTransientSpec): string {
       `<line x1="${fmt(right)}" y1="${fmt(midY + 6)}" x2="${fmt(right)}" y2="${fmt(bot)}" stroke="#171b1f" stroke-width="2"/>`,
       `<line x1="${fmt(left)}" y1="${fmt(bot)}" x2="${fmt(right)}" y2="${fmt(bot)}" stroke="#171b1f" stroke-width="2"/>`,
     );
-    const v0Label = formatLabeledQuantity(
-      spec,
+    const v0Label = guardedLabeledQuantity(
+      ctx,
       "supplyVoltageV",
       "V₀",
       spec.supplyVoltageV,
       "V",
+      { hiddenCompanions: v0Companions },
     );
-    const rLabel = formatLabeledQuantity(
-      spec,
+    const rLabel = guardedLabeledQuantity(
+      ctx,
       "resistanceOhm",
       "R",
       spec.resistanceOhm,
       "Ω",
     );
-    const cLabel = formatLabeledQuantity(
-      spec,
+    const cLabel = guardedLabeledQuantity(
+      ctx,
       "capacitanceF",
       "C",
       spec.capacitanceF,
@@ -637,6 +960,10 @@ function renderRcCircuitPanel(box: Box, spec: RcTransientSpec): string {
     );
   } else {
     // Discharging loop: Capacitor C on left (initial V0), switch S on top, Resistor R on right
+    const switchLabel =
+      ctx.zeroIsHidden || isExplicitlyHidden(ctx.controls, "queryTimeS")
+        ? "S"
+        : "S (closed at t = 0)";
     parts.push(
       `<line x1="${fmt(left)}" y1="${fmt(top)}" x2="${fmt(left)}" y2="${fmt(midY - 6)}" stroke="#171b1f" stroke-width="2"/>`,
       drawCapacitorSymbolV(left, midY),
@@ -645,29 +972,30 @@ function renderRcCircuitPanel(box: Box, spec: RcTransientSpec): string {
       `<circle cx="${fmt(midX - 20)}" cy="${fmt(top)}" r="3" fill="#171b1f"/>`,
       `<line x1="${fmt(midX - 20)}" y1="${fmt(top)}" x2="${fmt(midX + 20)}" y2="${fmt(top)}" stroke="#171b1f" stroke-width="2"/>`,
       `<circle cx="${fmt(midX + 20)}" cy="${fmt(top)}" r="3" fill="#171b1f"/>`,
-      `<text x="${fmt(midX)}" y="${fmt(top - 12)}" text-anchor="middle" font-size="13" fill="#171b1f">S (closed at t = 0)</text>`,
+      `<text x="${fmt(midX)}" y="${fmt(top - 12)}" text-anchor="middle" font-size="13" fill="#171b1f">${escapeXml(switchLabel)}</text>`,
       `<line x1="${fmt(midX + 20)}" y1="${fmt(top)}" x2="${fmt(right)}" y2="${fmt(top)}" stroke="#171b1f" stroke-width="2"/>`,
       `<line x1="${fmt(right)}" y1="${fmt(top)}" x2="${fmt(right)}" y2="${fmt(midY - 29)}" stroke="#171b1f" stroke-width="2"/>`,
       drawResistorV(right, midY, 20, 58),
       `<line x1="${fmt(right)}" y1="${fmt(midY + 29)}" x2="${fmt(right)}" y2="${fmt(bot)}" stroke="#171b1f" stroke-width="2"/>`,
       `<line x1="${fmt(left)}" y1="${fmt(bot)}" x2="${fmt(right)}" y2="${fmt(bot)}" stroke="#171b1f" stroke-width="2"/>`,
     );
-    const cLabel = formatLabeledQuantity(
-      spec,
+    const cLabel = guardedLabeledQuantity(
+      ctx,
       "capacitanceF",
       "C",
       spec.capacitanceF,
       "F",
     );
-    const v0Label = formatLabeledQuantity(
-      spec,
+    const v0Label = guardedLabeledQuantity(
+      ctx,
       "supplyVoltageV",
       "V₀",
       spec.supplyVoltageV,
       "V",
+      { hiddenCompanions: v0Companions },
     );
-    const rLabel = formatLabeledQuantity(
-      spec,
+    const rLabel = guardedLabeledQuantity(
+      ctx,
       "resistanceOhm",
       "R",
       spec.resistanceOhm,
@@ -686,6 +1014,7 @@ function renderRcGraphPanel(
   box: Box,
   spec: RcTransientSpec,
   solution: RcTransientSolution,
+  ctx: EmVisibilityContext,
   arrowId: string,
 ): string {
   const plotted = spec.plottedQuantity ?? "capacitor-voltage";
@@ -735,21 +1064,37 @@ function renderRcGraphPanel(
 
   const xMax = curve[curve.length - 1].x;
 
+  const xTicks = [1, 2, 3, 4, 5].map((i) => (xMax * i) / 5);
   const timeAxisHidden =
-    isQuantityHidden(spec, "timeConstantS") ||
-    isQuantityHidden(spec, "halfTimeS") ||
-    isQuantityHidden(spec, "queryTimeS");
+    !isQuantityVisible(ctx.controls, "timeConstantS", { isDerived: true }) ||
+    isExplicitlyHidden(ctx.controls, "halfTimeS") ||
+    isExplicitlyHidden(ctx.controls, "queryTimeS") ||
+    isExplicitlyHidden(ctx.controls, "resistanceOhm") ||
+    isExplicitlyHidden(ctx.controls, "capacitanceF") ||
+    xTicks.some((tv) => matchesAnyHiddenAxisTick(ctx, tv, "s"));
 
+  const yTicks = [yMax / 2, yMax];
   const yAxisHidden =
     plotted === "capacitor-voltage" || plotted === "resistor-voltage"
-      ? isQuantityHidden(spec, "supplyVoltageV") ||
-        isQuantityHidden(spec, "capacitorVoltageAtQueryV") ||
-        isQuantityHidden(spec, "resistorVoltageAtQueryV")
+      ? !isQuantityVisible(ctx.controls, "supplyVoltageV") ||
+        isExplicitlyHidden(ctx.controls, "capacitorVoltageAtQueryV") ||
+        isExplicitlyHidden(ctx.controls, "resistorVoltageAtQueryV") ||
+        yTicks.some((yv) => matchesAnyHiddenValue(ctx, yv, "V"))
       : plotted === "current"
-        ? isQuantityHidden(spec, "initialCurrentA") ||
-          isQuantityHidden(spec, "currentAtQueryA")
-        : isQuantityHidden(spec, "maxChargeC") ||
-          isQuantityHidden(spec, "chargeAtQueryC");
+        ? !isQuantityVisible(ctx.controls, "initialCurrentA", {
+            isDerived: true,
+          }) ||
+          isExplicitlyHidden(ctx.controls, "currentAtQueryA") ||
+          isExplicitlyHidden(ctx.controls, "supplyVoltageV") ||
+          isExplicitlyHidden(ctx.controls, "resistanceOhm") ||
+          yTicks.some((yv) => matchesAnyHiddenValue(ctx, yv, "A"))
+        : !isQuantityVisible(ctx.controls, "maxChargeC", {
+            isDerived: true,
+          }) ||
+          isExplicitlyHidden(ctx.controls, "chargeAtQueryC") ||
+          isExplicitlyHidden(ctx.controls, "supplyVoltageV") ||
+          isExplicitlyHidden(ctx.controls, "capacitanceF") ||
+          yTicks.some((yv) => matchesAnyHiddenValue(ctx, yv, "C"));
 
   const parts: string[] = [];
 
@@ -787,11 +1132,16 @@ function renderRcGraphPanel(
 
   // X tick labels
   if (timeAxisHidden) {
-    parts.push(
-      `<text x="${fmt(plotLeft)}" y="${fmt(plotBot + 18)}" text-anchor="middle" font-size="12" fill="#334e68">0</text>`,
-    );
+    if (!ctx.zeroIsHidden) {
+      parts.push(
+        `<text x="${fmt(plotLeft)}" y="${fmt(plotBot + 18)}" text-anchor="middle" font-size="12" fill="#334e68">0</text>`,
+      );
+    }
   } else {
     for (let i = 0; i <= 5; i += 1) {
+      if (i === 0 && ctx.zeroIsHidden) {
+        continue;
+      }
       const tx = plotLeft + (plotW * i) / 5;
       const tVal = (xMax * i) / 5;
       const label = i === 0 ? "0" : Number(tVal.toPrecision(2)).toString();
@@ -804,12 +1154,19 @@ function renderRcGraphPanel(
 
   // Y tick labels
   if (yAxisHidden) {
+    if (!ctx.zeroIsHidden) {
+      parts.push(
+        `<text x="${fmt(plotLeft - 8)}" y="${fmt(plotBot + 4)}" text-anchor="end" font-size="12" fill="#334e68">0</text>`,
+      );
+    }
     parts.push(
-      `<text x="${fmt(plotLeft - 8)}" y="${fmt(plotBot + 4)}" text-anchor="end" font-size="12" fill="#334e68">0</text>`,
       `<text x="${fmt(plotLeft - 8)}" y="${fmt(plotTop + 4)}" text-anchor="end" font-size="12" fill="#334e68">${escapeXml(yAsymptoteSymbol)}</text>`,
     );
   } else {
     for (let j = 0; j <= 2; j += 1) {
+      if (j === 0 && ctx.zeroIsHidden) {
+        continue;
+      }
       const ty = plotBot - (plotH * j) / 2;
       const val = (yMax * j) / 2;
       const text = j === 0 ? "0" : formatSiQuantity(val, yUnit, 3);
@@ -834,7 +1191,21 @@ function renderRcGraphPanel(
 
   // Optional tau marker only when derived labels are enabled and tau is visible
   if (
-    isQuantityVisible(spec, "timeConstantS", { isDerived: true }) &&
+    canRenderNumericQuantity(
+      ctx,
+      "timeConstantS",
+      solution.timeConstantS,
+      "s",
+      {
+        isDerived: true,
+        hiddenCompanions: [
+          "halfTimeS",
+          "queryTimeS",
+          "resistanceOhm",
+          "capacitanceF",
+        ],
+      },
+    ) &&
     solution.timeConstantS <= xMax
   ) {
     const tauX = plotLeft + (solution.timeConstantS / xMax) * plotW;
@@ -846,7 +1217,7 @@ function renderRcGraphPanel(
     parts.push(
       `<line x1="${fmt(tauX)}" y1="${fmt(tauPtY)}" x2="${fmt(tauX)}" y2="${fmt(plotBot)}" stroke="#627d98" stroke-width="1.2" stroke-dasharray="4 4"/>`,
       `<circle cx="${fmt(tauX)}" cy="${fmt(tauPtY)}" r="3.5" fill="#171b1f"/>`,
-      `<text x="${fmt(tauX + 6)}" y="${fmt(tauPtY - 6)}" font-size="12" fill="#243b53">${escapeXml(formatLabeledQuantity(spec, "timeConstantS", "τ", solution.timeConstantS, "s", { isDerived: true }))}</text>`,
+      `<text x="${fmt(tauX + 6)}" y="${fmt(tauPtY - 6)}" font-size="12" fill="#243b53">${escapeXml(guardedLabeledQuantity(ctx, "timeConstantS", "τ", solution.timeConstantS, "s", { isDerived: true }))}</text>`,
     );
   }
 
@@ -856,6 +1227,7 @@ function renderRcGraphPanel(
 function renderRcTransientSvg(
   spec: RcTransientSpec,
   solution: RcTransientSolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
   arrowId: string,
@@ -865,6 +1237,8 @@ function renderRcTransientSvg(
     return renderRcCircuitPanel(
       { left: 24, top: 20, right: width - 24, bottom: height - 20 },
       spec,
+      solution,
+      ctx,
     );
   }
   if (layout === "graph-only") {
@@ -872,6 +1246,7 @@ function renderRcTransientSvg(
       { left: 24, top: 20, right: width - 24, bottom: height - 20 },
       spec,
       solution,
+      ctx,
       arrowId,
     );
   }
@@ -882,11 +1257,14 @@ function renderRcTransientSvg(
     renderRcCircuitPanel(
       { left: 14, top: 18, right: split - 8, bottom: height - 18 },
       spec,
+      solution,
+      ctx,
     ),
     renderRcGraphPanel(
       { left: split + 8, top: 18, right: width - 14, bottom: height - 18 },
       spec,
       solution,
+      ctx,
       arrowId,
     ),
   ].join("");
@@ -895,6 +1273,7 @@ function renderRcTransientSvg(
 function renderFluxFaradaySvg(
   spec: FluxFaradaySpec,
   solution: FluxFaradaySolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
   arrowId: string,
@@ -934,6 +1313,9 @@ function renderFluxFaradaySvg(
 
   // Angle arc if non-zero
   const displayAngle = spec.initialAngleDegrees ?? 0;
+  const finalAngle = spec.finalAngleDegrees ?? displayAngle;
+  const sameAngleMag =
+    Math.abs(Math.abs(displayAngle) - Math.abs(finalAngle)) <= 1e-9;
   if (displayAngle > 1 && displayAngle < 179) {
     const rArc = 42;
     const endRad = thetaRad;
@@ -944,12 +1326,13 @@ function renderFluxFaradaySvg(
     parts.push(
       `<path d="M${fmt(ax)} ${fmt(ay)} A${rArc} ${rArc} 0 0 0 ${fmt(bx)} ${fmt(by)}" fill="none" stroke="#171b1f" stroke-width="1.4"/>`,
     );
-    const angleText = formatLabeledQuantity(
-      spec,
+    const angleText = guardedLabeledQuantity(
+      ctx,
       "initialAngleDegrees",
       "θ",
       displayAngle,
       "°",
+      { hiddenCompanions: sameAngleMag ? ["finalAngleDegrees"] : [] },
     );
     parts.push(
       `<text x="${fmt(cx + rArc + 24)}" y="${fmt(cy - 12)}" font-size="13" fill="#171b1f">${escapeXml(angleText)}</text>`,
@@ -957,32 +1340,41 @@ function renderFluxFaradaySvg(
   }
 
   // Labels at top/bottom
-  const nText = formatLabeledQuantity(spec, "turns", "N", spec.turns, "");
-  const aText = formatLabeledQuantity(
-    spec,
+  const sameFieldMag =
+    Math.abs(Math.abs(spec.initialFieldT) - Math.abs(spec.finalFieldT)) <=
+    1e-9 * Math.max(1, Math.abs(spec.initialFieldT));
+  const nText = guardedLabeledQuantity(ctx, "turns", "N", spec.turns, "");
+  const aText = guardedLabeledQuantity(
+    ctx,
     "coilAreaM2",
     "A",
     spec.coilAreaM2,
     "m²",
   );
-  const b1Text = formatLabeledQuantity(
-    spec,
+  const b1Text = guardedLabeledQuantity(
+    ctx,
     "initialFieldT",
     "B₁",
     spec.initialFieldT,
     "T",
-    { aliases: ["B", "magneticFieldT"] },
+    {
+      aliases: ["B", "magneticFieldT"],
+      hiddenCompanions: sameFieldMag ? ["finalFieldT"] : [],
+    },
   );
-  const b2Text = formatLabeledQuantity(
-    spec,
+  const b2Text = guardedLabeledQuantity(
+    ctx,
     "finalFieldT",
     "B₂",
     spec.finalFieldT,
     "T",
-    { aliases: ["B", "magneticFieldT"] },
+    {
+      aliases: ["B", "magneticFieldT"],
+      hiddenCompanions: sameFieldMag ? ["initialFieldT"] : [],
+    },
   );
-  const dtText = formatLabeledQuantity(
-    spec,
+  const dtText = guardedLabeledQuantity(
+    ctx,
     "timeIntervalS",
     "Δt",
     spec.timeIntervalS,
@@ -994,9 +1386,17 @@ function renderFluxFaradaySvg(
     `<text x="${fmt(width - 90)}" y="52" text-anchor="end" font-size="14" fill="#171b1f">${escapeXml(`${b1Text} → ${b2Text} in ${dtText}`)}</text>`,
   );
 
-  if (isQuantityVisible(spec, "averageEmfMagnitudeV", { isDerived: true })) {
-    const emfText = formatLabeledQuantity(
-      spec,
+  if (
+    canRenderNumericQuantity(
+      ctx,
+      "averageEmfMagnitudeV",
+      solution.averageEmfMagnitudeV,
+      "V",
+      { isDerived: true, aliases: ["signedAverageEmfV", "emf"] },
+    )
+  ) {
+    const emfText = guardedLabeledQuantity(
+      ctx,
       "averageEmfMagnitudeV",
       "|ε|",
       solution.averageEmfMagnitudeV,
@@ -1013,6 +1413,7 @@ function renderFluxFaradaySvg(
 function renderMotionalEmfRailsSvg(
   spec: MotionalEmfRailsSpec,
   solution: MotionalEmfRailsSolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
   arrowId: string,
@@ -1049,16 +1450,24 @@ function renderMotionalEmfRailsSvg(
   const vEndX = rodX + vDir * 72;
   parts.push(
     `<line x1="${fmt(rodX + vDir * 8)}" y1="${fmt(midY)}" x2="${fmt(vEndX)}" y2="${fmt(midY)}" stroke="#171b1f" stroke-width="2.4" marker-end="url(#${arrowId})"/>`,
-    `<text x="${fmt((rodX + vEndX) / 2)}" y="${fmt(midY - 12)}" text-anchor="middle" font-size="14" fill="#171b1f">${escapeXml(formatLabeledQuantity(spec, "rodSpeedMs", "v", spec.rodSpeedMs, "m s⁻¹"))}</text>`,
+    `<text x="${fmt((rodX + vEndX) / 2)}" y="${fmt(midY - 12)}" text-anchor="middle" font-size="14" fill="#171b1f">${escapeXml(guardedLabeledQuantity(ctx, "rodSpeedMs", "v", spec.rodSpeedMs, "m s⁻¹"))}</text>`,
   );
 
   // Optional braking force arrow if derived labels visible
-  if (isQuantityVisible(spec, "magneticBrakingForceN", { isDerived: true })) {
+  if (
+    canRenderNumericQuantity(
+      ctx,
+      "magneticBrakingForceN",
+      solution.magneticBrakingForceN,
+      "N",
+      { isDerived: true },
+    )
+  ) {
     const fDir = solution.magneticForceDirection === "right" ? 1 : -1;
     const fEndX = rodX + fDir * 64;
     parts.push(
       `<line x1="${fmt(rodX + fDir * 8)}" y1="${fmt(midY + 34)}" x2="${fmt(fEndX)}" y2="${fmt(midY + 34)}" stroke="#334e68" stroke-width="2" marker-end="url(#${arrowId})"/>`,
-      `<text x="${fmt((rodX + fEndX) / 2)}" y="${fmt(midY + 54)}" text-anchor="middle" font-size="13" fill="#243b53">${escapeXml(formatLabeledQuantity(spec, "magneticBrakingForceN", "F_B", solution.magneticBrakingForceN, "N", { isDerived: true }))}</text>`,
+      `<text x="${fmt((rodX + fEndX) / 2)}" y="${fmt(midY + 54)}" text-anchor="middle" font-size="13" fill="#243b53">${escapeXml(guardedLabeledQuantity(ctx, "magneticBrakingForceN", "F_B", solution.magneticBrakingForceN, "N", { isDerived: true }))}</text>`,
     );
   }
 
@@ -1066,19 +1475,25 @@ function renderMotionalEmfRailsSvg(
   const dimX = railRight - 18;
   parts.push(
     `<line x1="${fmt(dimX)}" y1="${fmt(railTop + 4)}" x2="${fmt(dimX)}" y2="${fmt(railBot - 4)}" stroke="#52606d" stroke-width="1.4" marker-end="url(#${arrowId})"/>`,
-    `<text x="${fmt(dimX - 10)}" y="${fmt(midY + 5)}" text-anchor="end" font-size="14" fill="#171b1f">${escapeXml(formatLabeledQuantity(spec, "railSeparationM", "L", spec.railSeparationM, "m"))}</text>`,
+    `<text x="${fmt(dimX - 10)}" y="${fmt(midY + 5)}" text-anchor="end" font-size="14" fill="#171b1f">${escapeXml(guardedLabeledQuantity(ctx, "railSeparationM", "L", spec.railSeparationM, "m"))}</text>`,
   );
 
   // Resistor and B-field labels
-  const rText = formatLabeledQuantity(
-    spec,
+  const zeroRodRes = Math.abs(spec.rodResistanceOhm ?? 0) <= 1e-12;
+  const rText = guardedLabeledQuantity(
+    ctx,
     "loadResistanceOhm",
     "R",
     spec.loadResistanceOhm,
     "Ω",
+    {
+      hiddenCompanions: zeroRodRes
+        ? ["totalResistanceOhm"]
+        : [],
+    },
   );
   const bBadge = fieldDirectionBadgeText(
-    spec,
+    ctx,
     "magneticFieldT",
     "B",
     spec.magneticFieldT,
@@ -1095,6 +1510,7 @@ function renderMotionalEmfRailsSvg(
 function renderAcGeneratorSvg(
   spec: AcGeneratorSpec,
   solution: AcGeneratorSolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
   arrowId: string,
@@ -1122,24 +1538,30 @@ function renderAcGeneratorSvg(
 
   const omegaOrF =
     spec.frequencyHz !== undefined
-      ? formatLabeledQuantity(spec, "frequencyHz", "f", solution.frequencyHz, "Hz")
-      : formatLabeledQuantity(
-          spec,
+      ? guardedLabeledQuantity(
+          ctx,
+          "frequencyHz",
+          "f",
+          solution.frequencyHz,
+          "Hz",
+        )
+      : guardedLabeledQuantity(
+          ctx,
           "angularSpeedRadS",
           "ω",
           solution.angularSpeedRadS,
           "rad s⁻¹",
         );
-  const bText = formatLabeledQuantity(
-    spec,
+  const bText = guardedLabeledQuantity(
+    ctx,
     "magneticFieldT",
     "B",
     spec.magneticFieldT,
     "T",
   );
-  const nText = formatLabeledQuantity(spec, "turns", "N", spec.turns, "");
-  const aText = formatLabeledQuantity(
-    spec,
+  const nText = guardedLabeledQuantity(ctx, "turns", "N", spec.turns, "");
+  const aText = guardedLabeledQuantity(
+    ctx,
     "coilAreaM2",
     "A",
     spec.coilAreaM2,
@@ -1150,8 +1572,8 @@ function renderAcGeneratorSvg(
     `<text x="${fmt(cx)}" y="${fmt(height - 54)}" text-anchor="middle" font-size="13" fill="#171b1f">${escapeXml(`${bText},  ${omegaOrF}`)}</text>`,
   );
   if (spec.loadResistanceOhm !== undefined) {
-    const rText = formatLabeledQuantity(
-      spec,
+    const rText = guardedLabeledQuantity(
+      ctx,
       "loadResistanceOhm",
       "R",
       spec.loadResistanceOhm,
@@ -1172,17 +1594,28 @@ function renderAcGeneratorSvg(
   const gHalfH = (gBot - gTop) / 2;
   const xMax = solution.curves.emf[solution.curves.emf.length - 1].x;
 
+  const halfPeriodSteps = Math.max(1, Math.round((spec.cyclesShown ?? 2) * 2));
+  const xTicks = Array.from(
+    { length: halfPeriodSteps },
+    (_, idx) => (xMax * (idx + 1)) / halfPeriodSteps,
+  );
   const timeHidden =
-    isQuantityHidden(spec, "periodS") ||
-    isQuantityHidden(spec, "frequencyHz") ||
-    isQuantityHidden(spec, "angularSpeedRadS") ||
-    isQuantityHidden(spec, "queryTimeS");
+    !isQuantityVisible(ctx.controls, "periodS", { isDerived: true }) ||
+    isExplicitlyHidden(ctx.controls, "frequencyHz") ||
+    isExplicitlyHidden(ctx.controls, "angularSpeedRadS") ||
+    isExplicitlyHidden(ctx.controls, "queryTimeS") ||
+    xTicks.some((tv) => matchesAnyHiddenAxisTick(ctx, tv, "s"));
 
-  const emfHidden =
-    isQuantityHidden(spec, "peakEmfV") ||
-    isQuantityHidden(spec, "peakToPeakEmfV") ||
-    isQuantityHidden(spec, "rmsVoltageV") ||
-    isQuantityHidden(spec, "emfAtQueryV");
+  const emfHidden = !canRenderNumericQuantity(
+    ctx,
+    "peakEmfV",
+    solution.peakEmfV,
+    "V",
+    {
+      isDerived: true,
+      hiddenCompanions: ["peakToPeakEmfV", "rmsVoltageV", "emfAtQueryV"],
+    },
+  );
 
   // Grid + RMS dashed lines
   const rmsOffset = gHalfH / Math.SQRT2;
@@ -1200,35 +1633,70 @@ function renderAcGeneratorSvg(
   if (emfHidden) {
     parts.push(
       `<text x="${fmt(gLeft - 8)}" y="${fmt(gTop + 5)}" text-anchor="end" font-size="12" fill="#334e68">+ε₀</text>`,
-      `<text x="${fmt(gLeft - 8)}" y="${fmt(gMidY + 4)}" text-anchor="end" font-size="12" fill="#334e68">0</text>`,
+      ...(ctx.zeroIsHidden
+        ? []
+        : [
+            `<text x="${fmt(gLeft - 8)}" y="${fmt(gMidY + 4)}" text-anchor="end" font-size="12" fill="#334e68">0</text>`,
+          ]),
       `<text x="${fmt(gLeft - 8)}" y="${fmt(gBot + 5)}" text-anchor="end" font-size="12" fill="#334e68">−ε₀</text>`,
     );
   } else {
     parts.push(
       `<text x="${fmt(gLeft - 8)}" y="${fmt(gTop + 5)}" text-anchor="end" font-size="11" fill="#334e68">+${escapeXml(formatSiQuantity(solution.peakEmfV, "V"))}</text>`,
-      `<text x="${fmt(gLeft - 8)}" y="${fmt(gMidY + 4)}" text-anchor="end" font-size="11" fill="#334e68">0</text>`,
+      ...(ctx.zeroIsHidden
+        ? []
+        : [
+            `<text x="${fmt(gLeft - 8)}" y="${fmt(gMidY + 4)}" text-anchor="end" font-size="11" fill="#334e68">0</text>`,
+          ]),
       `<text x="${fmt(gLeft - 8)}" y="${fmt(gBot + 5)}" text-anchor="end" font-size="11" fill="#334e68">−${escapeXml(formatSiQuantity(solution.peakEmfV, "V"))}</text>`,
     );
-    if (isQuantityVisible(spec, "rmsVoltageV", { isDerived: true })) {
+    if (
+      canRenderNumericQuantity(ctx, "rmsVoltageV", solution.rmsVoltageV, "V", {
+        isDerived: true,
+      })
+    ) {
       parts.push(
-        `<text x="${fmt(gRight - 4)}" y="${fmt(gMidY - rmsOffset - 5)}" text-anchor="end" font-size="11" fill="#334e68">${escapeXml(formatLabeledQuantity(spec, "rmsVoltageV", "Vᵣₘₛ", solution.rmsVoltageV, "V", { isDerived: true }))}</text>`,
+        `<text x="${fmt(gRight - 4)}" y="${fmt(gMidY - rmsOffset - 5)}" text-anchor="end" font-size="11" fill="#334e68">${escapeXml(guardedLabeledQuantity(ctx, "rmsVoltageV", "Vᵣₘₛ", solution.rmsVoltageV, "V", { isDerived: true }))}</text>`,
       );
     }
   }
 
-  const halfPeriodSteps = Math.max(1, Math.round((spec.cyclesShown ?? 2) * 2));
   for (let k = 1; k <= halfPeriodSteps; k += 1) {
     const tx = gLeft + (gW * k) / halfPeriodSteps;
     const tVal = (xMax * k) / halfPeriodSteps;
-    const label = timeHidden
-      ? k % 2 === 0
-        ? `${k / 2 === 1 ? "" : k / 2}T`
-        : `${k}T/2`
-      : Number(tVal.toPrecision(2)).toString();
     parts.push(
       `<line x1="${fmt(tx)}" y1="${fmt(gMidY - 4)}" x2="${fmt(tx)}" y2="${fmt(gMidY + 4)}" stroke="#171b1f" stroke-width="1.2"/>`,
-      `<text x="${fmt(tx)}" y="${fmt(gBot + 24)}" text-anchor="middle" font-size="11" fill="#334e68">${escapeXml(label)}</text>`,
     );
+    if (timeHidden) {
+      let symLabel: string | null = null;
+      if (k % 2 === 0) {
+        const mult = k / 2;
+        if (mult === 1) {
+          symLabel = "T";
+        } else if (!ctx.hiddenNumberTokens.has(String(mult))) {
+          symLabel = `${mult}T`;
+        }
+      } else if (k === 1) {
+        symLabel = "½T";
+      } else if (k === 3) {
+        symLabel = "³⁄₂T";
+      } else if (
+        !ctx.hiddenNumberTokens.has(String(k)) &&
+        !ctx.hiddenNumberTokens.has("2")
+      ) {
+        symLabel = `${k}T/2`;
+      }
+      if (symLabel !== null) {
+        parts.push(
+          `<text x="${fmt(tx)}" y="${fmt(gBot + 24)}" text-anchor="middle" font-size="11" fill="#334e68">${escapeXml(symLabel)}</text>`,
+        );
+      }
+    } else {
+      const label = Number(tVal.toPrecision(2)).toString();
+      parts.push(
+        `<text x="${fmt(tx)}" y="${fmt(gBot + 24)}" text-anchor="middle" font-size="11" fill="#334e68">${escapeXml(label)}</text>`,
+      );
+    }
   }
 
   // Optional normalized flux-linkage quadrature curve
@@ -1282,6 +1750,7 @@ function drawCoilLoopsOnVerticalCore(
 function renderTransformerSvg(
   spec: TransformerSpec,
   solution: TransformerSolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
 ): string {
@@ -1339,17 +1808,24 @@ function renderTransformerSvg(
 
   // Secondary leads + load resistor (or open terminals)
   if (solution.loadResistanceOhm !== undefined) {
+    const loadIsDerived = spec.loadResistanceOhm === undefined;
     parts.push(
       `<path d="M${fmt(coreRight + 5)} ${fmt(coreTop + 52)} H${fmt(loadX)} V${fmt(cy - 29)}" fill="none" stroke="#171b1f" stroke-width="2"/>`,
       drawResistorV(loadX, cy, 22, 58),
       `<path d="M${fmt(coreRight + 5)} ${fmt(coreBot - 52)} H${fmt(loadX)} V${fmt(cy + 29)}" fill="none" stroke="#171b1f" stroke-width="2"/>`,
     );
-    const rText = formatLabeledQuantity(
-      spec,
+    const rText = guardedLabeledQuantity(
+      ctx,
       "loadResistanceOhm",
       "R_L",
       solution.loadResistanceOhm,
       "Ω",
+      {
+        isDerived: loadIsDerived,
+        hiddenCompanions: loadIsDerived
+          ? ["secondaryVoltageRmsV", "secondaryCurrentRmsA", "outputPowerW"]
+          : [],
+      },
     );
     parts.push(
       `<text x="${fmt(loadX + 20)}" y="${fmt(cy + 5)}" font-size="14" fill="#171b1f">${escapeXml(rText)}</text>`,
@@ -1364,34 +1840,47 @@ function renderTransformerSvg(
   }
 
   // Labels
-  const vpText = formatLabeledQuantity(
-    spec,
+  const isIsolation = spec.primaryTurns === spec.secondaryTurns;
+  const vpText = guardedLabeledQuantity(
+    ctx,
     "primaryVoltageRmsV",
     "Vₚ",
     spec.primaryVoltageRmsV,
     "V",
+    {
+      hiddenCompanions: isIsolation
+        ? ["secondaryVoltageRmsV", "secondaryVoltagePeakV"]
+        : [],
+    },
   );
-  const npText = formatLabeledQuantity(
-    spec,
+  const npText = guardedLabeledQuantity(
+    ctx,
     "primaryTurns",
     "Nₚ",
     spec.primaryTurns,
     "",
+    { hiddenCompanions: isIsolation ? ["secondaryTurns"] : [] },
   );
-  const nsText = formatLabeledQuantity(
-    spec,
+  const nsText = guardedLabeledQuantity(
+    ctx,
     "secondaryTurns",
     "Nₛ",
     spec.secondaryTurns,
     "",
+    { hiddenCompanions: isIsolation ? ["primaryTurns"] : [] },
   );
-  const vsText = formatLabeledQuantity(
-    spec,
+  const vsText = guardedLabeledQuantity(
+    ctx,
     "secondaryVoltageRmsV",
     "Vₛ",
     solution.secondaryVoltageRmsV,
     "V",
-    { isDerived: true },
+    {
+      isDerived: true,
+      hiddenCompanions: isIsolation
+        ? ["primaryVoltageRmsV", "primaryVoltagePeakV"]
+        : [],
+    },
   );
 
   parts.push(
@@ -1402,7 +1891,10 @@ function renderTransformerSvg(
   );
 
   if ((spec.efficiency ?? 1) < 1) {
-    const etaText = isQuantityVisible(spec, "efficiency")
+    const canShowEta =
+      canRenderNumericQuantity(ctx, "efficiency", solution.efficiency, "") &&
+      !matchesAnyHiddenValue(ctx, solution.efficiency * 100, "");
+    const etaText = canShowEta
       ? `η = ${Number((solution.efficiency * 100).toPrecision(3))}%`
       : "non-ideal core";
     parts.push(
@@ -1419,6 +1911,7 @@ function renderTransformerSvg(
 function renderElectricDeflectionSvg(
   spec: ElectricDeflectionSpec,
   solution: ElectricDeflectionSolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
   arrowId: string,
@@ -1483,29 +1976,34 @@ function renderElectricDeflectionSvg(
     `<path data-trajectory="electric-parabola" d="${trajPath}" fill="none" stroke="#171b1f" stroke-width="2.5" marker-end="url(#${arrowId})"/>`,
   );
 
-  const v0Text = formatLabeledQuantity(
-    spec,
+  const sameExitSpeed =
+    formatSiQuantity(solution.exitSpeedMs, "m s⁻¹") ===
+    formatSiQuantity(spec.initialSpeedMs, "m s⁻¹");
+  const v0Text = guardedLabeledQuantity(
+    ctx,
     "initialSpeedMs",
     "v₀",
     spec.initialSpeedMs,
     "m s⁻¹",
+    { hiddenCompanions: sameExitSpeed ? ["exitSpeedMs"] : [] },
   );
-  const vPlateText = formatLabeledQuantity(
-    spec,
+  const vPlateText = guardedLabeledQuantity(
+    ctx,
     "plateVoltageV",
     "V",
     spec.plateVoltageV,
     "V",
   );
-  const lText = formatLabeledQuantity(
-    spec,
+  const lText = guardedLabeledQuantity(
+    ctx,
     "plateLengthM",
     "L",
     spec.plateLengthM,
     "m",
+    { hiddenCompanions: !solution.hitsPlate ? ["exitXM"] : [] },
   );
-  const dText = formatLabeledQuantity(
-    spec,
+  const dText = guardedLabeledQuantity(
+    ctx,
     "plateSeparationM",
     "d",
     spec.plateSeparationM,
@@ -1522,6 +2020,7 @@ function renderElectricDeflectionSvg(
 function renderMagneticCyclotronSvg(
   spec: MagneticCyclotronSpec,
   solution: MagneticCyclotronSolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
   arrowId: string,
@@ -1580,13 +2079,13 @@ function renderMagneticCyclotronSvg(
   const midArcPt = mapPt(
     solution.trajectory[Math.floor(solution.trajectory.length * 0.45)],
   );
-  const rLabel = formatLabeledQuantity(
-    spec,
+  const rLabel = guardedLabeledQuantity(
+    ctx,
     "cyclotronRadiusM",
     "r",
     solution.cyclotronRadiusM,
     "m",
-    { isDerived: true },
+    { isDerived: true, hiddenCompanions: ["orbitDiameterM"] },
   );
 
   parts.push(
@@ -1607,21 +2106,31 @@ function renderMagneticCyclotronSvg(
   );
 
   const bBadge = fieldDirectionBadgeText(
-    spec,
+    ctx,
     "magneticFieldT",
     "B",
     spec.magneticFieldT,
     spec.fieldDirection,
   );
+  const unitElementaryCharge =
+    Math.abs(Math.abs(spec.chargeC) - ELEMENTARY_CHARGE_C) <=
+    1e-9 * ELEMENTARY_CHARGE_C;
   const entryGivenText =
     spec.speedMs !== undefined
-      ? formatLabeledQuantity(spec, "speedMs", "v", solution.speedMs, "m s⁻¹")
-      : formatLabeledQuantity(
-          spec,
+      ? guardedLabeledQuantity(
+          ctx,
+          "speedMs",
+          "v",
+          solution.speedMs,
+          "m s⁻¹",
+        )
+      : guardedLabeledQuantity(
+          ctx,
           "acceleratingVoltageV",
           "V_acc",
           spec.acceleratingVoltageV!,
           "V",
+          { hiddenCompanions: unitElementaryCharge ? ["kineticEnergyEv"] : [] },
         );
   parts.push(
     `<text x="${fmt(fieldBox.left + 10)}" y="${fmt(fieldBox.top - 14)}" font-size="14" fill="#171b1f">${escapeXml(bBadge)}</text>`,
@@ -1634,6 +2143,7 @@ function renderMagneticCyclotronSvg(
 function renderVelocitySelectorSvg(
   spec: VelocitySelectorSpec,
   solution: VelocitySelectorSolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
   arrowId: string,
@@ -1687,7 +2197,7 @@ function renderVelocitySelectorSvg(
   const scaleY =
     solution.outcome === "undeflected"
       ? 1
-      : Math.min((plateBot - plateTop) * 0.38 / maxAbsY, scaleX * 3);
+      : Math.min(((plateBot - plateTop) * 0.38) / maxAbsY, scaleX * 3);
 
   const trajPath =
     solution.outcome === "undeflected"
@@ -1722,16 +2232,16 @@ function renderVelocitySelectorSvg(
 
   const eSourceText =
     spec.electricFieldVm !== undefined
-      ? formatLabeledQuantity(
-          spec,
+      ? guardedLabeledQuantity(
+          ctx,
           "electricFieldVm",
           "E",
           spec.electricFieldVm,
           "V m⁻¹",
         )
-      : `${formatLabeledQuantity(spec, "plateVoltageV", "V", spec.plateVoltageV!, "V")}, ${formatLabeledQuantity(spec, "plateSeparationM", "d", spec.plateSeparationM!, "m")}`;
+      : `${guardedLabeledQuantity(ctx, "plateVoltageV", "V", spec.plateVoltageV!, "V")}, ${guardedLabeledQuantity(ctx, "plateSeparationM", "d", spec.plateSeparationM!, "m")}`;
   const bBadge = fieldDirectionBadgeText(
-    spec,
+    ctx,
     "magneticFieldT",
     "B",
     spec.magneticFieldT,
@@ -1740,9 +2250,25 @@ function renderVelocitySelectorSvg(
   parts.push(
     `<text x="${fmt(plateLeft)}" y="48" font-size="14" fill="#171b1f">${escapeXml(`${eSourceText},  ${bBadge}`)}</text>`,
   );
-  if (isQuantityVisible(spec, "selectedSpeedMs", { isDerived: true })) {
+
+  const undeflected =
+    solution.outcome === "undeflected" ||
+    Math.abs(solution.particleSpeedMs - solution.selectedSpeedMs) <=
+      1e-6 * solution.selectedSpeedMs;
+  if (
+    canRenderNumericQuantity(
+      ctx,
+      "selectedSpeedMs",
+      solution.selectedSpeedMs,
+      "m s⁻¹",
+      {
+        isDerived: true,
+        hiddenCompanions: undeflected ? ["particleSpeedMs"] : [],
+      },
+    )
+  ) {
     parts.push(
-      `<text x="${fmt(plateRight)}" y="48" text-anchor="end" font-size="14" fill="#243b53">${escapeXml(formatLabeledQuantity(spec, "selectedSpeedMs", "v_sel", solution.selectedSpeedMs, "m s⁻¹", { isDerived: true }))}</text>`,
+      `<text x="${fmt(plateRight)}" y="48" text-anchor="end" font-size="14" fill="#243b53">${escapeXml(guardedLabeledQuantity(ctx, "selectedSpeedMs", "v_sel", solution.selectedSpeedMs, "m s⁻¹", { isDerived: true, hiddenCompanions: undeflected ? ["particleSpeedMs"] : [] }))}</text>`,
     );
   }
   return parts.join("");
@@ -1751,6 +2277,7 @@ function renderVelocitySelectorSvg(
 function renderBainbridgeSpectrometerSvg(
   spec: BainbridgeSpectrometerSpec,
   solution: BainbridgeSpectrometerSolution,
+  ctx: EmVisibilityContext,
   width: number,
   height: number,
   arrowId: string,
@@ -1842,35 +2369,43 @@ function renderBainbridgeSpectrometerSvg(
     );
   }
 
-  const eSelText = formatLabeledQuantity(
-    spec,
+  const sameB =
+    Math.abs(spec.selectorMagneticFieldT - solution.deflectionMagneticFieldT) <=
+    1e-9 * spec.selectorMagneticFieldT;
+  const eSelText = guardedLabeledQuantity(
+    ctx,
     "selectorElectricFieldVm",
     "E",
     spec.selectorElectricFieldVm,
     "V m⁻¹",
   );
-  const b1Text = formatLabeledQuantity(
-    spec,
+  const b1Text = guardedLabeledQuantity(
+    ctx,
     "selectorMagneticFieldT",
     "B₁",
     spec.selectorMagneticFieldT,
     "T",
+    {
+      aliases: ["magneticFieldT", "B"],
+      hiddenCompanions: sameB ? ["deflectionMagneticFieldT"] : [],
+    },
   );
   const b2Badge = fieldDirectionBadgeText(
-    spec,
+    ctx,
     "deflectionMagneticFieldT",
     "B₂",
     solution.deflectionMagneticFieldT,
     defDir,
     ["magneticFieldT", "B"],
+    sameB ? ["selectorMagneticFieldT"] : [],
   );
-  const d1Text = formatLabeledQuantity(
-    spec,
+  const d1Text = guardedLabeledQuantity(
+    ctx,
     "primaryDiameterM",
     "D₁",
     solution.primaryDiameterM,
     "m",
-    { isDerived: true, aliases: ["primaryRadiusM", "r1", "r"] },
+    { isDerived: true, aliases: ["primaryRadiusM", "r1", "r_1", "r"] },
   );
 
   parts.push(
@@ -1906,59 +2441,64 @@ export function renderSolvedEmInductionSvg(
   const height = options.height ?? defaults.height;
   assertDimensions(width, height);
 
+  const ctx = buildEmVisibilityContext(spec, solution, options);
   const arrowId = `em-arrow-${spec.kind}`;
-  const ariaLabel = spec.title ? spec.title : SCENARIO_ARIA_LABELS[spec.kind];
+  const safeCustomTitle =
+    spec.title && !containsAnyHiddenToken(ctx, spec.title)
+      ? spec.title
+      : undefined;
+  const ariaLabel = safeCustomTitle ?? SCENARIO_ARIA_LABELS[spec.kind];
 
   let body = "";
   if (
     spec.kind === "parallel-plate-capacitor" &&
     solution.kind === "parallel-plate-capacitor"
   ) {
-    body = renderParallelPlateCapacitorSvg(spec, solution, width, height, arrowId);
+    body = renderParallelPlateCapacitorSvg(spec, solution, ctx, width, height, arrowId);
   } else if (
     spec.kind === "capacitor-network" &&
     solution.kind === "capacitor-network"
   ) {
-    body = renderCapacitorNetworkSvg(spec, solution, width, height);
+    body = renderCapacitorNetworkSvg(spec, solution, ctx, width, height);
   } else if (spec.kind === "rc-transient" && solution.kind === "rc-transient") {
-    body = renderRcTransientSvg(spec, solution, width, height, arrowId);
+    body = renderRcTransientSvg(spec, solution, ctx, width, height, arrowId);
   } else if (spec.kind === "flux-faraday" && solution.kind === "flux-faraday") {
-    body = renderFluxFaradaySvg(spec, solution, width, height, arrowId);
+    body = renderFluxFaradaySvg(spec, solution, ctx, width, height, arrowId);
   } else if (
     spec.kind === "motional-emf-rails" &&
     solution.kind === "motional-emf-rails"
   ) {
-    body = renderMotionalEmfRailsSvg(spec, solution, width, height, arrowId);
+    body = renderMotionalEmfRailsSvg(spec, solution, ctx, width, height, arrowId);
   } else if (spec.kind === "ac-generator" && solution.kind === "ac-generator") {
-    body = renderAcGeneratorSvg(spec, solution, width, height, arrowId);
+    body = renderAcGeneratorSvg(spec, solution, ctx, width, height, arrowId);
   } else if (spec.kind === "transformer" && solution.kind === "transformer") {
-    body = renderTransformerSvg(spec, solution, width, height);
+    body = renderTransformerSvg(spec, solution, ctx, width, height);
   } else if (
     spec.kind === "electric-deflection" &&
     solution.kind === "electric-deflection"
   ) {
-    body = renderElectricDeflectionSvg(spec, solution, width, height, arrowId);
+    body = renderElectricDeflectionSvg(spec, solution, ctx, width, height, arrowId);
   } else if (
     spec.kind === "magnetic-cyclotron" &&
     solution.kind === "magnetic-cyclotron"
   ) {
-    body = renderMagneticCyclotronSvg(spec, solution, width, height, arrowId);
+    body = renderMagneticCyclotronSvg(spec, solution, ctx, width, height, arrowId);
   } else if (
     spec.kind === "velocity-selector" &&
     solution.kind === "velocity-selector"
   ) {
-    body = renderVelocitySelectorSvg(spec, solution, width, height, arrowId);
+    body = renderVelocitySelectorSvg(spec, solution, ctx, width, height, arrowId);
   } else if (
     spec.kind === "bainbridge-mass-spectrometer" &&
     solution.kind === "bainbridge-mass-spectrometer"
   ) {
-    body = renderBainbridgeSpectrometerSvg(spec, solution, width, height, arrowId);
+    body = renderBainbridgeSpectrometerSvg(spec, solution, ctx, width, height, arrowId);
   } else {
     throw new Error(`Mismatched EM scenario and solution kind: ${spec.kind}`);
   }
 
-  const titleHeading = spec.title
-    ? `<text x="${fmt(width / 2)}" y="22" text-anchor="middle" font-size="15" font-weight="700" fill="#171b1f">${escapeXml(spec.title)}</text>`
+  const titleHeading = safeCustomTitle
+    ? `<text x="${fmt(width / 2)}" y="22" text-anchor="middle" font-size="15" font-weight="700" fill="#171b1f">${escapeXml(safeCustomTitle)}</text>`
     : "";
 
   return [

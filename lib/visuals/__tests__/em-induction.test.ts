@@ -3,6 +3,7 @@ import {
   ELECTRON_MASS_KG,
   ELEMENTARY_CHARGE_C,
   EM_INDUCTION_SCENARIO_KINDS,
+  EmInductionScenarioSpec,
   PROTON_MASS_KG,
   VACUUM_PERMITTIVITY,
   capacitorStoredEnergyFromCV,
@@ -10,9 +11,12 @@ import {
   capacitorStoredEnergyFromQV,
   cyclotronPeriod,
   cyclotronRadius,
+  expandQuantityKeys,
   formatSiQuantity,
+  generateElectricDeflectionScenario,
   generateEmInductionScenario,
   generateEmInductionScenarioBatch,
+  inferQuantityUnit,
   lorentzMagneticForce2D,
   magneticFlux,
   motionalEmf,
@@ -21,6 +25,7 @@ import {
   rcHalfTime,
   rcTimeConstant,
   renderEmInductionSvg,
+  renderSolvedEmInductionSvg,
   rmsFromPeak,
   seriesCapacitance,
   solveCapacitorChargeSharing,
@@ -28,21 +33,72 @@ import {
   validateEmInductionScenario,
 } from "../em-induction";
 
+const GEOMETRIC_SVG_ATTRS = new Set([
+  "xmlns",
+  "width",
+  "height",
+  "viewbox",
+  "role",
+  "id",
+  "x",
+  "y",
+  "x1",
+  "y1",
+  "x2",
+  "y2",
+  "cx",
+  "cy",
+  "r",
+  "rx",
+  "ry",
+  "d",
+  "points",
+  "transform",
+  "fill",
+  "stroke",
+  "stroke-width",
+  "stroke-dasharray",
+  "stroke-linecap",
+  "opacity",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-anchor",
+  "markerwidth",
+  "markerheight",
+  "refx",
+  "refy",
+  "orient",
+  "marker-end",
+  "marker-start",
+]);
+
 function extractVisibleTextAndMetadata(svg: string): string {
-  const texts = [...svg.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/g)].map(
+  const texts = [...svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g)].map((m) =>
+    m[1].replace(/<\/?tspan\b[^>]*>/g, ""),
+  );
+  const tspans = [...svg.matchAll(/<tspan\b[^>]*>([\s\S]*?)<\/tspan>/g)].map(
     (m) => m[1],
   );
-  const titles = [...svg.matchAll(/<title[^>]*>([\s\S]*?)<\/title>/g)].map(
+  const titles = [...svg.matchAll(/<title\b[^>]*>([\s\S]*?)<\/title>/g)].map(
     (m) => m[1],
   );
-  const descs = [...svg.matchAll(/<desc[^>]*>([\s\S]*?)<\/desc>/g)].map(
+  const descs = [...svg.matchAll(/<desc\b[^>]*>([\s\S]*?)<\/desc>/g)].map(
     (m) => m[1],
   );
-  const aria = [...svg.matchAll(/aria-label="([^"]*)"/g)].map((m) => m[1]);
-  const dataAttrs = [...svg.matchAll(/data-[a-z0-9-]+="([^"]*)"/gi)].map(
-    (m) => m[1],
+  const semanticAttrs: string[] = [];
+  for (const attrMatch of svg.matchAll(
+    /\s([a-zA-Z_:][a-zA-Z0-9_.:-]*)="([^"]*)"/g,
+  )) {
+    const attrName = attrMatch[1].toLowerCase();
+    if (!GEOMETRIC_SVG_ATTRS.has(attrName)) {
+      semanticAttrs.push(attrMatch[2]);
+    }
+  }
+  return [...texts, ...tspans, ...titles, ...descs, ...semanticAttrs].join(
+    " | ",
   );
-  return [...texts, ...titles, ...descs, ...aria, ...dataAttrs].join(" | ");
 }
 
 function parseSvgPathPoints(pathAttr: string): Array<{ x: number; y: number }> {
@@ -879,6 +935,536 @@ describe("em-induction solver, validator, SVG renderer, and generators", () => {
           expect(extracted).not.toContain(token);
         }
       }
+    });
+
+    it("cleanly merges spec.hiddenQuantities and options.hiddenQuantities in renderEmInductionSvg", () => {
+      const spec: EmInductionScenarioSpec = {
+        kind: "flux-faraday",
+        turns: 317,
+        coilAreaM2: 0.023,
+        initialFieldT: 0.13,
+        finalFieldT: 0.59,
+        timeIntervalS: 0.073,
+        hiddenQuantities: ["turns"],
+        showDerivedLabels: true,
+      };
+      const mergedSvg = renderEmInductionSvg(spec, {
+        hiddenQuantities: ["averageEmfMagnitudeV", "initialFieldT"],
+      });
+      assertWellFormedSvgXml(mergedSvg);
+      const text = extractVisibleTextAndMetadata(mergedSvg);
+      // Hidden via spec.hiddenQuantities
+      expect(text).not.toContain("317");
+      // Hidden via options.hiddenQuantities
+      expect(text).not.toContain("45.9 V");
+      expect(text).not.toContain("130 mT");
+      expect(text).not.toContain("0.13");
+      // Unhidden inputs remain visible
+      expect(text).toContain("590 mT");
+
+      // Also works when spec.hiddenQuantities is undefined and called via renderSolvedEmInductionSvg
+      const plainCap: EmInductionScenarioSpec = {
+        kind: "parallel-plate-capacitor",
+        plateAreaM2: 0.041,
+        plateSeparationM: 0.0027,
+        voltageV: 163,
+      };
+      const capSol = solveEmInductionScenario(plainCap);
+      const solvedSvg = renderSolvedEmInductionSvg(plainCap, capSol, {
+        hiddenQuantities: ["voltageV"],
+      });
+      expect(extractVisibleTextAndMetadata(solvedSvg)).not.toContain("163");
+
+      expect(() =>
+        renderEmInductionSvg(plainCap, { hiddenQuantities: ["   "] }),
+      ).toThrow(/hiddenQuantities/);
+    });
+
+    it("prevents all derived-axis, alias, afterChange, and coincident companion leaks", () => {
+      // 1. ac-generator: derived peakEmfV and periodS must stay symbolic when showDerivedLabels is false
+      for (const hiddenKey of ["meanPowerW", "rmsCurrentA"] as const) {
+        const acSpec: EmInductionScenarioSpec = {
+          kind: "ac-generator",
+          turns: 150,
+          coilAreaM2: 0.015,
+          magneticFieldT: 0.43,
+          frequencyHz: 50,
+          loadResistanceOhm: 25,
+          showDerivedLabels: false,
+          hiddenQuantities: [hiddenKey],
+        };
+        const acSol = solveEmInductionScenario(acSpec);
+        if (acSol.kind !== "ac-generator") throw new Error("Wrong kind");
+        const acText = extractVisibleTextAndMetadata(renderEmInductionSvg(acSpec));
+        expect(acText).not.toContain(formatSiQuantity(acSol.peakEmfV, "V"));
+        expect(acText).not.toContain(formatSiQuantity(acSol.peakEmfV, ""));
+        expect(acText).not.toContain("0.02");
+      }
+
+      // 2. rc-transient: derived X-axis ticks, current/charge Y-axis ticks, and t=0 circuit V0
+      const rcDerivedOff: EmInductionScenarioSpec = {
+        kind: "rc-transient",
+        mode: "charging",
+        resistanceOhm: 4000,
+        capacitanceF: 50e-6,
+        supplyVoltageV: 12,
+        plottedQuantity: "current",
+        showDerivedLabels: false,
+      };
+      const rcOffText = extractVisibleTextAndMetadata(
+        renderEmInductionSvg(rcDerivedOff),
+      );
+      // tau = 0.2 s and I0 = 3.00 mA are derived and must not appear when showDerivedLabels is false
+      expect(rcOffText).not.toContain("0.2");
+      expect(rcOffText).not.toContain("3.00 mA");
+
+      for (const hiddenInput of ["resistanceOhm", "capacitanceF"] as const) {
+        const rcHiddenRC: EmInductionScenarioSpec = {
+          kind: "rc-transient",
+          mode: "charging",
+          resistanceOhm: 4000,
+          capacitanceF: 50e-6,
+          supplyVoltageV: 12,
+          plottedQuantity: "charge",
+          showDerivedLabels: true,
+          hiddenQuantities: [hiddenInput],
+        };
+        const txt = extractVisibleTextAndMetadata(renderEmInductionSvg(rcHiddenRC));
+        // tau = 0.2 s must not leak on X-axis when R or C is hidden
+        expect(txt).not.toContain("0.2");
+        if (hiddenInput === "capacitanceF") {
+          // maxChargeC = C * V0 = 600 uC must not leak on Y-axis when C is hidden
+          expect(txt).not.toContain("600 μC");
+        }
+      }
+
+      const rcDischargeZero: EmInductionScenarioSpec = {
+        kind: "rc-transient",
+        mode: "discharging",
+        resistanceOhm: 5000,
+        capacitanceF: 47e-6,
+        supplyVoltageV: 17,
+        queryTimeS: 0,
+        showDerivedLabels: true,
+        hiddenQuantities: ["capacitorVoltageAtQueryV"],
+      };
+      expect(
+        extractVisibleTextAndMetadata(renderEmInductionSvg(rcDischargeZero)),
+      ).not.toContain("17");
+
+      const rcChargeZero: EmInductionScenarioSpec = {
+        kind: "rc-transient",
+        mode: "charging",
+        resistanceOhm: 5000,
+        capacitanceF: 47e-6,
+        supplyVoltageV: 17,
+        queryTimeS: 0,
+        showDerivedLabels: true,
+        hiddenQuantities: ["resistorVoltageAtQueryV"],
+      };
+      expect(
+        extractVisibleTextAndMetadata(renderEmInductionSvg(rcChargeZero)),
+      ).not.toContain("17");
+
+      // 3. capacitor-network: Cs_capacitanceF alias & parallel branch voltage v1V/v2V === supplyVoltageV
+      const spHiddenCs: EmInductionScenarioSpec = {
+        kind: "capacitor-network",
+        topology: {
+          arrangement: "series-parallel",
+          seriesCapacitanceF: 43e-6,
+          parallelCapacitancesF: [20e-6, 30e-6],
+          supplyVoltageV: 18,
+        },
+        hiddenQuantities: ["Cs_capacitanceF"],
+      };
+      expect(
+        extractVisibleTextAndMetadata(renderEmInductionSvg(spHiddenCs)),
+      ).not.toContain("43.0 μF");
+
+      for (const hiddenBranchV of ["v1V", "v2V"] as const) {
+        const parallelNet: EmInductionScenarioSpec = {
+          kind: "capacitor-network",
+          topology: {
+            arrangement: "parallel",
+            capacitancesF: [15e-6, 35e-6],
+            supplyVoltageV: 29,
+          },
+          hiddenQuantities: [hiddenBranchV],
+        };
+        expect(
+          extractVisibleTextAndMetadata(renderEmInductionSvg(parallelNet)),
+        ).not.toContain("29");
+      }
+
+      // 4. parallel-plate-capacitor afterChange: constant-voltage afterVoltageV, unchanged d, unchanged er
+      const constVolt: EmInductionScenarioSpec = {
+        kind: "parallel-plate-capacitor",
+        plateAreaM2: 0.04,
+        plateSeparationM: 0.002,
+        relativePermittivity: 2.3,
+        voltageV: 137,
+        afterChange: { constraint: "constant-voltage", newSeparationM: 0.004 },
+        hiddenQuantities: ["afterVoltageV"],
+      };
+      const constVoltText = extractVisibleTextAndMetadata(
+        renderEmInductionSvg(constVolt),
+      );
+      expect(constVoltText).not.toContain("137");
+      expect(
+        extractVisibleTextAndMetadata(
+          renderEmInductionSvg({
+            ...constVolt,
+            hiddenQuantities: ["afterRelativePermittivity"],
+          }),
+        ),
+      ).not.toContain("2.30");
+
+      const unchangedSep: EmInductionScenarioSpec = {
+        kind: "parallel-plate-capacitor",
+        plateAreaM2: 0.04,
+        plateSeparationM: 0.0031,
+        relativePermittivity: 1,
+        voltageV: 95,
+        afterChange: {
+          constraint: "isolated-charge",
+          newRelativePermittivity: 3.5,
+        },
+        hiddenQuantities: ["afterSeparationM"],
+      };
+      expect(
+        extractVisibleTextAndMetadata(renderEmInductionSvg(unchangedSep)),
+      ).not.toContain("0.0031");
+
+      // 5. Transitive alias expansion & coincident companions
+      expect(expandQuantityKeys("primaryDiameterM", ["primaryRadiusM"])).toContain(
+        "r_1",
+      );
+      const bainbridgeAliasAndEqualB: EmInductionScenarioSpec = {
+        kind: "bainbridge-mass-spectrometer",
+        chargeC: ELEMENTARY_CHARGE_C,
+        massKg: 20 * ATOMIC_MASS_UNIT_KG,
+        selectorElectricFieldVm: 6.0e4,
+        selectorMagneticFieldT: 0.33,
+        deflectionMagneticFieldT: 0.33,
+        showDerivedLabels: true,
+        hiddenQuantities: ["r_1"],
+      };
+      const bainSol = solveEmInductionScenario(bainbridgeAliasAndEqualB);
+      if (bainSol.kind !== "bainbridge-mass-spectrometer")
+        throw new Error("Wrong kind");
+      expect(
+        extractVisibleTextAndMetadata(
+          renderEmInductionSvg(bainbridgeAliasAndEqualB),
+        ),
+      ).not.toContain(formatSiQuantity(bainSol.primaryDiameterM, "m"));
+
+      for (const bKey of [
+        "selectorMagneticFieldT",
+        "deflectionMagneticFieldT",
+      ] as const) {
+        const txt = extractVisibleTextAndMetadata(
+          renderEmInductionSvg({
+            ...bainbridgeAliasAndEqualB,
+            hiddenQuantities: [bKey],
+          }),
+        );
+        expect(txt).not.toContain("330 mT");
+        expect(txt).not.toContain("0.33");
+      }
+
+      // Velocity selector undeflected: particleSpeedMs === selectedSpeedMs
+      const undeflectedSel: EmInductionScenarioSpec = {
+        kind: "velocity-selector",
+        chargeC: ELEMENTARY_CHARGE_C,
+        massKg: PROTON_MASS_KG,
+        electricFieldVm: 3.9e4,
+        magneticFieldT: 0.13,
+        fieldDirection: "into-page",
+        topPlatePolarity: "positive",
+        showDerivedLabels: true,
+        hiddenQuantities: ["particleSpeedMs"],
+      };
+      expect(
+        extractVisibleTextAndMetadata(renderEmInductionSvg(undeflectedSel)),
+      ).not.toContain("3.00 × 10⁵");
+
+      // Isolation transformer: primaryTurns === secondaryTurns & Vp === Vs
+      for (const tKey of [
+        "primaryTurns",
+        "secondaryTurns",
+        "primaryVoltageRmsV",
+        "secondaryVoltageRmsV",
+      ] as const) {
+        const isoSpec: EmInductionScenarioSpec = {
+          kind: "transformer",
+          primaryVoltageRmsV: 233,
+          primaryTurns: 470,
+          secondaryTurns: 470,
+          showDerivedLabels: true,
+          hiddenQuantities: [tKey],
+        };
+        const isoText = extractVisibleTextAndMetadata(
+          renderEmInductionSvg(isoSpec),
+        );
+        if (tKey.includes("Turns")) {
+          expect(isoText).not.toContain("470");
+        } else {
+          expect(isoText).not.toContain("233");
+        }
+      }
+
+      // Flux-faraday: finalAngleDegrees === initialAngleDegrees and B2 === -B1
+      const faradayEqualAngle: EmInductionScenarioSpec = {
+        kind: "flux-faraday",
+        turns: 120,
+        coilAreaM2: 0.02,
+        initialFieldT: 0.27,
+        finalFieldT: -0.27,
+        initialAngleDegrees: 37,
+        finalAngleDegrees: 37,
+        timeIntervalS: 0.05,
+        hiddenQuantities: ["finalAngleDegrees", "finalFieldT"],
+      };
+      const faradayTxt = extractVisibleTextAndMetadata(
+        renderEmInductionSvg(faradayEqualAngle),
+      );
+      expect(faradayTxt).not.toContain("37");
+      expect(faradayTxt).not.toContain("270 mT");
+
+      // Motional EMF rails: rodResistanceOhm === 0 => totalResistanceOhm === loadResistanceOhm
+      const railsZeroInternal: EmInductionScenarioSpec = {
+        kind: "motional-emf-rails",
+        magneticFieldT: 0.45,
+        fieldDirection: "into-page",
+        railSeparationM: 0.22,
+        rodSpeedMs: 3.4,
+        loadResistanceOhm: 2.7,
+        rodResistanceOhm: 0,
+        hiddenQuantities: ["totalResistanceOhm"],
+      };
+      expect(
+        extractVisibleTextAndMetadata(renderEmInductionSvg(railsZeroInternal)),
+      ).not.toContain("2.70");
+
+      // Electric deflection: non-colliding exitXM === plateLengthM, tiny-deflection vExit ~= v0, and generator separation
+      const nonCollidingDefl: EmInductionScenarioSpec = {
+        kind: "electric-deflection",
+        chargeC: -ELEMENTARY_CHARGE_C,
+        massKg: ELECTRON_MASS_KG,
+        initialSpeedMs: 2.3e7,
+        plateLengthM: 0.067,
+        plateSeparationM: 0.045,
+        plateVoltageV: 8,
+        hiddenQuantities: ["exitXM", "exitSpeedMs"],
+      };
+      const deflTxt = extractVisibleTextAndMetadata(
+        renderEmInductionSvg(nonCollidingDefl),
+      );
+      expect(deflTxt).not.toContain("0.067");
+      expect(deflTxt).not.toContain("2.30 × 10⁷");
+
+      for (let seed = 1; seed <= 30; seed += 1) {
+        const genDefl = generateElectricDeflectionScenario(`defl-seed-${seed}`);
+        const genSol = solveEmInductionScenario(genDefl);
+        if (genSol.kind !== "electric-deflection") throw new Error("Wrong kind");
+        expect(genSol.hitsPlate).toBe(false);
+        expect(formatSiQuantity(genSol.exitSpeedMs, "m s⁻¹")).not.toBe(
+          formatSiQuantity(genDefl.initialSpeedMs, "m s⁻¹"),
+        );
+      }
+    });
+
+    it("passes exhaustive per-quantity and coincident-value zero-leakage fuzz test across all 11 scenarios", () => {
+      const fuzzFixtures: EmInductionScenarioSpec[] = [
+        ...generateEmInductionScenarioBatch("fuzz-alpha", 33),
+        ...generateEmInductionScenarioBatch("fuzz-beta", 22),
+        // Adversarial coincident & boundary scenarios across all 11 kinds
+        {
+          kind: "parallel-plate-capacitor",
+          plateAreaM2: 0.036,
+          plateSeparationM: 0.0024,
+          relativePermittivity: 2.6,
+          voltageV: 137,
+          afterChange: { constraint: "constant-voltage", newSeparationM: 0.0048 },
+        },
+        {
+          kind: "parallel-plate-capacitor",
+          plateAreaM2: 0.036,
+          plateSeparationM: 0.0024,
+          relativePermittivity: 2.6,
+          voltageV: 137,
+          afterChange: {
+            constraint: "isolated-charge",
+            newRelativePermittivity: 5.2,
+          },
+        },
+        {
+          kind: "capacitor-network",
+          topology: {
+            arrangement: "parallel",
+            capacitancesF: [25e-6, 25e-6],
+            supplyVoltageV: 23,
+          },
+        },
+        {
+          kind: "capacitor-network",
+          topology: {
+            arrangement: "series-parallel",
+            seriesCapacitanceF: 40e-6,
+            parallelCapacitancesF: [20e-6, 20e-6],
+            supplyVoltageV: 18,
+          },
+        },
+        {
+          kind: "capacitor-network",
+          topology: {
+            arrangement: "charge-sharing",
+            c1F: 30e-6,
+            c2F: 30e-6,
+            v1InitialV: 24,
+            v2InitialV: 24,
+            polarity: "same",
+          },
+        },
+        {
+          kind: "rc-transient",
+          mode: "discharging",
+          resistanceOhm: 3500,
+          capacitanceF: 40e-6,
+          supplyVoltageV: 16,
+          queryTimeS: 0,
+          plottedQuantity: "current",
+        },
+        {
+          kind: "rc-transient",
+          mode: "charging",
+          resistanceOhm: 3500,
+          capacitanceF: 40e-6,
+          supplyVoltageV: 16,
+          queryTimeS: rcHalfTime(3500, 40e-6),
+          plottedQuantity: "charge",
+        },
+        {
+          kind: "flux-faraday",
+          turns: 160,
+          coilAreaM2: 0.018,
+          initialFieldT: 0.24,
+          finalFieldT: -0.24,
+          initialAngleDegrees: 42,
+          finalAngleDegrees: 42,
+          timeIntervalS: 0.06,
+          coilResistanceOhm: 4,
+        },
+        {
+          kind: "motional-emf-rails",
+          magneticFieldT: 0.38,
+          fieldDirection: "out-of-page",
+          railSeparationM: 0.26,
+          rodSpeedMs: 1,
+          loadResistanceOhm: 2.3,
+          rodResistanceOhm: 0,
+        },
+        {
+          kind: "transformer",
+          primaryVoltageRmsV: 215,
+          primaryTurns: 360,
+          secondaryTurns: 360,
+          efficiency: 0.89,
+          secondaryCurrentRmsA: 1.4,
+        },
+        {
+          kind: "electric-deflection",
+          chargeC: -ELEMENTARY_CHARGE_C,
+          massKg: ELECTRON_MASS_KG,
+          initialSpeedMs: 2.4e7,
+          plateLengthM: 0.062,
+          plateSeparationM: 0.044,
+          plateVoltageV: 12,
+        },
+        {
+          kind: "magnetic-cyclotron",
+          chargeC: ELEMENTARY_CHARGE_C,
+          massKg: PROTON_MASS_KG,
+          magneticFieldT: 0.29,
+          fieldDirection: "into-page",
+          acceleratingVoltageV: 1650,
+        },
+        {
+          kind: "velocity-selector",
+          chargeC: ELEMENTARY_CHARGE_C,
+          massKg: PROTON_MASS_KG,
+          electricFieldVm: 4.2e4,
+          magneticFieldT: 0.14,
+          fieldDirection: "into-page",
+          topPlatePolarity: "positive",
+        },
+        {
+          kind: "bainbridge-mass-spectrometer",
+          chargeC: ELEMENTARY_CHARGE_C,
+          massKg: 16 * ATOMIC_MASS_UNIT_KG,
+          comparisonMassKg: 32 * ATOMIC_MASS_UNIT_KG,
+          selectorElectricFieldVm: 5.4e4,
+          selectorMagneticFieldT: 0.27,
+          deflectionMagneticFieldT: 0.27,
+        },
+      ];
+
+      const escapedNumberPattern = (formatted: string): RegExp => {
+        const escaped = formatted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const suffix = formatted.includes("× 10")
+          ? "(?![\\d.])"
+          : "(?![\\d.]|\\s*×\\s*10)";
+        return new RegExp(`(?<![\\d.])${escaped}${suffix}`);
+      };
+
+      let totalChecks = 0;
+      for (const [fixtureIdx, baseSpec] of fuzzFixtures.entries()) {
+        const sol = solveEmInductionScenario(baseSpec);
+        for (const showDerivedLabels of [false, true]) {
+          for (const [qKey, qVal] of Object.entries(sol.quantities)) {
+            const passViaOptions = fixtureIdx % 3 === 0;
+            const specForRender: EmInductionScenarioSpec = {
+              ...baseSpec,
+              showDerivedLabels,
+              hiddenQuantities: passViaOptions ? [] : [qKey],
+            };
+            const svg = renderEmInductionSvg(
+              specForRender,
+              passViaOptions ? { hiddenQuantities: [qKey] } : undefined,
+            );
+            const allText = extractVisibleTextAndMetadata(svg);
+
+            if (Math.abs(qVal) < 1e-18) {
+              expect(allText).not.toMatch(/(?<![\d.])0(?![\d.])/);
+              totalChecks += 1;
+              continue;
+            }
+
+            const mag = Math.abs(qVal);
+            const fmtSigned = formatSiQuantity(qVal, "");
+            const fmtMag = formatSiQuantity(mag, "");
+            expect(allText).not.toMatch(escapedNumberPattern(fmtSigned));
+            expect(allText).not.toMatch(escapedNumberPattern(fmtMag));
+
+            const unit = inferQuantityUnit(qKey);
+            if (unit) {
+              expect(allText).not.toContain(formatSiQuantity(mag, unit));
+            }
+            if (qKey === "efficiency") {
+              const pct = Number((mag * 100).toPrecision(3)).toString();
+              expect(allText).not.toContain(`${pct}%`);
+            }
+            if (mag >= 1e-3 && mag < 1e5 && mag !== 1) {
+              const prec3 = Number(mag.toPrecision(3)).toString();
+              if (!prec3.includes("e")) {
+                expect(allText).not.toMatch(escapedNumberPattern(prec3));
+              }
+            }
+            totalChecks += 1;
+          }
+        }
+      }
+      expect(totalChecks).toBeGreaterThan(1500);
     });
   });
 

@@ -34,6 +34,7 @@ import {
   EmInductionSolution,
   EmInductionValidationResult,
   EmVisibilityControls,
+  mergeEmVisibilityControls,
 } from "./types";
 
 export * from "./types";
@@ -188,5 +189,6 @@ export function renderEmInductionSvg(
   options: EmInductionRenderOptions = {},
 ): string {
   const solution = solveEmInductionScenario(spec);
-  return renderSolvedEmInductionSvg(spec, solution, options);
+  const mergedSpec = mergeEmVisibilityControls(spec, options);
+  return renderSolvedEmInductionSvg(mergedSpec, solution, options);
 }

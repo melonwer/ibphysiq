@@ -344,14 +344,19 @@ export function generateElectricDeflectionScenario(
   const isElectron = rng.nextBool(0.55);
   const chargeC = isElectron ? -ELEMENTARY_CHARGE_C : ELEMENTARY_CHARGE_C;
   const massKg = isElectron ? ELECTRON_MASS_KG : PROTON_MASS_KG;
-  const plateLengthM = rng.pick([0.05, 0.06, 0.08, 0.1]);
-  const plateSeparationM = rng.pick([0.03, 0.04, 0.05]);
-  const plateVoltageV = isElectron
-    ? rng.pick([80, 120, 160, 200])
-    : rng.pick([200, 300, 400, 500]);
+  const plateLengthM = rng.pick([0.05, 0.06, 0.075]);
+  const plateSeparationM = rng.pick([0.045, 0.05, 0.06]);
   const initialSpeedMs = isElectron
-    ? rng.pick([2.2e7, 2.5e7, 2.8e7])
-    : rng.pick([6.5e5, 8.0e5, 1.0e6]);
+    ? rng.pick([1.2e7, 1.5e7, 1.8e7])
+    : rng.pick([2.5e5, 3.2e5, 4.0e5]);
+  const gapFraction = rng.pick([0.65, 0.75, 0.85]);
+  const rawPlateVoltageV =
+    (gapFraction *
+      massKg *
+      plateSeparationM ** 2 *
+      initialSpeedMs ** 2) /
+    (Math.abs(chargeC) * plateLengthM ** 2);
+  const plateVoltageV = Number(rawPlateVoltageV.toPrecision(2));
 
   return {
     kind: "electric-deflection",

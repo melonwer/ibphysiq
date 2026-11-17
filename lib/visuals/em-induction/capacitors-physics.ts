@@ -516,6 +516,8 @@ export function solveParallelPlateCapacitor(
         energyChangeJ: newU - storedEnergyJ,
       };
     }
+    quantities.afterSeparationM = newD;
+    quantities.afterRelativePermittivity = newEr;
     quantities.afterCapacitanceF = afterChange.capacitanceF;
     quantities.afterVoltageV = afterChange.voltageV;
     quantities.afterChargeC = afterChange.chargeC;
