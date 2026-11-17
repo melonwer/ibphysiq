@@ -3,6 +3,9 @@ import {
   CODATA_CONSTANTS,
   DATA_BOOKLET_CONSTANTS,
   evToJoules,
+  extractQuantumNuclearQuantityMap,
+  formatCleanTick,
+  formatNuclidePlain,
   formatScientificSigFigs,
   generateQuantumNuclearBatch,
   generateQuantumNuclearScenario,
@@ -10,9 +13,11 @@ import {
   lorentzFactorFromBeta,
   mevToJoules,
   nuclearRadiusM,
+  QuantumNuclearScenarioSpec,
   relativisticVelocityAdditionFractionC,
   renderQuantumNuclearSvg,
   rutherfordClosestApproachM,
+  sampleQuantumNuclearSpec,
   solveEnergyLevels,
   solveMatterWaves,
   solveNuclearBinding,
@@ -22,6 +27,8 @@ import {
   solveRadioactiveDecay,
   solveRutherfordScattering,
   solveSpecialRelativity,
+  toSubscript,
+  toSuperscript,
   validateQuantumNuclearScenario,
 } from "../quantum-nuclear";
 
@@ -927,6 +934,600 @@ describe("quantum-nuclear physics solver, validator, SVG renderer, and generator
       // In strict-allowlist mode, un-allowlisted level energies (-6.0 eV, -2.0 eV) are masked
       expect(xmlSafeSvg).not.toContain("6 eV");
       expect(xmlSafeSvg).not.toContain("2 eV");
+    });
+  });
+
+  describe("9. Exhaustive Hidden-Quantity, Coincident-Value & Fuzz Verification", () => {
+    const GEOMETRY_AND_STYLE_ATTRS = new Set([
+      "xmlns",
+      "width",
+      "height",
+      "viewBox",
+      "role",
+      "d",
+      "points",
+      "x",
+      "y",
+      "x1",
+      "y1",
+      "x2",
+      "y2",
+      "cx",
+      "cy",
+      "r",
+      "rx",
+      "ry",
+      "refX",
+      "refY",
+      "markerWidth",
+      "markerHeight",
+      "orient",
+      "fill",
+      "stroke",
+      "stroke-width",
+      "stroke-dasharray",
+      "opacity",
+      "font-size",
+      "font-weight",
+      "font-style",
+      "font-family",
+      "text-anchor",
+      "transform",
+    ]);
+
+    const extractAllStudentFacingChannels = (svg: string): string => {
+      const segments: string[] = [];
+      for (const m of svg.matchAll(
+        /<(?:text|tspan|title|desc)\b[^>]*>([\s\S]*?)<\/(?:text|tspan|title|desc)>/g,
+      )) {
+        segments.push(m[1].replace(/<[^>]+>/g, " "));
+      }
+      for (const tagMatch of svg.matchAll(/<[a-zA-Z][^>]*>/g)) {
+        const tag = tagMatch[0];
+        for (const attrMatch of tag.matchAll(
+          /\b([a-zA-Z_:][a-zA-Z0-9_.:-]*)="([^"]*)"/g,
+        )) {
+          const attrName = attrMatch[1];
+          const attrVal = attrMatch[2];
+          if (!GEOMETRY_AND_STYLE_ATTRS.has(attrName)) {
+            segments.push(`${attrName}=${attrVal}`);
+          }
+        }
+      }
+      return segments.join(" | ");
+    };
+
+    const buildStandaloneNumberRegex = (formatted: string): RegExp => {
+      const escaped = formatted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const suffix = formatted.includes("× 10")
+        ? "(?![\\d.])"
+        : "(?![\\d.]|\\s*×\\s*10)";
+      return new RegExp(`(?<![\\d.])${escaped}${suffix}`);
+    };
+
+    it("merges spec.hiddenQuantities and options.hiddenQuantities cleanly", () => {
+      const spec: QuantumNuclearScenarioSpec = {
+        kind: "energy-levels",
+        atomModel: "custom",
+        atomName: "Custom atom",
+        levels: [
+          { id: "g", label: "ground", energyValue: -9.45, energyUnit: "eV" },
+          { id: "e1", label: "first", energyValue: -4.15, energyUnit: "eV" },
+          { id: "e2", label: "second", energyValue: -1.35, energyUnit: "eV" },
+        ],
+        transitions: [
+          { id: "t1", fromLevelId: "e2", toLevelId: "e1", label: "T₁" },
+        ],
+        givenQuantities: ["*"],
+        hiddenQuantities: ["g"],
+      };
+      const svg = renderQuantumNuclearSvg(spec, {
+        hiddenQuantities: ["e1", "wavelengthNm"],
+      });
+      const channels = extractAllStudentFacingChannels(svg);
+      expect(channels).not.toContain("9.45");
+      expect(channels).not.toContain("4.15");
+      expect(channels).toContain("1.35 eV");
+      expect(channels).not.toContain("nm");
+    });
+
+    it("prevents energy-levels leaks across groundStateEnergy, continuumEnergy, ionizationEnergy, 0-eV endpoint deltaEnergy, and hydrogenic atomicNumberZ", () => {
+      for (const hiddenKey of [
+        "groundStateEnergyEv",
+        "groundStateEnergyJ",
+        "ionizationEnergyEv",
+        "ionizationEnergyJ",
+      ] as const) {
+        const svg = renderQuantumNuclearSvg({
+          kind: "energy-levels",
+          atomModel: "bohr-hydrogen",
+          atomicNumberZ: 1,
+          maxPrincipalN: 3,
+          includeContinuumZero: true,
+          transitions: [{ id: "t1", fromLevelId: "n=2", toLevelId: "n=1" }],
+          givenQuantities: ["*"],
+          hiddenQuantities: [hiddenKey],
+        });
+        const channels = extractAllStudentFacingChannels(svg);
+        expect(channels).not.toContain("13.6");
+      }
+
+      const contSvg = renderQuantumNuclearSvg({
+        kind: "energy-levels",
+        atomModel: "bohr-hydrogen",
+        atomicNumberZ: 1,
+        maxPrincipalN: 3,
+        includeContinuumZero: true,
+        transitions: [{ id: "t1", fromLevelId: "n=inf", toLevelId: "n=2" }],
+        hiddenQuantities: ["continuumEnergyEv"],
+      });
+      expect(extractAllStudentFacingChannels(contSvg)).not.toContain("0 eV");
+
+      // Endpoint at 0 eV: hiding deltaEnergyEv or transition:t1:deltaEnergyEv hides -3.4 eV bar
+      for (const deltaKey of [
+        "deltaEnergyEv",
+        "transition:t1:deltaEnergyEv",
+      ] as const) {
+        const zeroEndSvg = renderQuantumNuclearSvg({
+          kind: "energy-levels",
+          atomModel: "bohr-hydrogen",
+          atomicNumberZ: 1,
+          maxPrincipalN: 3,
+          includeContinuumZero: true,
+          transitions: [{ id: "t1", fromLevelId: "n=inf", toLevelId: "n=2" }],
+          hiddenQuantities: [deltaKey],
+        });
+        expect(extractAllStudentFacingChannels(zeroEndSvg)).not.toContain("3.4");
+      }
+
+      // Hydrogenic ion Z = 3: hiding atomicNumberZ suppresses "Hydrogenic Z = 3"
+      const heIonSvg = renderQuantumNuclearSvg({
+        kind: "energy-levels",
+        atomModel: "bohr-hydrogen",
+        atomicNumberZ: 3,
+        maxPrincipalN: 3,
+        transitions: [{ id: "t1", fromLevelId: "n=3", toLevelId: "n=2" }],
+        hiddenQuantities: ["atomicNumberZ"],
+      });
+      const ionChannels = extractAllStudentFacingChannels(heIonSvg);
+      expect(ionChannels).not.toContain("Hydrogenic");
+      expect(ionChannels).not.toMatch(buildStandaloneNumberRegex("3"));
+    });
+
+    it("enforces full-axis numeric tick suppression in radioactive-decay, photoelectric-effect, and special-relativity without deducible gaps", () => {
+      // Radioactive decay: hiding elapsedTime suppresses ALL X numeric ticks (never leaving 0, [blank], 10, 15)
+      const rdElapsedSvg = renderQuantumNuclearSvg({
+        kind: "radioactive-decay",
+        timeUnit: "h",
+        halfLife: 5,
+        elapsedTime: 10,
+        initialTotalCountRate: 520,
+        backgroundCountRate: 20,
+        hiddenQuantities: ["elapsedTime"],
+      });
+      expect(rdElapsedSvg).not.toContain(">5<");
+      expect(rdElapsedSvg).not.toContain(">10<");
+      expect(rdElapsedSvg).not.toContain(">15<");
+      expect(rdElapsedSvg).not.toContain(">20<");
+
+      // Hiding remainingTotalCountRate suppresses ALL Y numeric ticks
+      const rdRemSvg = renderQuantumNuclearSvg({
+        kind: "radioactive-decay",
+        timeUnit: "h",
+        halfLife: 5,
+        elapsedTime: 10,
+        initialTotalCountRate: 520,
+        backgroundCountRate: 20,
+        hiddenQuantities: ["remainingTotalCountRate"],
+      });
+      expect(rdRemSvg).not.toContain(">500<");
+      expect(rdRemSvg).not.toContain(">200<");
+
+      // Photoelectric effect at hf = 2*phi (stoppingPotentialV === workFunctionEv):
+      // hiding stoppingPotentialV must suppress Y ticks AND mask -phi/e = -2.30
+      const wfEv = 2.3;
+      const fTwoPhi = (2 * wfEv * 1.6e-19) / 6.63e-34;
+      const peSvg = renderQuantumNuclearSvg({
+        kind: "photoelectric-effect",
+        metalName: "Potassium",
+        workFunctionEv: wfEv,
+        incidentFrequencyHz: fTwoPhi,
+        plotMode: "stopping-potential-vs-f",
+        showExtrapolation: true,
+        showOperatingPoint: true,
+        givenQuantities: ["*"],
+        hiddenQuantities: ["stoppingPotentialV"],
+      });
+      expect(extractAllStudentFacingChannels(peSvg)).not.toContain("2.3");
+
+      // Special relativity: hiding event coordinate suppresses all Minkowski numeric ticks
+      const srEventSvg = renderQuantumNuclearSvg({
+        kind: "special-relativity",
+        beta: 0.6,
+        domainLightSeconds: 5,
+        events: [
+          {
+            id: "e1",
+            label: "E₁",
+            xLightSeconds: 2,
+            ctLightSeconds: 4,
+            showProjections: true,
+          },
+        ],
+        hiddenQuantities: ["event:e1:xLightSeconds"],
+      });
+      expect(srEventSvg).not.toContain(">2<");
+      expect(srEventSvg).not.toContain(">4<");
+    });
+
+    it("suppresses decay-chain axis ticks on hidden nuclides, masks isobaric/isotopic parent A/Z collisions, and masks step badges on hidden counts", () => {
+      // Generator default hiddenQuantities: ["finalNuclide", "daughterNuclides"]
+      const genPkg = generateQuantumNuclearScenario("ra-chain-seed", {
+        kind: "nuclear-decay-chain",
+        hideTargetQuantities: true,
+      });
+      const genSol = solveNuclearDecayChain(
+        genPkg.spec as Extract<
+          QuantumNuclearScenarioSpec,
+          { kind: "nuclear-decay-chain" }
+        >,
+      );
+      const genChannels = extractAllStudentFacingChannels(genPkg.svg);
+      for (const daughter of genSol.nuclides.slice(1)) {
+        expect(genChannels).not.toMatch(
+          buildStandaloneNumberRegex(String(daughter.atomicNumberZ)),
+        );
+        expect(genChannels).not.toMatch(
+          buildStandaloneNumberRegex(String(daughter.massNumberA)),
+        );
+        expect(genChannels).not.toMatch(
+          buildStandaloneNumberRegex(String(daughter.neutronNumberN)),
+        );
+      }
+
+      // Isobaric decay F-18 -> O-18: hiding finalA masks parent ¹⁸₉F
+      const isobaricSvg = renderQuantumNuclearSvg({
+        kind: "nuclear-decay-chain",
+        parentNuclide: { massNumberA: 18, atomicNumberZ: 9, symbol: "F" },
+        steps: [{ id: "s1", mode: "beta-plus" }],
+        hiddenQuantities: ["finalA"],
+      });
+      expect(isobaricSvg).not.toContain(toSuperscript(18));
+      expect(extractAllStudentFacingChannels(isobaricSvg)).not.toContain("18");
+
+      // Isotopic chain U-238 -> Th-234 -> Pa-234 -> U-234: hiding finalZ masks parent Z=92
+      const isotopicSvg = renderQuantumNuclearSvg({
+        kind: "nuclear-decay-chain",
+        parentNuclide: { massNumberA: 238, atomicNumberZ: 92, symbol: "U" },
+        steps: [
+          { id: "s1", mode: "alpha" },
+          { id: "s2", mode: "beta-minus" },
+          { id: "s3", mode: "beta-minus" },
+        ],
+        hiddenQuantities: ["finalZ"],
+      });
+      expect(isotopicSvg).not.toContain(toSubscript(92));
+      expect(isotopicSvg).not.toContain("U<");
+      expect(extractAllStudentFacingChannels(isotopicSvg)).not.toContain("92");
+
+      // Hiding totalAlphaCount masks step badges to "?"
+      const countHiddenSvg = renderQuantumNuclearSvg({
+        kind: "nuclear-decay-chain",
+        parentNuclide: { massNumberA: 226, atomicNumberZ: 88, symbol: "Ra" },
+        steps: [
+          { id: "s1", mode: "alpha" },
+          { id: "s2", mode: "beta-minus" },
+        ],
+        hiddenQuantities: ["totalAlphaCount"],
+      });
+      expect(countHiddenSvg).not.toContain(">α<");
+      expect(countHiddenSvg).not.toContain(">β⁻<");
+      expect(countHiddenSvg).toContain(">?<");
+    });
+
+    it("prevents nuclear-binding nuclide A/Z/ticks/J-unit leaks and matter-waves q=e voltage/EkEv leaks", () => {
+      for (const style of ["binding-curve", "mass-energy-balance"] as const) {
+        for (const hiddenKey of ["massNumberA", "atomicNumberZ"] as const) {
+          const feSvg = renderQuantumNuclearSvg({
+            kind: "nuclear-binding",
+            calculationMode: "single-nuclide",
+            massNumberA: 56,
+            atomicNumberZ: 26,
+            symbol: "Fe",
+            nuclearMassU: 55.920674,
+            diagramStyle: style,
+            hiddenQuantities: [hiddenKey],
+          });
+          expect(feSvg).not.toContain(formatNuclidePlain(56, 26, "Fe"));
+          expect(feSvg).not.toContain(toSuperscript(56));
+          expect(feSvg).not.toContain(toSubscript(26));
+          expect(extractAllStudentFacingChannels(feSvg)).not.toContain("56");
+          expect(extractAllStudentFacingChannels(feSvg)).not.toContain("26");
+        }
+      }
+
+      // Hiding bindingEnergyJ or massDefectKg masks Delta E in mass-energy-balance even with givenQuantities: ["*"]
+      for (const hiddenKey of ["bindingEnergyJ", "massDefectKg"] as const) {
+        const mebSvg = renderQuantumNuclearSvg({
+          kind: "nuclear-binding",
+          calculationMode: "single-nuclide",
+          massNumberA: 56,
+          atomicNumberZ: 26,
+          symbol: "Fe",
+          nuclearMassU: 55.920674,
+          diagramStyle: "mass-energy-balance",
+          givenQuantities: ["*"],
+          hiddenQuantities: [hiddenKey],
+        });
+        expect(mebSvg).toContain("B = Δm c²");
+        expect(mebSvg).not.toContain("ΔE =");
+      }
+
+      // Hiding qValueJ or massDifferenceKg masks Q in reaction mass-energy-balance even with givenQuantities: ["*"]
+      for (const hiddenKey of ["qValueJ", "massDifferenceKg"] as const) {
+        const rxnSvg = renderQuantumNuclearSvg({
+          kind: "nuclear-binding",
+          calculationMode: "reaction",
+          reactionType: "fusion",
+          diagramStyle: "mass-energy-balance",
+          reactants: [
+            { id: "d", symbol: "H", massNumberA: 2, atomicNumberZ: 1, massU: 2.013553 },
+            { id: "t", symbol: "H", massNumberA: 3, atomicNumberZ: 1, massU: 3.015501 },
+          ],
+          products: [
+            { id: "he", symbol: "He", massNumberA: 4, atomicNumberZ: 2, massU: 4.001506 },
+            { id: "n", symbol: "n", massNumberA: 1, atomicNumberZ: 0, massU: 1.008665 },
+          ],
+          givenQuantities: ["*"],
+          hiddenQuantities: [hiddenKey],
+        });
+        expect(rxnSvg).toContain("Q = Δm c²");
+        expect(rxnSvg).not.toContain("17.6");
+      }
+
+      // Matter-waves: electron/proton has kineticEnergyEv === acceleratingVoltageV
+      for (const particle of ["electron", "proton"] as const) {
+        const mwSvg = renderQuantumNuclearSvg({
+          kind: "matter-waves",
+          particle,
+          acceleratingVoltageV: 350,
+          givenQuantities: ["*"],
+          hiddenQuantities: ["kineticEnergyEv"],
+        });
+        expect(extractAllStudentFacingChannels(mwSvg)).not.toContain("350");
+      }
+    });
+
+    it("passes exhaustive per-quantity + coincident-value zero-leakage fuzz test across all 8 scenario families", () => {
+      const kinds = [
+        "energy-levels",
+        "photoelectric-effect",
+        "matter-waves",
+        "radioactive-decay",
+        "nuclear-decay-chain",
+        "nuclear-binding",
+        "rutherford-scattering",
+        "special-relativity",
+      ] as const;
+
+      const sampledFixtures: QuantumNuclearScenarioSpec[] = [];
+      for (const seed of [
+        "alpha",
+        "beta",
+        "gamma",
+        "delta",
+        "epsilon",
+        "zeta",
+        "eta",
+        "theta",
+      ]) {
+        for (const kind of kinds) {
+          sampledFixtures.push(
+            sampleQuantumNuclearSpec(`${seed}-${kind}`, {
+              kind,
+              syllabus: "ib",
+              syllabusLevel: "HL",
+              hideTargetQuantities: false,
+            }),
+          );
+        }
+      }
+
+      const adversarialCoincidentFixtures: QuantumNuclearScenarioSpec[] = [
+        // Hydrogenic Z = 2 where E_2 = -13.6 eV and continuum = 0 eV
+        {
+          kind: "energy-levels",
+          atomModel: "bohr-hydrogen",
+          atomicNumberZ: 2,
+          maxPrincipalN: 4,
+          includeContinuumZero: true,
+          transitions: [
+            { id: "t1", fromLevelId: "n=inf", toLevelId: "n=2", label: "T1" },
+            { id: "t2", fromLevelId: "n=2", toLevelId: "n=1", label: "T2" },
+          ],
+        },
+        // Joule-displayed custom levels with continuum 0 J
+        {
+          kind: "energy-levels",
+          atomModel: "custom",
+          atomName: "Ion Z = 2",
+          displayEnergyUnit: "J",
+          levels: [
+            { id: "g", label: "n = 1", energyValue: -8.0e-19, energyUnit: "J" },
+            { id: "e1", label: "n = 2", energyValue: -3.2e-19, energyUnit: "J" },
+            { id: "cont", label: "n = ∞", energyValue: 0, energyUnit: "J" },
+          ],
+          transitions: [
+            { id: "t1", fromLevelId: "cont", toLevelId: "e1", label: "T₁" },
+            { id: "t2", fromLevelId: "e1", toLevelId: "g", label: "T₂" },
+          ],
+        },
+        // Photoelectric at hf = 2*phi (Ek,max == Vs == phi) and ek-j-vs-f mode
+        {
+          kind: "photoelectric-effect",
+          metalName: "Caesium",
+          workFunctionEv: 2.0,
+          incidentFrequencyHz: (4.0 * 1.6e-19) / 6.63e-34,
+          comparisonMetalName: "Zinc",
+          comparisonWorkFunctionEv: 4.0,
+          plotMode: "stopping-potential-vs-f",
+          showExtrapolation: true,
+          showOperatingPoint: true,
+        },
+        {
+          kind: "photoelectric-effect",
+          metalName: "Sodium",
+          workFunctionEv: 2.28,
+          incidentWavelengthNm: 650,
+          plotMode: "ek-j-vs-f",
+          showExtrapolation: true,
+          showOperatingPoint: true,
+        },
+        // Matter waves: proton with q = e (kineticEnergyEv === acceleratingVoltageV)
+        {
+          kind: "matter-waves",
+          particle: "proton",
+          acceleratingVoltageV: 850,
+        },
+        // Radioactive decay: coincident initialNetCountRate === backgroundCountRate (25) and elapsedTime === halfLife (10)
+        {
+          kind: "radioactive-decay",
+          timeUnit: "min",
+          halfLife: 10,
+          elapsedTime: 10,
+          initialTotalCountRate: 50,
+          backgroundCountRate: 25,
+          showHalfLifeGuides: true,
+        },
+        // Decay chain: isobaric + isotopic steps
+        {
+          kind: "nuclear-decay-chain",
+          parentNuclide: { massNumberA: 238, atomicNumberZ: 92, symbol: "U" },
+          steps: [
+            { id: "s1", mode: "alpha" },
+            { id: "s2", mode: "beta-minus" },
+            { id: "s3", mode: "beta-minus" },
+            { id: "s4", mode: "gamma" },
+          ],
+          chartAxes: "A-vs-Z",
+        },
+        // Nuclear binding: U-235 where nuclearMassU (234.99345) rounds to 235 === massNumberA
+        {
+          kind: "nuclear-binding",
+          calculationMode: "single-nuclide",
+          massNumberA: 235,
+          atomicNumberZ: 92,
+          symbol: "U",
+          nuclearMassU: 234.99345,
+          diagramStyle: "binding-curve",
+        },
+        {
+          kind: "nuclear-binding",
+          calculationMode: "single-nuclide",
+          massNumberA: 4,
+          atomicNumberZ: 2,
+          symbol: "He",
+          nuclearMassU: 4.001506,
+          diagramStyle: "mass-energy-balance",
+        },
+        // Rutherford scattering: proton on H-1 (projectileChargeZ === targetChargeZ === targetMassNumberA === 1)
+        {
+          kind: "rutherford-scattering",
+          projectileChargeZ: 1,
+          targetSymbol: "H",
+          targetChargeZ: 1,
+          targetMassNumberA: 1,
+          kineticEnergyMeV: 2.5,
+        },
+        // Special relativity: object at rest in S (u = 0 -> u' = -beta*c), dilatedTimeS = 5 = domainLightSeconds
+        {
+          kind: "special-relativity",
+          beta: 0.6,
+          properTimeS: 4.0,
+          properLengthM: 50.0,
+          objectVelocityFractionC: 0,
+          domainLightSeconds: 5,
+          events: [
+            {
+              id: "e1",
+              label: "E1",
+              xLightSeconds: 3,
+              ctLightSeconds: 3,
+              showProjections: true,
+            },
+          ],
+        },
+      ];
+
+      const allFixtures = [
+        ...sampledFixtures,
+        ...adversarialCoincidentFixtures,
+      ];
+
+      let checkedPairs = 0;
+      for (const baseSpec of allFixtures) {
+        const cleanBase: QuantumNuclearScenarioSpec = {
+          ...baseSpec,
+          hiddenQuantities: undefined,
+          givenQuantities: undefined,
+        };
+        const solution = solveQuantumNuclearScenario(cleanBase);
+        const qMap = extractQuantumNuclearQuantityMap(cleanBase, solution);
+
+        for (const revealDerived of [false, true]) {
+          for (const [qKey, qVals] of Object.entries(qMap)) {
+            if (qVals.length === 0) continue;
+            const viaOptions = checkedPairs % 2 === 1;
+            checkedPairs += 1;
+
+            const specToRender: QuantumNuclearScenarioSpec = {
+              ...cleanBase,
+              ...(revealDerived ? { givenQuantities: ["*"] } : {}),
+              ...(viaOptions ? {} : { hiddenQuantities: [qKey] }),
+            };
+            const svg = renderQuantumNuclearSvg(
+              specToRender,
+              viaOptions ? { hiddenQuantities: [qKey] } : undefined,
+            );
+            const allTextAndAttrs = extractAllStudentFacingChannels(svg);
+
+            for (const qVal of qVals) {
+              if (!Number.isFinite(qVal)) continue;
+              const fmtSigned = formatScientificSigFigs(qVal, 3);
+              const fmtMag = formatScientificSigFigs(Math.abs(qVal), 3);
+              const prec3Mag = String(Number(Math.abs(qVal).toPrecision(3)));
+              const tokens = new Set([fmtSigned, fmtMag, prec3Mag]);
+              if (
+                qVal === 0 ||
+                (Math.abs(qVal) >= 1e-6 && Math.abs(qVal) < 1e9)
+              ) {
+                tokens.add(formatCleanTick(qVal));
+                tokens.add(formatCleanTick(Math.abs(qVal)));
+              }
+
+              for (const token of tokens) {
+                expect(allTextAndAttrs).not.toMatch(
+                  buildStandaloneNumberRegex(token),
+                );
+              }
+
+              // Also ensure hidden integer A/Z/N never leak as Unicode superscript/subscript nuclide prefixes
+              if (Number.isInteger(qVal) && qVal >= 2) {
+                const supA = toSuperscript(qVal);
+                const subZ = toSubscript(qVal);
+                expect(allTextAndAttrs).not.toMatch(
+                  new RegExp(`(?<![⁰¹²³⁴⁵⁶⁷⁸⁹])${supA}[₀₁₂₃₄₅₆₇₈₉]+[A-Z]`),
+                );
+                expect(allTextAndAttrs).not.toMatch(
+                  new RegExp(`[⁰¹²³⁴⁵⁶⁷⁸⁹]+${subZ}[A-Z]`),
+                );
+              }
+            }
+          }
+        }
+      }
+
+      expect(checkedPairs).toBeGreaterThan(2500);
     });
   });
 });

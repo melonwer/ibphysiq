@@ -570,6 +570,10 @@ export interface QuantumNuclearValidationResult {
 export interface QuantumNuclearRenderOptions {
   readonly width?: number;
   readonly height?: number;
+  readonly hiddenQuantities?: readonly string[];
+  readonly givenQuantities?: readonly string[];
+  readonly visibilityMode?: "hide-listed" | "strict-allowlist";
+  readonly placeholders?: Readonly<Record<string, string>>;
 }
 
 export interface QuantumNuclearGeneratorOptions {

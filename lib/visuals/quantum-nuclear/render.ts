@@ -17,11 +17,19 @@ import {
   QuantumNuclearScenarioSpec,
 } from "./types";
 import { validateQuantumNuclearScenario } from "./validate";
-import { createVisibilityGuard, escapeXml } from "./visibility";
+import {
+  createVisibilityGuard,
+  escapeXml,
+  extractQuantumNuclearQuantityMap,
+} from "./visibility";
 
-function sanitizeUid(raw: string): string {
+function sanitizeUid(raw: string, maskDigits = false): string {
   const cleaned = raw.replace(/[^a-zA-Z0-9_-]/g, "_");
-  return cleaned.length > 0 ? cleaned : "qn";
+  const base = cleaned.length > 0 ? cleaned : "qn";
+  if (!maskDigits) return base;
+  return base.replace(/\d/g, (d) =>
+    String.fromCharCode("g".charCodeAt(0) + Number(d)),
+  );
 }
 
 function defaultDimensions(kind: QuantumNuclearScenarioSpec["kind"]): {
@@ -66,8 +74,10 @@ export function renderQuantumNuclearSvg(
   assertDimensions(width, height);
 
   const solution = solveQuantumNuclearScenario(spec);
-  const guard = createVisibilityGuard(spec);
-  const uid = sanitizeUid(spec.id ?? spec.kind);
+  const quantityMap = extractQuantumNuclearQuantityMap(spec, solution);
+  const guard = createVisibilityGuard(spec, options, quantityMap);
+  const rawUid = spec.id ?? spec.kind;
+  const uid = sanitizeUid(rawUid, guard.textContainsHiddenNumber(rawUid));
 
   let rendered: SvgBodyResult;
   switch (spec.kind) {

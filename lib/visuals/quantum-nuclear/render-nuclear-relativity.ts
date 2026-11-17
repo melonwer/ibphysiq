@@ -20,6 +20,7 @@ import {
   formatNuclidePlain,
   formatScientificSigFigs,
   toSubscript,
+  toSuperscript,
   VisibilityGuard,
 } from "./visibility";
 
@@ -109,7 +110,8 @@ export function renderRadioactiveDecayBody(
     spec.plotQuantity ??
     (solution.initialTotalCountRate !== null
       ? "count-rate"
-      : solution.initialActivityBq !== null && spec.initialActivityBq !== undefined
+      : solution.initialActivityBq !== null &&
+          spec.initialActivityBq !== undefined
         ? "activity"
         : "nuclei");
 
@@ -120,7 +122,12 @@ export function renderRadioactiveDecayBody(
   if (mode === "count-rate" && solution.initialTotalCountRate !== null) {
     y0Total = solution.initialTotalCountRate;
     yBg = solution.backgroundCountRate;
-    yLabelBase = `Count rate / ${spec.countRateUnitLabel ?? `counts ${solution.timeUnit}⁻¹`}`;
+    const safeUnitLabel =
+      spec.countRateUnitLabel &&
+      !guard.textContainsHiddenNumber(spec.countRateUnitLabel)
+        ? spec.countRateUnitLabel
+        : `counts ${solution.timeUnit}⁻¹`;
+    yLabelBase = `Count rate / ${safeUnitLabel}`;
   } else if (mode === "activity" && solution.initialActivityBq !== null) {
     y0Total = solution.initialActivityBq;
     yLabelBase = "Activity A / Bq";
@@ -135,9 +142,7 @@ export function renderRadioactiveDecayBody(
 
   // Scale large numbers cleanly (e.g. 10^12 nuclei -> / 10^12)
   const yExponent =
-    y0Total >= 10000 || y0Total < 0.01
-      ? Math.floor(Math.log10(y0Total))
-      : 0;
+    y0Total >= 10000 || y0Total < 0.01 ? Math.floor(Math.log10(y0Total)) : 0;
   const yScale = 10 ** yExponent;
   const yMaxRaw = (y0Total / yScale) * 1.12;
   const yStep = niceStep(yMaxRaw, 5);
@@ -159,24 +164,61 @@ export function renderRadioactiveDecayBody(
   const defs = `<marker id="${arrowId}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#0f172a"/></marker>`;
   const parts: string[] = [];
 
-  const schematic =
-    Boolean(spec.schematicAxes) || guard.isExplicitlyHidden(["axisTicks"]);
-  const showXTicks =
-    !schematic && guard.canShowInput(["xAxisTicks", "axisTicks"]);
-  const showYTicks =
-    !schematic && guard.canShowInput(["yAxisTicks", "axisTicks"]);
-
   const xTicks = buildTicks(0, xMax, xStep);
   const yTicks = buildTicks(0, yMax, yStep);
 
-  const hiddenX: number[] = [];
-  if (guard.isExplicitlyHidden(["halfLife", "decayConstant"])) {
-    hiddenX.push(solution.halfLife);
-  }
-  const hiddenY: number[] = [];
-  if (guard.isExplicitlyHidden(["backgroundCountRate"])) {
-    hiddenY.push(yBg / yScale);
-  }
+  // Full-axis tick suppression: never omit only a single colliding tick on a uniform axis
+  const anyTimeOrRateHidden = guard.isExplicitlyHidden([
+    "halfLife",
+    "halfLifeS",
+    "decayConstant",
+    "decayConstantPerS",
+    "elapsedTime",
+    "elapsedTimeS",
+    "numberOfHalfLives",
+    "remainingFraction",
+    "decayedFraction",
+  ]);
+  const anySampleOrCountHidden = guard.isExplicitlyHidden([
+    "initialNuclei",
+    "remainingNuclei",
+    "decayedNuclei",
+    "initialActivityBq",
+    "remainingActivityBq",
+    "backgroundCountRate",
+    "initialNetCountRate",
+    "initialTotalCountRate",
+    "remainingNetCountRate",
+    "remainingTotalCountRate",
+    "remainingFraction",
+    "decayedFraction",
+    "numberOfHalfLives",
+  ]);
+
+  const schematic =
+    Boolean(spec.schematicAxes) || guard.isExplicitlyHidden(["axisTicks"]);
+
+  const xTickCollides = xTicks.some((tx) => guard.matchesHiddenValue(tx));
+  const yTickCollides =
+    (yExponent !== 0 &&
+      (guard.matchesHiddenValue(10) ||
+        guard.matchesHiddenValue(yScale) ||
+        guard.matchesHiddenValue(yExponent))) ||
+    yTicks.some(
+      (ty) =>
+        guard.matchesHiddenValue(ty) || guard.matchesHiddenValue(ty * yScale),
+    );
+
+  const showXTicks =
+    !schematic &&
+    !anyTimeOrRateHidden &&
+    !xTickCollides &&
+    guard.canShowInput(["xAxisTicks", "axisTicks"]);
+  const showYTicks =
+    !schematic &&
+    !anySampleOrCountHidden &&
+    !yTickCollides &&
+    guard.canShowInput(["yAxisTicks", "axisTicks"]);
 
   if (!schematic) {
     xTicks.forEach((tx) => {
@@ -202,13 +244,8 @@ export function renderRadioactiveDecayBody(
       const px = xPx(tx);
       parts.push(
         `<line x1="${coord(px)}" y1="${coord(padTop + plotH - 4)}" x2="${coord(px)}" y2="${coord(padTop + plotH + 4)}" stroke="#0f172a" stroke-width="1.3"/>`,
+        `<text x="${coord(px)}" y="${coord(padTop + plotH + 18)}" text-anchor="middle" font-size="12" fill="#334155">${escapeXml(formatCleanTick(tx))}</text>`,
       );
-      const collides = hiddenX.some((h) => Math.abs(tx - h) <= xStep * 0.02);
-      if (!collides) {
-        parts.push(
-          `<text x="${coord(px)}" y="${coord(padTop + plotH + 18)}" text-anchor="middle" font-size="12" fill="#334155">${escapeXml(formatCleanTick(tx))}</text>`,
-        );
-      }
     });
   }
 
@@ -217,21 +254,14 @@ export function renderRadioactiveDecayBody(
       const py = yPx(ty);
       parts.push(
         `<line x1="${coord(padLeft - 4)}" y1="${coord(py)}" x2="${coord(padLeft + 4)}" y2="${coord(py)}" stroke="#0f172a" stroke-width="1.3"/>`,
+        `<text x="${coord(padLeft - 10)}" y="${coord(py + 4)}" text-anchor="end" font-size="12" fill="#334155">${escapeXml(formatCleanTick(ty))}</text>`,
       );
-      const collides = hiddenY.some(
-        (h) => h > 0 && Math.abs(ty - h) <= yStep * 0.02,
-      );
-      if (!collides) {
-        parts.push(
-          `<text x="${coord(padLeft - 10)}" y="${coord(py + 4)}" text-anchor="end" font-size="12" fill="#334155">${escapeXml(formatCleanTick(ty))}</text>`,
-        );
-      }
     });
   }
 
   const yTitleWithScale =
-    yExponent !== 0
-      ? `${yLabelBase} (× 10${toSuperscriptSafe(yExponent)})`
+    showYTicks && yExponent !== 0
+      ? `${yLabelBase} (× 10${toSuperscript(yExponent)})`
       : yLabelBase;
   parts.push(
     `<text x="${coord(padLeft + plotW / 2)}" y="${coord(height - 14)}" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Time t / ${escapeXml(solution.timeUnit)}</text>`,
@@ -244,7 +274,10 @@ export function renderRadioactiveDecayBody(
     parts.push(
       `<line x1="${coord(padLeft)}" y1="${coord(bgY)}" x2="${coord(padLeft + plotW)}" y2="${coord(bgY)}" stroke="#b91c1c" stroke-width="1.5" stroke-dasharray="6 4"/>`,
     );
-    const bgLabel = guard.canShowInput(["backgroundCountRate"])
+    const canShowBgNumeric =
+      guard.canShowInput(["backgroundCountRate"]) &&
+      !guard.matchesHiddenValue(yBg);
+    const bgLabel = canShowBgNumeric
       ? `background = ${formatCleanTick(Number(yBg.toPrecision(3)))}`
       : guard.placeholder("backgroundCountRate", "background");
     if (bgLabel) {
@@ -254,10 +287,10 @@ export function renderRadioactiveDecayBody(
     }
   }
 
-  // Optional half-life dashed guide lines (never shown if halfLife is hidden)
+  // Optional half-life dashed guide lines (never shown if any time/rate key is hidden)
   if (
     spec.showHalfLifeGuides &&
-    !guard.isExplicitlyHidden(["halfLife", "decayConstant"]) &&
+    !anyTimeOrRateHidden &&
     solution.halfLife <= xMax
   ) {
     const net0 = y0Total - yBg;
@@ -302,23 +335,6 @@ export function renderRadioactiveDecayBody(
     defs,
     body: parts.join(""),
   };
-}
-
-function toSuperscriptSafe(exp: number): string {
-  const map: Record<string, string> = {
-    "-": "⁻",
-    "0": "⁰",
-    "1": "¹",
-    "2": "²",
-    "3": "³",
-    "4": "⁴",
-    "5": "⁵",
-    "6": "⁶",
-    "7": "⁷",
-    "8": "⁸",
-    "9": "⁹",
-  };
-  return [...String(exp)].map((c) => map[c] ?? c).join("");
 }
 
 // ---------------------------------------------------------------------------
@@ -387,8 +403,6 @@ export function renderNuclearDecayChainBody(
 
   const zTicks = buildTicks(zMin, zMax, 1);
   const yTicks = buildTicks(yMin, yMax, 1);
-  const showXTicks = guard.canShowInput(["xAxisTicks", "axisTicks"]);
-  const showYTicks = guard.canShowInput(["yAxisTicks", "axisTicks"]);
 
   // Integer lattice grid
   zTicks.forEach((tz) => {
@@ -428,50 +442,73 @@ export function renderNuclearDecayChainBody(
     `<line x1="${coord(padLeft)}" y1="${coord(padTop + plotH)}" x2="${coord(padLeft + plotW + 8)}" y2="${coord(padTop + plotH)}" stroke="#0f172a" stroke-width="1.8" marker-end="url(#${axisArrowId})"/>`,
   );
 
-  //Suppress exact daughter coordinate tick labels only if daughter Z/A/N are explicitly hidden
-  const hiddenDaughterCoords = guard.isExplicitlyHidden([
+  // Full numeric axis tick suppression whenever any nuclide, coordinate, or net-delta key is hidden
+  const nuclideCoordKeys: string[] = [
+    "finalNuclide",
+    "daughterNuclides",
+    "allNuclides",
+    "parentNuclide",
+    "parentA",
+    "parentZ",
+    "parentN",
+    "parentNuclide.massNumberA",
+    "parentNuclide.atomicNumberZ",
     "daughterZ",
     "daughterA",
     "daughterN",
+    "daughterCoordinates",
     "finalZ",
     "finalA",
     "finalN",
-    "daughterCoordinates",
-  ]);
-  const secretZs = new Set(
-    hiddenDaughterCoords
-      ? solution.nuclides.slice(1).map((n) => n.atomicNumberZ)
-      : [],
-  );
-  const secretYs = new Set(
-    hiddenDaughterCoords
-      ? solution.nuclides
-          .slice(1)
-          .map((n) => (axes === "N-vs-Z" ? n.neutronNumberN : n.massNumberA))
-      : [],
-  );
+    "netDeltaA",
+    "netDeltaZ",
+    "netDeltaN",
+  ];
+  solution.nuclides.forEach((_, idx) => {
+    nuclideCoordKeys.push(
+      `nuclide:${idx}`,
+      `nuclide:${idx}:A`,
+      `nuclide:${idx}:Z`,
+      `nuclide:${idx}:N`,
+      `nuclide:${idx}:massNumberA`,
+      `nuclide:${idx}:atomicNumberZ`,
+      `nuclide:${idx}:neutronNumberN`,
+    );
+  });
+  solution.steps.forEach((st) => {
+    nuclideCoordKeys.push(
+      `step:${st.id}:deltaA`,
+      `step:${st.id}:deltaZ`,
+      `step:${st.id}:deltaN`,
+    );
+  });
+
+  const suppressAllChainTicks = guard.isExplicitlyHidden(nuclideCoordKeys);
+  const labeledZTicks = zTicks.filter((tz) => tz % zStep === 0);
+  const labeledYTicks = yTicks.filter((ty) => ty % yStep === 0);
+
+  const showXTicks =
+    !suppressAllChainTicks &&
+    guard.canShowInput(["xAxisTicks", "axisTicks"]) &&
+    !labeledZTicks.some((tz) => guard.matchesHiddenValue(tz));
+  const showYTicks =
+    !suppressAllChainTicks &&
+    guard.canShowInput(["yAxisTicks", "axisTicks"]) &&
+    !labeledYTicks.some((ty) => guard.matchesHiddenValue(ty));
 
   if (showXTicks) {
-    zTicks
-      .filter((tz) => tz % zStep === 0)
-      .forEach((tz) => {
-        if (!secretZs.has(tz)) {
-          parts.push(
-            `<text x="${coord(xPx(tz))}" y="${coord(padTop + plotH + 18)}" text-anchor="middle" font-size="12" fill="#334155">${tz}</text>`,
-          );
-        }
-      });
+    labeledZTicks.forEach((tz) => {
+      parts.push(
+        `<text x="${coord(xPx(tz))}" y="${coord(padTop + plotH + 18)}" text-anchor="middle" font-size="12" fill="#334155">${tz}</text>`,
+      );
+    });
   }
   if (showYTicks) {
-    yTicks
-      .filter((ty) => ty % yStep === 0)
-      .forEach((ty) => {
-        if (!secretYs.has(ty)) {
-          parts.push(
-            `<text x="${coord(padLeft - 10)}" y="${coord(yPx(ty) + 4)}" text-anchor="end" font-size="12" fill="#334155">${ty}</text>`,
-          );
-        }
-      });
+    labeledYTicks.forEach((ty) => {
+      parts.push(
+        `<text x="${coord(padLeft - 10)}" y="${coord(yPx(ty) + 4)}" text-anchor="end" font-size="12" fill="#334155">${ty}</text>`,
+      );
+    });
   }
 
   parts.push(
@@ -479,13 +516,21 @@ export function renderNuclearDecayChainBody(
     `<text x="22" y="${coord(padTop + plotH / 2)}" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a" transform="rotate(-90 22 ${coord(padTop + plotH / 2)})">${axes === "N-vs-Z" ? "Neutron number N" : "Nucleon number A"}</text>`,
   );
 
+  const anyDecayCountHidden = guard.isExplicitlyHidden([
+    "totalAlphaCount",
+    "totalBetaMinusCount",
+    "totalBetaPlusCount",
+    "totalGammaCount",
+    "totalElectronCaptureCount",
+    "totalNeutronEmissionCount",
+    "decayCounts",
+  ]);
+
   // Decay transition arrows
   solution.steps.forEach((step) => {
     const x1 = xPx(step.parent.atomicNumberZ);
     const y1 = yPx(
-      axes === "N-vs-Z"
-        ? step.parent.neutronNumberN
-        : step.parent.massNumberA,
+      axes === "N-vs-Z" ? step.parent.neutronNumberN : step.parent.massNumberA,
     );
     const x2 = xPx(step.daughter.atomicNumberZ);
     const y2 = yPx(
@@ -494,11 +539,18 @@ export function renderNuclearDecayChainBody(
         : step.daughter.massNumberA,
     );
 
-    const modeVisible = guard.canShowInput([
-      `step:${step.id}`,
-      `step:${step.id}:mode`,
-      "decayModes",
-    ]);
+    const modeVisible =
+      !anyDecayCountHidden &&
+      !guard.isExplicitlyHidden([
+        `step:${step.id}:deltaA`,
+        `step:${step.id}:deltaZ`,
+        `step:${step.id}:deltaN`,
+      ]) &&
+      guard.canShowInput([
+        `step:${step.id}`,
+        `step:${step.id}:mode`,
+        "decayModes",
+      ]);
     const labelText = modeVisible
       ? modeBadge(step.mode)
       : guard.placeholder(`step:${step.id}`, "?");
@@ -537,25 +589,73 @@ export function renderNuclearDecayChainBody(
     }
   });
 
-  // Nuclide vertex markers & non-leaking labels
+  // Nuclide vertex markers & non-leaking labels (including isobaric/isotopic parent-daughter coincidence checks)
+  const lastIdx = solution.nuclides.length - 1;
   solution.nuclides.forEach((nuc, idx) => {
     const cx = xPx(nuc.atomicNumberZ);
-    const cy = yPx(
-      axes === "N-vs-Z" ? nuc.neutronNumberN : nuc.massNumberA,
-    );
+    const cy = yPx(axes === "N-vs-Z" ? nuc.neutronNumberN : nuc.massNumberA);
     parts.push(
       `<circle cx="${coord(cx)}" cy="${coord(cy)}" r="5" fill="${idx === 0 ? "#0f172a" : "#1d4ed8"}" stroke="#ffffff" stroke-width="1.5"/>`,
     );
 
-    const canShowNuclide =
+    const isFinal = idx === lastIdx;
+    const baseAllowed =
       idx === 0
-        ? guard.canShowInput(["parentNuclide", "nuclide:0"])
-        : guard.canShowDerived([
+        ? guard.canShowInput(["parentNuclide", "nuclide:0", "allNuclides"])
+        : guard.canShowDerived(
+            [
+              `nuclide:${idx}`,
+              isFinal ? "finalNuclide" : "",
+              "daughterNuclides",
+              "allNuclides",
+            ].filter(Boolean),
+          );
+
+    const explicitVertexHideKeys =
+      idx === 0
+        ? [
+            "parentNuclide",
+            "nuclide:0",
+            "allNuclides",
+            "parentA",
+            "parentZ",
+            "parentN",
+            "parentNuclide.massNumberA",
+            "parentNuclide.atomicNumberZ",
+            "nuclide:0:A",
+            "nuclide:0:Z",
+            "nuclide:0:N",
+            "nuclide:0:massNumberA",
+            "nuclide:0:atomicNumberZ",
+            "nuclide:0:neutronNumberN",
+          ]
+        : [
             `nuclide:${idx}`,
-            idx === solution.nuclides.length - 1 ? "finalNuclide" : "",
             "daughterNuclides",
             "allNuclides",
-          ].filter(Boolean));
+            "daughterA",
+            "daughterZ",
+            "daughterN",
+            "daughterCoordinates",
+            `nuclide:${idx}:A`,
+            `nuclide:${idx}:Z`,
+            `nuclide:${idx}:N`,
+            `nuclide:${idx}:massNumberA`,
+            `nuclide:${idx}:atomicNumberZ`,
+            `nuclide:${idx}:neutronNumberN`,
+            ...(isFinal ? ["finalNuclide", "finalA", "finalZ", "finalN"] : []),
+          ];
+
+    // Also check if any hidden daughter/final A, Z, or N equals this vertex's A, Z, or N
+    const collidesWithHiddenCoord =
+      guard.matchesHiddenValue(nuc.massNumberA) ||
+      guard.matchesHiddenValue(nuc.atomicNumberZ) ||
+      guard.matchesHiddenValue(nuc.neutronNumberN);
+
+    const canShowNuclide =
+      baseAllowed &&
+      !guard.isExplicitlyHidden(explicitVertexHideKeys) &&
+      !collidesWithHiddenCoord;
 
     const textLabel = canShowNuclide
       ? nuc.notation
@@ -577,8 +677,8 @@ export function renderNuclearDecayChainBody(
 
   return {
     title: "Nuclear decay series stability chart",
-    ariaLabel: `Nuclear decay chart with ${solution.steps.length} transitions`,
-    desc: `Nuclear chart on ${axes} coordinates`,
+    ariaLabel: "Nuclear decay chart showing nuclide transitions",
+    desc: `Nuclear stability chart on ${axes} coordinates`,
     defs,
     body: parts.join(""),
   };
@@ -601,6 +701,22 @@ export function renderNuclearBindingBody(
   const defs = `<marker id="${arrowId}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#0f172a"/></marker>`;
   const parts: string[] = [];
 
+  const canShowSingleNuclideIdentity =
+    solution.calculationMode === "single-nuclide" &&
+    guard.canShowInput(["symbol", "nuclide"]) &&
+    guard.canShowInput(["massNumberA", "nuclide"]) &&
+    guard.canShowInput(["atomicNumberZ", "nuclide"]) &&
+    !guard.isExplicitlyHidden([
+      "symbol",
+      "nuclide",
+      "massNumberA",
+      "atomicNumberZ",
+      "neutronNumberN",
+    ]) &&
+    !guard.matchesHiddenValue(solution.massNumberA) &&
+    !guard.matchesHiddenValue(solution.atomicNumberZ) &&
+    !guard.matchesHiddenValue(solution.neutronNumberN);
+
   if (style === "mass-energy-balance") {
     const leftX = 110;
     const rightX = width - 250;
@@ -608,15 +724,29 @@ export function renderNuclearBindingBody(
     const highY = 96;
     const lowY = height - 96;
 
+    const canShowConstituents =
+      solution.calculationMode === "single-nuclide" &&
+      guard.canShowInput(["atomicNumberZ", "constituents"]) &&
+      guard.canShowInput(["neutronNumberN", "constituents"]) &&
+      !guard.isExplicitlyHidden([
+        "atomicNumberZ",
+        "neutronNumberN",
+        "massNumberA",
+        "constituents",
+      ]) &&
+      !guard.matchesHiddenValue(solution.atomicNumberZ) &&
+      !guard.matchesHiddenValue(solution.neutronNumberN) &&
+      !guard.matchesHiddenValue(solution.massNumberA);
+
     const highTitle =
       solution.calculationMode === "single-nuclide"
-        ? guard.canShowInput(["atomicNumberZ", "neutronNumberN", "constituents"])
+        ? canShowConstituents
           ? `${solution.atomicNumberZ}p + ${solution.neutronNumberN}n (free)`
           : "Separated nucleons"
         : "Reactants";
     const lowTitle =
       solution.calculationMode === "single-nuclide"
-        ? guard.canShowInput(["symbol", "nuclide"])
+        ? canShowSingleNuclideIdentity
           ? `${formatNuclidePlain(solution.massNumberA, solution.atomicNumberZ, solution.symbol)} nucleus`
           : "Bound nucleus"
         : "Products";
@@ -638,10 +768,30 @@ export function renderNuclearBindingBody(
 
     const deltaLabel =
       solution.calculationMode === "single-nuclide"
-        ? guard.canShowDerived(["bindingEnergyMeV", "massDefectU"])
+        ? guard.canShowDerived(["bindingEnergyMeV", "massDefectU"]) &&
+          !guard.isExplicitlyHidden([
+            "bindingEnergyMeV",
+            "bindingEnergyJ",
+            "massDefectU",
+            "massDefectKg",
+            "bindingEnergyPerNucleonMeV",
+            "bindingEnergyPerNucleonJ",
+          ]) &&
+          !guard.matchesHiddenValue(solution.bindingEnergyMeV) &&
+          !guard.matchesHiddenValue(solution.bindingEnergyJ)
           ? `ΔE = ${formatScientificSigFigs(solution.bindingEnergyMeV, 3, "MeV")}`
           : guard.placeholder("bindingEnergyMeV", "B = Δm c²")
-        : guard.canShowDerived(["qValueMeV", "massDifferenceU"])
+        : guard.canShowDerived(["qValueMeV", "massDifferenceU"]) &&
+            !guard.isExplicitlyHidden([
+              "qValueMeV",
+              "qValueJ",
+              "massDifferenceU",
+              "massDifferenceKg",
+              "reactantTotalBindingMeV",
+              "productTotalBindingMeV",
+            ]) &&
+            !guard.matchesHiddenValue(solution.qValueMeV) &&
+            !guard.matchesHiddenValue(solution.qValueJ)
           ? `Q = ${formatScientificSigFigs(solution.qValueMeV, 3, "MeV")}`
           : guard.placeholder("qValueMeV", "Q = Δm c²");
 
@@ -673,15 +823,49 @@ export function renderNuclearBindingBody(
   const xPx = (a: number) => padLeft + (a / maxA) * plotW;
   const yPx = (be: number) => padTop + ((maxBe - be) / maxBe) * plotH;
 
-  const showXTicks = guard.canShowInput(["xAxisTicks", "axisTicks"]);
-  const showYTicks = guard.canShowInput(["yAxisTicks", "axisTicks"]);
+  const aTicks = [0, 50, 100, 150, 200, 250];
+  const beTicks = [0, 2, 4, 6, 8, 10];
 
-  for (let a = 0; a <= maxA; a += 50) {
+  const anyBindingMassHidden = guard.isExplicitlyHidden([
+    "massNumberA",
+    "atomicNumberZ",
+    "neutronNumberN",
+    "nuclide",
+    "totalReactantA",
+    "totalProductA",
+    "totalReactantZ",
+    "totalProductZ",
+  ]);
+  const anyBindingEnergyHidden = guard.isExplicitlyHidden([
+    "bindingEnergyMeV",
+    "bindingEnergyJ",
+    "bindingEnergyPerNucleonMeV",
+    "bindingEnergyPerNucleonJ",
+    "massDefectU",
+    "massDefectKg",
+    "qValueMeV",
+    "qValueJ",
+    "massDifferenceU",
+    "massDifferenceKg",
+    "reactantTotalBindingMeV",
+    "productTotalBindingMeV",
+  ]);
+
+  const showXTicks =
+    !anyBindingMassHidden &&
+    guard.canShowInput(["xAxisTicks", "axisTicks"]) &&
+    !aTicks.some((a) => guard.matchesHiddenValue(a));
+  const showYTicks =
+    !anyBindingEnergyHidden &&
+    guard.canShowInput(["yAxisTicks", "axisTicks"]) &&
+    !beTicks.some((be) => guard.matchesHiddenValue(be));
+
+  for (const a of aTicks) {
     parts.push(
       `<line x1="${coord(xPx(a))}" y1="${coord(padTop)}" x2="${coord(xPx(a))}" y2="${coord(padTop + plotH)}" stroke="#e2e8f0" stroke-width="1"/>`,
     );
   }
-  for (let be = 0; be <= maxBe; be += 2) {
+  for (const be of beTicks) {
     parts.push(
       `<line x1="${coord(padLeft)}" y1="${coord(yPx(be))}" x2="${coord(padLeft + plotW)}" y2="${coord(yPx(be))}" stroke="#e2e8f0" stroke-width="1"/>`,
     );
@@ -693,14 +877,14 @@ export function renderNuclearBindingBody(
   );
 
   if (showXTicks) {
-    for (let a = 0; a <= maxA; a += 50) {
+    for (const a of aTicks) {
       parts.push(
         `<text x="${coord(xPx(a))}" y="${coord(padTop + plotH + 18)}" text-anchor="middle" font-size="12" fill="#334155">${a}</text>`,
       );
     }
   }
   if (showYTicks) {
-    for (let be = 0; be <= maxBe; be += 2) {
+    for (const be of beTicks) {
       parts.push(
         `<text x="${coord(padLeft - 10)}" y="${coord(yPx(be) + 4)}" text-anchor="end" font-size="12" fill="#334155">${be}</text>`,
       );
@@ -713,7 +897,8 @@ export function renderNuclearBindingBody(
   );
 
   const curvePts = REFERENCE_BINDING_CURVE_POINTS.map(
-    (pt) => `${coord(xPx(pt.massNumberA))},${coord(yPx(pt.bindingEnergyPerNucleonMeV))}`,
+    (pt) =>
+      `${coord(xPx(pt.massNumberA))},${coord(yPx(pt.bindingEnergyPerNucleonMeV))}`,
   ).join(" ");
   parts.push(
     `<polyline points="${curvePts}" fill="none" stroke="#1e293b" stroke-width="2.3"/>`,
@@ -721,20 +906,32 @@ export function renderNuclearBindingBody(
     `<text x="${coord(xPx(168))}" y="${coord(padTop + 20)}" font-size="11" fill="#b45309">← fission</text>`,
   );
 
-  // Highlight queried nuclide without revealing derived B/A value unless allowed
+  // Highlight queried nuclide without revealing hidden A, Z, or derived B/A value
   if (solution.calculationMode === "single-nuclide") {
     const hx = xPx(Math.min(maxA, solution.massNumberA));
     const hy = yPx(Math.min(maxBe, solution.bindingEnergyPerNucleonMeV));
     parts.push(
       `<circle cx="${coord(hx)}" cy="${coord(hy)}" r="5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>`,
     );
-    if (guard.canShowInput(["symbol", "nuclide"])) {
-      const valSuffix = guard.canShowDerived(["bindingEnergyPerNucleonMeV"])
+    const canShowBePerA =
+      guard.canShowDerived(["bindingEnergyPerNucleonMeV"]) &&
+      !anyBindingEnergyHidden &&
+      !guard.matchesHiddenValue(solution.bindingEnergyPerNucleonMeV);
+
+    if (canShowSingleNuclideIdentity) {
+      const valSuffix = canShowBePerA
         ? ` (${formatScientificSigFigs(solution.bindingEnergyPerNucleonMeV, 3, "MeV")})`
         : "";
       parts.push(
         `<text x="${coord(hx + 8)}" y="${coord(hy - 8)}" font-size="12" font-weight="700" fill="#dc2626">${escapeXml(`${formatNuclidePlain(solution.massNumberA, solution.atomicNumberZ, solution.symbol)}${valSuffix}`)}</text>`,
       );
+    } else {
+      const nuclidePlaceholder = guard.placeholder("nuclide", "X");
+      if (nuclidePlaceholder) {
+        parts.push(
+          `<text x="${coord(hx + 8)}" y="${coord(hy - 8)}" font-size="12" font-weight="700" fill="#dc2626">${escapeXml(nuclidePlaceholder)}</text>`,
+        );
+      }
     }
   }
 
@@ -772,7 +969,10 @@ export function renderRutherfordScatteringBody(
   const rNucPx = 30;
   const ratioDToR = Math.max(
     1.25,
-    Math.min(4.2, solution.closestApproachFm / solution.estimatedNuclearRadiusFm),
+    Math.min(
+      4.2,
+      solution.closestApproachFm / solution.estimatedNuclearRadiusFm,
+    ),
   );
   const dPx = rNucPx * ratioDToR;
   const turnX = nucX - dPx;
@@ -784,7 +984,14 @@ export function renderRutherfordScatteringBody(
     `<circle cx="${coord(nucX)}" cy="${coord(nucY)}" r="10" fill="#dc2626"/>`,
   );
 
-  const targetText = guard.canShowInput(["targetChargeZ", "targetSymbol"])
+  const canShowTarget =
+    guard.canShowInput(["targetChargeZ"]) &&
+    guard.canShowInput(["targetSymbol"]) &&
+    !guard.isExplicitlyHidden(["targetChargeZ", "targetSymbol", "targetChargeC"]) &&
+    !guard.matchesHiddenValue(solution.targetChargeZ) &&
+    !guard.textContainsHiddenNumber(solution.targetSymbol);
+
+  const targetText = canShowTarget
     ? `${solution.targetSymbol} (+${solution.targetChargeZ}e)`
     : guard.placeholder("targetSymbol", "+Ze");
   if (targetText) {
@@ -793,11 +1000,22 @@ export function renderRutherfordScatteringBody(
     );
   }
 
-  const rLabel = guard.canShowDerived([
-    "estimatedNuclearRadiusFm",
-    "estimatedNuclearRadiusM",
-    "nuclearRadius",
-  ])
+  const canShowR =
+    guard.canShowDerived([
+      "estimatedNuclearRadiusFm",
+      "estimatedNuclearRadiusM",
+      "nuclearRadius",
+    ]) &&
+    !guard.isExplicitlyHidden([
+      "estimatedNuclearRadiusFm",
+      "estimatedNuclearRadiusM",
+      "nuclearRadius",
+      "targetMassNumberA",
+    ]) &&
+    !guard.matchesHiddenValue(solution.estimatedNuclearRadiusFm) &&
+    !guard.matchesHiddenValue(solution.estimatedNuclearRadiusM);
+
+  const rLabel = canShowR
     ? `R = ${formatScientificSigFigs(solution.estimatedNuclearRadiusFm, 3, "fm")}`
     : guard.placeholder("nuclearRadius", "R");
   if (rLabel) {
@@ -823,11 +1041,21 @@ export function renderRutherfordScatteringBody(
     `<line x1="${coord(turnX + 2)}" y1="${coord(dimY)}" x2="${coord(nucX - 2)}" y2="${coord(dimY)}" stroke="#b91c1c" stroke-width="1.6" marker-start="url(#${dimId})" marker-end="url(#${dimId})"/>`,
   );
 
-  const dLabel = guard.canShowDerived([
-    "closestApproachFm",
-    "closestApproachM",
-    "closestApproach",
-  ])
+  const canShowD =
+    guard.canShowDerived([
+      "closestApproachFm",
+      "closestApproachM",
+      "closestApproach",
+    ]) &&
+    !guard.isExplicitlyHidden([
+      "closestApproachFm",
+      "closestApproachM",
+      "closestApproach",
+    ]) &&
+    !guard.matchesHiddenValue(solution.closestApproachFm) &&
+    !guard.matchesHiddenValue(solution.closestApproachM);
+
+  const dLabel = canShowD
     ? `d = ${formatScientificSigFigs(solution.closestApproachFm, 3, "fm")}`
     : guard.placeholder("closestApproachFm", "d");
   if (dLabel) {
@@ -856,10 +1084,35 @@ export function renderRutherfordScatteringBody(
 
   // Incoming projectile callout
   const projParts: string[] = [];
-  if (guard.canShowInput(["projectileLabel", "projectileChargeZ"])) {
+  if (
+    guard.canShowInput(["projectileLabel"]) &&
+    guard.canShowInput(["projectileChargeZ"]) &&
+    !guard.isExplicitlyHidden([
+      "projectileLabel",
+      "projectileChargeZ",
+      "projectileChargeC",
+    ]) &&
+    !guard.matchesHiddenValue(solution.projectileChargeZ) &&
+    !guard.textContainsHiddenNumber(solution.projectileLabel)
+  ) {
     projParts.push(solution.projectileLabel);
   }
-  if (guard.canShowInput(["kineticEnergyMeV", "kineticEnergyJ"])) {
+  if (
+    guard.canShowInput([
+      "kineticEnergyMeV",
+      "kineticEnergyJ",
+      "initialKineticEnergyMeV",
+      "initialKineticEnergyJ",
+    ]) &&
+    !guard.isExplicitlyHidden([
+      "kineticEnergyMeV",
+      "kineticEnergyJ",
+      "initialKineticEnergyMeV",
+      "initialKineticEnergyJ",
+    ]) &&
+    !guard.matchesHiddenValue(solution.initialKineticEnergyMeV) &&
+    !guard.matchesHiddenValue(solution.initialKineticEnergyJ)
+  ) {
     projParts.push(
       `Eₖ = ${formatScientificSigFigs(solution.initialKineticEnergyMeV, 3, "MeV")}`,
     );
@@ -936,6 +1189,54 @@ export function renderSpecialRelativityBody(
   const xTicks = buildTicks(xMin, xMax, tickStep);
   const ctTicks = buildTicks(ctMin, ctMax, tickStep);
 
+  const eventCoordKeys: string[] = [
+    "events",
+    "eventCoordinates",
+    "domainLightSeconds",
+    "xLightSeconds",
+    "ctLightSeconds",
+    "xPrimeLightSeconds",
+    "ctPrimeLightSeconds",
+    "invariantIntervalSquaredLs2",
+    "x0LightSeconds",
+  ];
+  solution.events.forEach((ev, idx) => {
+    eventCoordKeys.push(
+      `event:${ev.id}`,
+      `event:${ev.id}:x`,
+      `event:${ev.id}:ct`,
+      `event:${ev.id}:xLightSeconds`,
+      `event:${ev.id}:ctLightSeconds`,
+      `event:${ev.id}:xPrimeLightSeconds`,
+      `event:${ev.id}:ctPrimeLightSeconds`,
+      `event:${ev.id}:invariantIntervalSquaredLs2`,
+      `events[${idx}].xLightSeconds`,
+      `events[${idx}].ctLightSeconds`,
+      `events:${idx}:xLightSeconds`,
+      `events:${idx}:ctLightSeconds`,
+      `events:${idx}:xPrimeLightSeconds`,
+      `events:${idx}:ctPrimeLightSeconds`,
+      `events:${idx}:invariantIntervalSquaredLs2`,
+    );
+  });
+  (spec.worldlines ?? []).forEach((wl) => {
+    eventCoordKeys.push(`worldline:${wl.id}:x0LightSeconds`);
+  });
+
+  const anyMinkowskiTickCollides =
+    guard.isExplicitlyHidden(eventCoordKeys) ||
+    xTicks.some((tx) => tx !== 0 && guard.matchesHiddenValue(tx)) ||
+    ctTicks.some((tct) => tct !== 0 && guard.matchesHiddenValue(tct));
+
+  const showXTicks =
+    !schematic &&
+    !anyMinkowskiTickCollides &&
+    guard.canShowInput(["xAxisTicks", "axisTicks"]);
+  const showYTicks =
+    !schematic &&
+    !anyMinkowskiTickCollides &&
+    guard.canShowInput(["yAxisTicks", "axisTicks"]);
+
   // Subtle square grid
   parts.push(
     `<rect x="${coord(boxLeft)}" y="${coord(boxTop)}" width="${coord(boxW)}" height="${coord(boxH)}" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>`,
@@ -982,7 +1283,7 @@ export function renderSpecialRelativityBody(
     `<text x="${coord(ox)}" y="${coord(boxTop - 14)}" text-anchor="middle" font-size="14" font-weight="700" fill="#0f172a">ct</text>`,
   );
 
-  if (!schematic && guard.canShowInput(["xAxisTicks", "axisTicks"])) {
+  if (showXTicks) {
     xTicks.forEach((tx) => {
       if (tx === 0) return;
       parts.push(
@@ -990,7 +1291,7 @@ export function renderSpecialRelativityBody(
       );
     });
   }
-  if (!schematic && guard.canShowInput(["yAxisTicks", "axisTicks"])) {
+  if (showYTicks) {
     ctTicks.forEach((tct) => {
       if (tct === 0) return;
       parts.push(
@@ -1031,7 +1332,7 @@ export function renderSpecialRelativityBody(
     if (xPrimeSeg) {
       parts.push(
         `<line x1="${coord(xPx(xPrimeSeg[0]))}" y1="${coord(yPx(xPrimeSeg[1]))}" x2="${coord(xPx(xPrimeSeg[2]))}" y2="${coord(yPx(xPrimeSeg[3]))}" stroke="#1d4ed8" stroke-width="2.1" marker-end="url(#${spArrowId})"/>`,
-        `<text x="${coord(xPx(xPrimeSeg[2]) + 8)}" y="${coord(yPx(xPrimeSeg[3]) + 4)}" font-size="13" font-weight="700" fill="#1d4ed8">x′</text>`,
+        `<text x="${coord(xPx(xPrimeSeg[2]) + 8)}" y="${coord(yPx(xPrimeSeg[3]) + 4)}" text-anchor="start" font-size="13" font-weight="700" fill="#1d4ed8">x′</text>`,
       );
     }
   }
@@ -1055,7 +1356,10 @@ export function renderSpecialRelativityBody(
     parts.push(
       `<line x1="${coord(xPx(seg[0]))}" y1="${coord(yPx(seg[1]))}" x2="${coord(xPx(seg[2]))}" y2="${coord(yPx(seg[3]))}" stroke="${stroke}" stroke-width="2"${dash} marker-end="url(#${wlArrowId})"/>`,
     );
-    if (guard.canShowInput([`worldline:${wl.id}`, "worldlineLabels"])) {
+    if (
+      guard.canShowInput([`worldline:${wl.id}`, "worldlineLabels"]) &&
+      !guard.textContainsHiddenNumber(wl.label)
+    ) {
       parts.push(
         `<text x="${coord(xPx(seg[2]) + 6)}" y="${coord(yPx(seg[3]) + 14)}" font-size="12" font-weight="600" fill="${stroke}">${escapeXml(wl.label)}</text>`,
       );
@@ -1113,15 +1417,24 @@ export function renderSpecialRelativityBody(
     parts.push(
       `<circle cx="${coord(xPx(ex))}" cy="${coord(yPx(ect))}" r="4.5" fill="#dc2626" stroke="#ffffff" stroke-width="1.5"/>`,
     );
-    if (guard.canShowInput([`event:${ev.id}`, "eventLabels"])) {
+    if (
+      guard.canShowInput([`event:${ev.id}:label`, "eventLabels"]) &&
+      !guard.isExplicitlyHidden([`event:${ev.id}`]) &&
+      !guard.textContainsHiddenNumber(ev.label)
+    ) {
       parts.push(
         `<text x="${coord(xPx(ex) + 7)}" y="${coord(yPx(ect) - 7)}" font-size="12" font-weight="700" fill="#dc2626">${escapeXml(ev.label)}</text>`,
       );
     }
   });
 
-  // Relative frame speed legend (only shown if beta / frameSpeedMs is not hidden)
-  if (guard.canShowInput(["beta", "frameSpeedMs"])) {
+  // Relative frame speed legend (only shown if beta / frameSpeedMs is not hidden and non-colliding)
+  if (
+    guard.canShowInput(["beta", "frameSpeedMs"]) &&
+    !guard.isExplicitlyHidden(["beta", "frameSpeedMs"]) &&
+    !guard.matchesHiddenValue(solution.beta) &&
+    !guard.matchesHiddenValue(solution.frameSpeedMs)
+  ) {
     const sign = solution.beta < 0 ? "−" : "";
     const absB = Number(Math.abs(solution.beta).toPrecision(3));
     parts.push(

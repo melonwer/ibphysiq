@@ -46,17 +46,6 @@ function buildTicks(min: number, max: number, step: number): number[] {
   return ticks;
 }
 
-function isNearHiddenValue(
-  tickVal: number,
-  hiddenNumericTargets: readonly number[],
-  tolerance: number,
-): boolean {
-  if (Math.abs(tickVal) < 1e-12) return false;
-  return hiddenNumericTargets.some(
-    (target) => Number.isFinite(target) && Math.abs(tickVal - target) <= tolerance,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // 1. Atomic Energy Levels & Spectral Strip SVG
 // ---------------------------------------------------------------------------
@@ -109,6 +98,7 @@ export function renderEnergyLevelsBody(
   }
 
   const yById = new Map<string, number>();
+  const levelById = new Map(solution.levels.map((lvl) => [lvl.id, lvl]));
   solution.levels.forEach((lvl, idx) => {
     yById.set(lvl.id, adjustedYs[idx]);
   });
@@ -125,8 +115,11 @@ export function renderEnergyLevelsBody(
   const parts: string[] = [];
   const displayUnit = spec.displayEnergyUnit ?? "eV";
 
-  // Header label (never reveals numeric answers)
-  const showAtomTitle = guard.canShowInput(["atomName"]);
+  // Header label (checks both atomName and atomicNumberZ since hydrogenic atomName contains Z)
+  const showAtomTitle =
+    guard.canShowInput(["atomName"]) &&
+    !guard.isExplicitlyHidden(["atomicNumberZ", "Z"]) &&
+    !guard.textContainsHiddenNumber(solution.atomName);
   if (showAtomTitle) {
     parts.push(
       `<text x="${coord(width / 2)}" y="24" text-anchor="middle" font-size="15" font-weight="700" fill="#0f172a">${escapeXml(solution.atomName)} energy levels</text>`,
@@ -142,15 +135,57 @@ export function renderEnergyLevelsBody(
       `<line x1="${coord(barLeft)}" y1="${coord(y)}" x2="${coord(barRight)}" y2="${coord(y)}" stroke="${stroke}" stroke-width="2"${dash}/>`,
     );
 
-    if (guard.canShowInput([`level:${lvl.id}:label`, "levelLabels"])) {
-      parts.push(
-        `<text x="${coord(barLeft - 12)}" y="${coord(y + 4)}" text-anchor="end" font-size="13" fill="#1e293b">${escapeXml(lvl.label)}</text>`,
-      );
+    if (
+      guard.canShowInput([`level:${lvl.id}:label`, "levelLabels"]) &&
+      !guard.isExplicitlyHidden(["maxPrincipalN", "principalQuantumNumber"])
+    ) {
+      const safeLvlLabel = guard.textContainsHiddenNumber(lvl.label)
+        ? lvl.isContinuum
+          ? "continuum"
+          : lvl.principalQuantumNumber !== undefined
+            ? `L${toSubscript(lvl.principalQuantumNumber)}`
+            : ""
+        : lvl.label;
+      if (safeLvlLabel) {
+        parts.push(
+          `<text x="${coord(barLeft - 12)}" y="${coord(y + 4)}" text-anchor="end" font-size="13" fill="#1e293b">${escapeXml(safeLvlLabel)}</text>`,
+        );
+      }
+    }
+
+    const isGround = lvl.id === solution.groundStateId;
+    const isRefBound = lvl.id === solution.referenceBoundLevelId;
+    const isCont =
+      lvl.isContinuum ||
+      Math.abs(lvl.energyEv - solution.continuumEnergyEv) < 1e-9;
+
+    const zeroEndpointTransitionKeys: string[] = [];
+    for (const tr of solution.transitions) {
+      if (tr.fromLevelId !== lvl.id && tr.toLevelId !== lvl.id) continue;
+      const otherId =
+        tr.fromLevelId === lvl.id ? tr.toLevelId : tr.fromLevelId;
+      const otherLvl = levelById.get(otherId);
+      if (
+        Math.abs(lvl.energyEv) < 1e-12 ||
+        (otherLvl !== undefined && Math.abs(otherLvl.energyEv) < 1e-12)
+      ) {
+        zeroEndpointTransitionKeys.push(
+          `transition:${tr.id}:deltaEnergyEv`,
+          `transition:${tr.id}:signedDeltaEnergyEv`,
+          `transition:${tr.id}:photonEnergyJ`,
+          "deltaEnergyEv",
+          "signedDeltaEnergyEv",
+          "photonEnergyJ",
+          "transitionEnergies",
+        );
+      }
     }
 
     const energyAliases = [
       lvl.id,
       `level:${lvl.id}`,
+      `level:${lvl.id}:energyEv`,
+      `level:${lvl.id}:energyJ`,
       `E_${lvl.id}`,
       lvl.principalQuantumNumber !== undefined
         ? `E_${lvl.principalQuantumNumber}`
@@ -161,7 +196,43 @@ export function renderEnergyLevelsBody(
       "levelEnergies",
     ].filter(Boolean);
 
-    if (guard.canShowInput(energyAliases)) {
+    const semanticHiddenKeys = [
+      ...(isGround
+        ? [
+            "groundStateEnergyEv",
+            "groundStateEnergyJ",
+            "groundStateEnergy",
+            "groundState",
+          ]
+        : []),
+      ...(isGround || isRefBound
+        ? [
+            "ionizationEnergyEv",
+            "ionizationEnergyJ",
+            "ionizationFrequencyHz",
+            "ionizationWavelengthM",
+            "ionizationWavelengthNm",
+          ]
+        : []),
+      ...(isCont
+        ? [
+            "continuumEnergyEv",
+            "continuumEnergyJ",
+            "continuumEnergy",
+            "ionizationEnergyEv",
+            "ionizationEnergyJ",
+          ]
+        : []),
+      ...zeroEndpointTransitionKeys,
+    ];
+
+    const canShowBarEnergy =
+      guard.canShowInput(energyAliases) &&
+      !guard.isExplicitlyHidden(semanticHiddenKeys) &&
+      !guard.matchesHiddenValue(lvl.energyEv) &&
+      !guard.matchesHiddenValue(lvl.energyJ);
+
+    if (canShowBarEnergy) {
       const textVal =
         displayUnit === "J"
           ? formatScientificSigFigs(lvl.energyJ, 3, "J")
@@ -174,7 +245,9 @@ export function renderEnergyLevelsBody(
         lvl.id,
         lvl.principalQuantumNumber !== undefined
           ? `E${toSubscript(lvl.principalQuantumNumber)}`
-          : "E = ?",
+          : lvl.isContinuum
+            ? "E∞"
+            : "E = ?",
       );
       if (sym) {
         parts.push(
@@ -216,24 +289,44 @@ export function renderEnergyLevelsBody(
       `<line x1="${coord(xStart)}" y1="${coord(yMid)}" x2="${coord(xFinish)}" y2="${coord(yMid)}" stroke="none"/>`,
     );
 
+    const safeTrLabel = guard.textContainsHiddenNumber(tr.label)
+      ? tr.label.replace(/\d+/g, (digits) => toSubscript(digits))
+      : tr.label;
+
     // Transition label (derived wavelength/energy is hidden unless explicitly in givenQuantities)
-    let badgeText = tr.label;
+    let badgeText = safeTrLabel;
     if (
       guard.canShowDerived([
         `transition:${tr.id}:wavelengthNm`,
         "wavelengthNm",
         "transitionWavelengths",
-      ])
+      ]) &&
+      !guard.isExplicitlyHidden([
+        `transition:${tr.id}:wavelengthM`,
+        "wavelengthM",
+        `transition:${tr.id}:frequencyHz`,
+        "frequencyHz",
+      ]) &&
+      !guard.matchesHiddenValue(tr.wavelengthNm) &&
+      !guard.matchesHiddenValue(tr.wavelengthM)
     ) {
-      badgeText = `${tr.label} (${formatScientificSigFigs(tr.wavelengthNm, 3, "nm")})`;
+      badgeText = `${safeTrLabel} (${formatScientificSigFigs(tr.wavelengthNm, 3, "nm")})`;
     } else if (
       guard.canShowDerived([
         `transition:${tr.id}:deltaEnergyEv`,
         "deltaEnergyEv",
         "transitionEnergies",
-      ])
+      ]) &&
+      !guard.isExplicitlyHidden([
+        `transition:${tr.id}:signedDeltaEnergyEv`,
+        "signedDeltaEnergyEv",
+        `transition:${tr.id}:photonEnergyJ`,
+        "photonEnergyJ",
+      ]) &&
+      !guard.matchesHiddenValue(tr.deltaEnergyEv) &&
+      !guard.matchesHiddenValue(tr.photonEnergyJ)
     ) {
-      badgeText = `${tr.label} (${formatScientificSigFigs(tr.deltaEnergyEv, 3, "eV")})`;
+      badgeText = `${safeTrLabel} (${formatScientificSigFigs(tr.deltaEnergyEv, 3, "eV")})`;
     }
 
     if (!guard.isExplicitlyHidden([`transition:${tr.id}`, "transitionLabels"])) {
@@ -285,8 +378,11 @@ export function renderEnergyLevelsBody(
       if (
         !guard.isExplicitlyHidden([`transition:${tr.id}`, "transitionLabels"])
       ) {
+        const safeStripLabel = guard.textContainsHiddenNumber(tr.label)
+          ? tr.label.replace(/\d+/g, (digits) => toSubscript(digits))
+          : tr.label;
         parts.push(
-          `<text x="${coord(lx)}" y="${coord(stripTop + stripHeight + 15)}" text-anchor="middle" font-size="11" font-weight="700" fill="#1e293b">${escapeXml(tr.label)}</text>`,
+          `<text x="${coord(lx)}" y="${coord(stripTop + stripHeight + 15)}" text-anchor="middle" font-size="11" font-weight="700" fill="#1e293b">${escapeXml(safeStripLabel)}</text>`,
         );
       }
     });
@@ -294,8 +390,8 @@ export function renderEnergyLevelsBody(
 
   return {
     title: "Atomic energy level and line spectrum diagram",
-    ariaLabel: `Atomic energy level diagram with ${solution.levels.length} levels and ${solution.transitions.length} transitions`,
-    desc: `Discrete atomic energy levels and ${solution.transitions.length} radiative transitions`,
+    ariaLabel: "Atomic energy level diagram with radiative transitions",
+    desc: "Discrete atomic energy levels and radiative transitions",
     defs,
     body: parts.join(""),
   };
@@ -358,60 +454,80 @@ export function renderPhotoelectricBody(
   const defs = `<marker id="${axisArrowId}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#0f172a"/></marker>`;
   const parts: string[] = [];
 
-  const schematic =
-    Boolean(spec.schematicAxes) ||
-    guard.isExplicitlyHidden(["axisTicks"]);
-  const showXTicks =
-    !schematic && guard.canShowInput(["xAxisTicks", "axisTicks"]);
-  const showYTicks =
-    !schematic && guard.canShowInput(["yAxisTicks", "axisTicks"]);
-
-  // Hidden scaled targets so no tick label inadvertently prints an exact hidden intercept
-  const hiddenXTargets: number[] = [];
-  if (
-    guard.isExplicitlyHidden([
-      "thresholdFrequencyHz",
-      "f0",
-      "workFunctionEv",
-      "workFunctionJ",
-    ])
-  ) {
-    hiddenXTargets.push(f0Scaled);
-  }
-  if (guard.isExplicitlyHidden(["incidentFrequencyHz"])) {
-    hiddenXTargets.push(fIncScaled);
-  }
-  const hiddenYTargets: number[] = [];
-  if (
-    guard.isExplicitlyHidden([
-      "workFunctionEv",
-      "workFunctionJ",
-      "yIntercept",
-    ])
-  ) {
-    hiddenYTargets.push(yIntScaled, -yIntScaled);
-  }
-  if (
-    guard.isExplicitlyHidden([
-      "stoppingPotentialV",
-      "maxKineticEnergyEv",
-      "maxKineticEnergyJ",
-    ])
-  ) {
-    const opYScaled =
-      solution.plotMode === "stopping-potential-vs-f"
-        ? solution.stoppingPotentialV
-        : solution.plotMode === "ek-j-vs-f"
-          ? solution.maxKineticEnergyJ / yScale
-          : solution.maxKineticEnergyEv;
-    hiddenYTargets.push(opYScaled);
-  }
-
-  // Subtle grid lines
   const xStep = niceStep(maxFScaled, 5);
   const yStep = niceStep(maxYScaled - minYScaled, 6);
   const xTicks = buildTicks(0, maxFScaled, xStep);
   const yTicks = buildTicks(minYScaled, maxYScaled, yStep);
+
+  // Full-axis tick suppression: never leave a deducible single blank tick on a linear axis
+  const anyXKeyHidden = guard.isExplicitlyHidden([
+    "thresholdFrequencyHz",
+    "f0",
+    "thresholdWavelengthM",
+    "thresholdWavelengthNm",
+    "incidentFrequencyHz",
+    "incidentWavelengthM",
+    "incidentWavelengthNm",
+    "incidentPhotonEnergyEv",
+    "photonEnergyEv",
+    "photonEnergyJ",
+    "workFunctionEv",
+    "workFunctionJ",
+    "comparisonWorkFunctionEv",
+    "comparisonThresholdFrequencyHz",
+    "comparison:workFunctionEv",
+    "comparison:thresholdFrequencyHz",
+    "graphSlope",
+  ]);
+  const anyYKeyHidden = guard.isExplicitlyHidden([
+    "workFunctionEv",
+    "workFunctionJ",
+    "yIntercept",
+    "stoppingPotentialV",
+    "maxKineticEnergyEv",
+    "maxKineticEnergyJ",
+    "signedEnergyBalanceEv",
+    "maxElectronSpeedMs",
+    "photonEnergyEv",
+    "photonEnergyJ",
+    "incidentPhotonEnergyEv",
+    "comparisonWorkFunctionEv",
+    "comparisonYIntercept",
+    "comparison:workFunctionEv",
+    "comparison:yIntercept",
+    "graphSlope",
+  ]);
+
+  const schematic =
+    Boolean(spec.schematicAxes) || guard.isExplicitlyHidden(["axisTicks"]);
+
+  const xTickCollides =
+    guard.matchesHiddenValue(10) ||
+    guard.matchesHiddenValue(fScale) ||
+    xTicks.some(
+      (tx) =>
+        tx !== 0 &&
+        (guard.matchesHiddenValue(tx) ||
+          guard.matchesHiddenValue(tx * fScale)),
+    );
+  const yTickCollides =
+    (solution.plotMode === "ek-j-vs-f" &&
+      (guard.matchesHiddenValue(10) || guard.matchesHiddenValue(yScale))) ||
+    yTicks.some(
+      (ty) =>
+        guard.matchesHiddenValue(ty) || guard.matchesHiddenValue(ty * yScale),
+    );
+
+  const showXTicks =
+    !schematic &&
+    !anyXKeyHidden &&
+    !xTickCollides &&
+    guard.canShowInput(["xAxisTicks", "axisTicks"]);
+  const showYTicks =
+    !schematic &&
+    !anyYKeyHidden &&
+    !yTickCollides &&
+    guard.canShowInput(["yAxisTicks", "axisTicks"]);
 
   if (!schematic) {
     xTicks.forEach((tx) => {
@@ -439,12 +555,8 @@ export function renderPhotoelectricBody(
       const px = xPx(tx);
       parts.push(
         `<line x1="${coord(px)}" y1="${coord(zeroY - 4)}" x2="${coord(px)}" y2="${coord(zeroY + 4)}" stroke="#0f172a" stroke-width="1.3"/>`,
+        `<text x="${coord(px)}" y="${coord(zeroY + 18)}" text-anchor="middle" font-size="12" fill="#334155">${escapeXml(formatCleanTick(tx))}</text>`,
       );
-      if (!isNearHiddenValue(tx, hiddenXTargets, xStep * 0.02)) {
-        parts.push(
-          `<text x="${coord(px)}" y="${coord(zeroY + 18)}" text-anchor="middle" font-size="12" fill="#334155">${escapeXml(formatCleanTick(tx))}</text>`,
-        );
-      }
     });
   }
 
@@ -453,24 +565,25 @@ export function renderPhotoelectricBody(
       const py = yPx(ty);
       parts.push(
         `<line x1="${coord(zeroX - 4)}" y1="${coord(py)}" x2="${coord(zeroX + 4)}" y2="${coord(py)}" stroke="#0f172a" stroke-width="1.3"/>`,
+        `<text x="${coord(zeroX - 10)}" y="${coord(py + 4)}" text-anchor="end" font-size="12" fill="#334155">${escapeXml(formatCleanTick(ty))}</text>`,
       );
-      if (!isNearHiddenValue(ty, hiddenYTargets, yStep * 0.02)) {
-        parts.push(
-          `<text x="${coord(zeroX - 10)}" y="${coord(py + 4)}" text-anchor="end" font-size="12" fill="#334155">${escapeXml(formatCleanTick(ty))}</text>`,
-        );
-      }
     });
   }
 
-  // Axis titles
+  // Axis titles (omit 10^14 / 10^-19 scale factor when numeric axis ticks are suppressed)
+  const xAxisTitle = showXTicks
+    ? "Frequency f / 10¹⁴ Hz"
+    : "Frequency f / Hz";
   const yAxisTitle =
     solution.plotMode === "stopping-potential-vs-f"
       ? "Stopping potential Vₛ / V"
       : solution.plotMode === "ek-j-vs-f"
-        ? "Max kinetic energy Eₖ,ₘₐₓ / 10⁻¹⁹ J"
+        ? showYTicks
+          ? "Max kinetic energy Eₖ,ₘₐₓ / 10⁻¹⁹ J"
+          : "Max kinetic energy Eₖ,ₘₐₓ / J"
         : "Max kinetic energy Eₖ,ₘₐₓ / eV";
   parts.push(
-    `<text x="${coord(padLeft + plotW / 2)}" y="${coord(height - 14)}" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">Frequency f / 10¹⁴ Hz</text>`,
+    `<text x="${coord(padLeft + plotW / 2)}" y="${coord(height - 14)}" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a">${escapeXml(xAxisTitle)}</text>`,
     `<text x="22" y="${coord(padTop + plotH / 2)}" text-anchor="middle" font-size="13" font-weight="600" fill="#0f172a" transform="rotate(-90 22 ${coord(padTop + plotH / 2)})">${escapeXml(yAxisTitle)}</text>`,
   );
 
@@ -484,7 +597,20 @@ export function renderPhotoelectricBody(
       solution.plotMode === "stopping-potential-vs-f" ? "−ϕ/e" : "−ϕ";
     const canShowWf =
       guard.canShowInput(["workFunctionEv", "workFunctionJ"]) &&
-      guard.canShowDerived(["yIntercept"]);
+      guard.canShowDerived(["yIntercept"]) &&
+      !guard.isExplicitlyHidden([
+        "workFunctionEv",
+        "workFunctionJ",
+        "yIntercept",
+        "thresholdFrequencyHz",
+        "f0",
+        "thresholdWavelengthM",
+        "thresholdWavelengthNm",
+      ]) &&
+      !guard.matchesHiddenValue(yIntScaled) &&
+      !guard.matchesHiddenValue(solution.yIntercept) &&
+      !guard.matchesHiddenValue(solution.workFunctionEv) &&
+      !guard.matchesHiddenValue(solution.workFunctionJ);
     const yIntLabel = canShowWf
       ? `${yIntSym} = ${formatCleanTick(Number(yIntScaled.toPrecision(3)))}`
       : guard.placeholder("yIntercept", yIntSym);
@@ -507,8 +633,19 @@ export function renderPhotoelectricBody(
     `<circle cx="${coord(xPx(f0Scaled))}" cy="${coord(zeroY)}" r="4" fill="#1d4ed8"/>`,
   );
 
-  // Threshold frequency callout (derived f0 is never printed numerically unless in givenQuantities)
-  const f0Text = guard.canShowDerived(["thresholdFrequencyHz", "f0"])
+  // Threshold frequency callout (derived f0 is never printed numerically unless in givenQuantities and non-colliding)
+  const canShowF0Numeric =
+    guard.canShowDerived(["thresholdFrequencyHz", "f0"]) &&
+    !guard.isExplicitlyHidden([
+      "thresholdFrequencyHz",
+      "f0",
+      "thresholdWavelengthM",
+      "thresholdWavelengthNm",
+      "workFunctionEv",
+      "workFunctionJ",
+    ]) &&
+    !guard.matchesHiddenValue(solution.thresholdFrequencyHz);
+  const f0Text = canShowF0Numeric
     ? `f₀ = ${formatScientificSigFigs(solution.thresholdFrequencyHz, 3, "Hz")}`
     : guard.placeholder("thresholdFrequencyHz", "f₀");
   if (f0Text) {
@@ -532,8 +669,16 @@ export function renderPhotoelectricBody(
     const compYClamped = compYIntScaled + slopeScaled * compFEnd;
     parts.push(
       `<line x1="${coord(xPx(compF0Scaled))}" y1="${coord(zeroY)}" x2="${coord(xPx(compFEnd))}" y2="${coord(yPx(compYClamped))}" stroke="#0f766e" stroke-width="2.2"/>`,
-      `<text x="${coord(xPx(compFEnd) - 8)}" y="${coord(yPx(compYClamped) + 16)}" text-anchor="end" font-size="12" font-weight="600" fill="#0f766e">${escapeXml(solution.comparison.metalName)}</text>`,
     );
+    if (
+      guard.canShowInput(["comparisonMetalName"]) &&
+      !guard.isExplicitlyHidden(["metalName"]) &&
+      !guard.textContainsHiddenNumber(solution.comparison.metalName)
+    ) {
+      parts.push(
+        `<text x="${coord(xPx(compFEnd) - 8)}" y="${coord(yPx(compYClamped) + 16)}" text-anchor="end" font-size="12" font-weight="600" fill="#0f766e">${escapeXml(solution.comparison.metalName)}</text>`,
+      );
+    }
   }
 
   // Optional operating point marker
@@ -551,7 +696,10 @@ export function renderPhotoelectricBody(
     );
   }
 
-  if (guard.canShowInput(["metalName"])) {
+  if (
+    guard.canShowInput(["metalName"]) &&
+    !guard.textContainsHiddenNumber(solution.metalName)
+  ) {
     parts.push(
       `<text x="${coord(xPx(fClampedEnd) - 6)}" y="${coord(yPx(yClampedEnd) - 8)}" text-anchor="end" font-size="12" font-weight="700" fill="#1d4ed8">${escapeXml(solution.metalName)}</text>`,
     );
@@ -600,7 +748,10 @@ export function renderMatterWavesBody(
     `<line x1="76" y1="${coord(cy)}" x2="122" y2="${coord(cy)}" stroke="#0f172a" stroke-width="1.8" marker-end="url(#${arrowId})"/>`,
   );
 
-  if (guard.canShowInput(["particleLabel", "particle"])) {
+  if (
+    guard.canShowInput(["particleLabel", "particle"]) &&
+    !guard.textContainsHiddenNumber(solution.particleLabel)
+  ) {
     parts.push(
       `<text x="82" y="${coord(cy - 46)}" text-anchor="middle" font-size="13" font-weight="700" fill="#0f172a">${escapeXml(solution.particleLabel)} source</text>`,
     );
@@ -610,7 +761,14 @@ export function renderMatterWavesBody(
     spec.acceleratingVoltageV !== undefined &&
     solution.acceleratingVoltageV !== null
   ) {
-    const vText = guard.canShowInput(["acceleratingVoltageV"])
+    const vEqualsEkEv =
+      Math.abs(solution.kineticEnergyEv - solution.acceleratingVoltageV) <=
+      1e-6 * Math.max(1, Math.abs(solution.acceleratingVoltageV));
+    const canShowVoltage =
+      guard.canShowInput(["acceleratingVoltageV"]) &&
+      !(vEqualsEkEv && guard.isExplicitlyHidden(["kineticEnergyEv"])) &&
+      !guard.matchesHiddenValue(solution.acceleratingVoltageV);
+    const vText = canShowVoltage
       ? `V = ${formatScientificSigFigs(solution.acceleratingVoltageV, 3, "V")}`
       : guard.placeholder("acceleratingVoltageV", "V");
     if (vText) {
@@ -619,7 +777,10 @@ export function renderMatterWavesBody(
       );
     }
   } else if (spec.speedMs !== undefined) {
-    const sText = guard.canShowInput(["speedMs"])
+    const canShowSpeed =
+      guard.canShowInput(["speedMs"]) &&
+      !guard.matchesHiddenValue(solution.speedMs);
+    const sText = canShowSpeed
       ? `v = ${formatScientificSigFigs(solution.speedMs, 3, "m s⁻¹")}`
       : guard.placeholder("speedMs", "v");
     if (sText) {
@@ -658,12 +819,22 @@ export function renderMatterWavesBody(
     `<line x1="${coord(crest1X + 2)}" y1="${coord(dimY)}" x2="${coord(crest2X - 2)}" y2="${coord(dimY)}" stroke="#1d4ed8" stroke-width="1.6" marker-start="url(#${dimArrowId})" marker-end="url(#${dimArrowId})"/>`,
   );
 
-  const lambdaLabel = guard.canShowDerived([
-    "deBroglieWavelengthM",
-    "deBroglieWavelengthNm",
-    "deBroglieWavelengthPm",
-    "wavelength",
-  ])
+  const canShowLambda =
+    guard.canShowDerived([
+      "deBroglieWavelengthM",
+      "deBroglieWavelengthNm",
+      "deBroglieWavelengthPm",
+      "wavelength",
+    ]) &&
+    !guard.isExplicitlyHidden([
+      "deBroglieWavelengthM",
+      "deBroglieWavelengthNm",
+      "deBroglieWavelengthPm",
+      "wavelength",
+    ]) &&
+    !guard.matchesHiddenValue(solution.deBroglieWavelengthM);
+
+  const lambdaLabel = canShowLambda
     ? `λ = ${formatScientificSigFigs(solution.deBroglieWavelengthM, 3, "m")}`
     : guard.placeholder("deBroglieWavelengthM", "λ = h / p");
   if (lambdaLabel) {
@@ -679,7 +850,10 @@ export function renderMatterWavesBody(
     const screenR = 58;
     const ringR1 = Math.max(
       14,
-      Math.min(44, 46 * Math.min(0.95, solution.diffraction.sinTheta * 1.4 + 0.3)),
+      Math.min(
+        44,
+        46 * Math.min(0.95, solution.diffraction.sinTheta * 1.4 + 0.3),
+      ),
     );
     const ringR2 = Math.min(52, ringR1 * 1.55);
 
