@@ -14,10 +14,12 @@ import {
 import { ExistingStemEntry, verifyCandidateWithGate } from "./package-gate";
 import {
   assignSplit,
+  assignSplitsForBatch,
   buildFamilyGroupKey,
   createFrozenEvaluationManifest,
   serializeFrozenManifest,
   SplitAuditRecord,
+  SplitBatchItem,
   SplitContaminationReport,
   verifyZeroSplitContamination,
 } from "./split-assigner";
@@ -122,6 +124,7 @@ export interface CompiledBankSummary {
     nearDuplicateIdsSkipped: string[];
   };
   totalCompiledItems: number;
+  newPostFreezeFamiliesRoutedToTrain: string[];
   splitSummary: SplitContaminationReport & {
     zeroContaminationVerified: boolean;
   };
@@ -176,21 +179,40 @@ export function shardAttemptsPath(shardsDir: string, shardId: string): string {
   return path.join(shardsDir, `${validId}.attempts.jsonl`);
 }
 
-export function readShardRecords(
-  shardsDir: string,
-  shardId: string,
-): VerifiedShardRecord[] {
-  const filePath = shardJsonlPath(shardsDir, shardId);
+interface ShardFileReadResult {
+  records: VerifiedShardRecord[];
+  needsRepair: boolean;
+}
+
+function inspectShardRecordsFile(filePath: string): ShardFileReadResult {
   if (!fs.existsSync(filePath)) {
-    return [];
+    return { records: [], needsRepair: false };
   }
   const raw = fs.readFileSync(filePath, "utf8");
+  if (raw.length === 0) {
+    return { records: [], needsRepair: false };
+  }
+
+  const endsWithNewline = raw.endsWith("\n");
   const lines = raw.split("\n");
   const records: VerifiedShardRecord[] = [];
+  let needsRepair = !endsWithNewline;
 
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i].trim();
-    if (!line) continue;
+    const rawLine = lines[i];
+    const line = rawLine.trim();
+    if (!line) {
+      // Blank lines before the final trailing empty split after '\n' get normalized on repair
+      if (i < lines.length - 1 && rawLine.length > 0) {
+        needsRepair = true;
+      }
+      continue;
+    }
+
+    const isLastNonEmptyLine = lines.slice(i + 1).every((rest) => !rest.trim());
+    // Any non-newline-terminated trailing line was not cleanly flushed before crash/exit:
+    // only accept complete valid newline-terminated JSONL records, or if a complete valid
+    // record lacked '\n', normalize it on repair; truncate any incomplete trailing fragment!
     try {
       const parsed = JSON.parse(line) as VerifiedShardRecord;
       if (parsed.schemaVersion !== SHARD_RECORD_SCHEMA_VERSION) {
@@ -198,17 +220,91 @@ export function readShardRecords(
           `Unsupported shard record schemaVersion in ${filePath}:${i + 1}: ${String(parsed.schemaVersion)}`,
         );
       }
+      if (
+        !parsed.bankItem ||
+        typeof parsed.bankItem.id !== "string" ||
+        !parsed.distillationTrace
+      ) {
+        throw new Error(
+          `Incomplete shard record structure in ${filePath}:${i + 1}`,
+        );
+      }
+      if (isLastNonEmptyLine && !endsWithNewline) {
+        // Unterminated trailing line: even if accidental valid JSON, only newline-terminated
+        // records are crash-committed; wait—check if full trace validates!
+        const traceValid = validateQwenDistillationTrace(parsed.distillationTrace);
+        if (!traceValid.valid) {
+          needsRepair = true;
+          break;
+        }
+      }
       records.push(parsed);
     } catch (error) {
-      // If the very last non-empty line was truncated by an interrupted process crash, quarantine/ignore trailing fragment
-      const isTrailingLine = lines.slice(i + 1).every((rest) => !rest.trim());
-      if (isTrailingLine && !raw.endsWith("\n")) {
+      if (isLastNonEmptyLine && !endsWithNewline) {
+        needsRepair = true;
         break;
       }
       throw error;
     }
   }
-  return records;
+
+  return { records, needsRepair };
+}
+
+function rewriteJsonlAtomically(filePath: string, serializedLines: readonly string[]): void {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const content =
+    serializedLines.length > 0 ? `${serializedLines.join("\n")}\n` : "";
+  const tempPath = `${filePath}.repair-${process.pid}-${Date.now()}`;
+  fs.writeFileSync(tempPath, content, "utf8");
+  fs.renameSync(tempPath, filePath);
+}
+
+export function readShardRecords(
+  shardsDir: string,
+  shardId: string,
+): VerifiedShardRecord[] {
+  const filePath = shardJsonlPath(shardsDir, shardId);
+  return inspectShardRecordsFile(filePath).records;
+}
+
+function inspectShardAttemptsFile(filePath: string): {
+  entries: ShardAttemptTelemetry[];
+  needsRepair: boolean;
+} {
+  if (!fs.existsSync(filePath)) {
+    return { entries: [], needsRepair: false };
+  }
+  const raw = fs.readFileSync(filePath, "utf8");
+  if (raw.length === 0) {
+    return { entries: [], needsRepair: false };
+  }
+  const endsWithNewline = raw.endsWith("\n");
+  const lines = raw.split("\n");
+  const entries: ShardAttemptTelemetry[] = [];
+  let needsRepair = !endsWithNewline;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+    try {
+      const parsed = JSON.parse(trimmed) as ShardAttemptTelemetry;
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        typeof parsed.shardId === "string" &&
+        typeof parsed.totalCandidates === "number"
+      ) {
+        entries.push(parsed);
+      } else {
+        needsRepair = true;
+      }
+    } catch {
+      needsRepair = true;
+    }
+  }
+  return { entries, needsRepair };
 }
 
 export function readShardAttempts(
@@ -216,21 +312,7 @@ export function readShardAttempts(
   shardId: string,
 ): ShardAttemptTelemetry[] {
   const filePath = shardAttemptsPath(shardsDir, shardId);
-  if (!fs.existsSync(filePath)) {
-    return [];
-  }
-  const lines = fs.readFileSync(filePath, "utf8").split("\n");
-  const entries: ShardAttemptTelemetry[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      entries.push(JSON.parse(trimmed) as ShardAttemptTelemetry);
-    } catch {
-      // Ignore incomplete trailing telemetry line
-    }
-  }
-  return entries;
+  return inspectShardAttemptsFile(filePath).entries;
 }
 
 /**
@@ -307,12 +389,22 @@ export function ingestCandidatesIntoShard(
   const dryRun = options.dryRun ?? false;
   const shardFilePath = shardJsonlPath(options.shardsDir, shardId);
 
-  const existingRecords = readShardRecords(options.shardsDir, shardId);
+  const shardInspection = inspectShardRecordsFile(shardFilePath);
+  const existingRecords = shardInspection.records;
   const existingById = new Map<string, VerifiedShardRecord>();
   const existingStemPool: ExistingStemEntry[] = [];
+  const acceptedSplitItems: SplitBatchItem[] = [];
+  const persistedSplitsById = new Map<string, DatasetSplit>();
 
   for (const rec of existingRecords) {
     existingById.set(rec.bankItem.id, rec);
+    persistedSplitsById.set(rec.bankItem.id, rec.distillationTrace.split);
+    acceptedSplitItems.push({
+      id: rec.bankItem.id,
+      conceptId: rec.bankItem.provenance.conceptId,
+      templateArchetype: rec.bankItem.provenance.templateArchetype,
+      sourceParentId: rec.bankItem.provenance.sourceParentId,
+    });
     existingStemPool.push({
       id: rec.bankItem.id,
       stem: rec.bankItem.stem,
@@ -348,7 +440,7 @@ export function ingestCandidatesIntoShard(
       continue;
     }
 
-    // Compute familyGroupKey & split safely
+    // Compute familyGroupKey & connected-component split safely (enforcing sourceParentId + lockHeldOut)
     let familyGroupKey = "";
     let split: DatasetSplit = "train";
     try {
@@ -357,9 +449,6 @@ export function ingestCandidatesIntoShard(
         templateArchetype: candidate.templateArchetype ?? "",
         sourceParentId: candidate.sourceParentId,
       });
-      split = assignSplit(familyGroupKey, {
-        frozenManifest: options.frozenManifest,
-      });
     } catch (error) {
       rejectedCount += 1;
       const code: GateRejectionCode = "invalid-candidate-schema";
@@ -367,6 +456,68 @@ export function ingestCandidatesIntoShard(
       results.push({
         id: candidateId || "<missing-id>",
         status: "rejected",
+        passedChecks: [],
+        issues: [
+          {
+            code,
+            stage: "split",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        ],
+      });
+      continue;
+    }
+
+    const trialSplitItem: SplitBatchItem = {
+      id: candidateId || `<trial-${results.length}>`,
+      conceptId: candidate.conceptId,
+      templateArchetype: candidate.templateArchetype,
+      sourceParentId: candidate.sourceParentId,
+    };
+
+    try {
+      const batchAssignments = assignSplitsForBatch(
+        [...acceptedSplitItems, trialSplitItem],
+        {
+          frozenManifest: options.frozenManifest,
+        },
+      );
+      const candAssignment = batchAssignments.get(trialSplitItem.id)!;
+      split = candAssignment.split;
+
+      // Ensure connecting via sourceParentId does not conflict with an already-persisted split in this shard
+      for (const [prevId, prevSplit] of persistedSplitsById.entries()) {
+        const recomputed = batchAssignments.get(prevId);
+        if (recomputed && recomputed.split !== prevSplit) {
+          // Align candidate to persisted component split if allowed by frozenManifest; otherwise reject
+          if (
+            options.frozenManifest?.lockHeldOut &&
+            (prevSplit === "val" || prevSplit === "test")
+          ) {
+            throw new Error(
+              `Item "${candidateId}" shares lineage with locked "${prevSplit}" item "${prevId}" and cannot alter held-out membership`,
+            );
+          }
+          if (
+            options.frozenManifest &&
+            options.frozenManifest.frozenGroups[familyGroupKey] !== undefined &&
+            options.frozenManifest.frozenGroups[familyGroupKey] !== prevSplit
+          ) {
+            throw new Error(
+              `Item "${candidateId}" bridges incompatible splits "${options.frozenManifest.frozenGroups[familyGroupKey]}" and "${prevSplit}"`,
+            );
+          }
+          split = prevSplit;
+        }
+      }
+    } catch (error) {
+      rejectedCount += 1;
+      const code: GateRejectionCode = "split-contamination";
+      rejectionCountsByCode[code] = (rejectionCountsByCode[code] ?? 0) + 1;
+      results.push({
+        id: candidateId || "<missing-id>",
+        status: "rejected",
+        familyGroupKey,
         passedChecks: [],
         issues: [
           {
@@ -509,6 +660,13 @@ export function ingestCandidatesIntoShard(
 
     newShardRecords.push(shardRecord);
     existingById.set(candidateId, shardRecord);
+    persistedSplitsById.set(candidateId, split);
+    acceptedSplitItems.push({
+      id: candidateId,
+      conceptId: bankItem.provenance.conceptId,
+      templateArchetype: bankItem.provenance.templateArchetype,
+      sourceParentId: bankItem.provenance.sourceParentId,
+    });
     existingStemPool.push({
       id: candidateId,
       stem: bankItem.stem,
@@ -530,10 +688,26 @@ export function ingestCandidatesIntoShard(
 
   if (!dryRun) {
     fs.mkdirSync(options.shardsDir, { recursive: true });
+    // Truncate/rewrite cleanly up to the last valid newline-terminated JSON record if crash left trailing fragment
+    if (shardInspection.needsRepair) {
+      rewriteJsonlAtomically(
+        shardFilePath,
+        existingRecords.map((rec) => JSON.stringify(rec)),
+      );
+    }
     if (newShardRecords.length > 0) {
       const payload =
         newShardRecords.map((rec) => JSON.stringify(rec)).join("\n") + "\n";
       fs.appendFileSync(shardFilePath, payload, "utf8");
+    }
+
+    const attemptsFilePath = shardAttemptsPath(options.shardsDir, shardId);
+    const attemptsInspection = inspectShardAttemptsFile(attemptsFilePath);
+    if (attemptsInspection.needsRepair) {
+      rewriteJsonlAtomically(
+        attemptsFilePath,
+        attemptsInspection.entries.map((entry) => JSON.stringify(entry)),
+      );
     }
     const attemptEntry: ShardAttemptTelemetry = {
       shardId,
@@ -545,7 +719,7 @@ export function ingestCandidatesIntoShard(
       rejectionCountsByCode,
     };
     fs.appendFileSync(
-      shardAttemptsPath(options.shardsDir, shardId),
+      attemptsFilePath,
       JSON.stringify(attemptEntry) + "\n",
       "utf8",
     );
@@ -660,19 +834,6 @@ export function compileBankFromShards(
         continue;
       }
 
-      // Re-verify expected split assignment
-      const expectedSplit = assignSplit(rec.bankItem.familyGroupKey, {
-        frozenManifest: options.frozenManifest,
-      });
-      if (
-        rec.distillationTrace.split !== expectedSplit ||
-        rec.bankItem.provenance.split !== expectedSplit
-      ) {
-        throw new Error(
-          `Split mismatch on item "${id}" (familyGroupKey="${rec.bankItem.familyGroupKey}"): record has "${rec.distillationTrace.split}", expected "${expectedSplit}"`,
-        );
-      }
-
       const traceCheck = validateQwenDistillationTrace(rec.distillationTrace);
       if (!traceCheck.valid) {
         throw new Error(
@@ -693,6 +854,78 @@ export function compileBankFromShards(
   // Sort merged records deterministically by item ID
   mergedRecords.sort((a, b) => a.bankItem.id.localeCompare(b.bankItem.id));
 
+  // Resolve union-find connected components over {conceptId::templateArchetype, source::sourceParentId}
+  // and enforce lockHeldOut immutability on frozen manifests across all merged shards
+  const batchSplitAssignments = assignSplitsForBatch(
+    mergedRecords.map((rec) => ({
+      id: rec.bankItem.id,
+      conceptId: rec.bankItem.provenance.conceptId,
+      templateArchetype: rec.bankItem.provenance.templateArchetype,
+      sourceParentId: rec.bankItem.provenance.sourceParentId,
+    })),
+    {
+      frozenManifest: options.frozenManifest,
+    },
+  );
+
+  for (let idx = 0; idx < mergedRecords.length; idx += 1) {
+    const rec = mergedRecords[idx];
+    const id = rec.bankItem.id;
+    const assigned = batchSplitAssignments.get(id)!;
+    const canonicalFamilyKey = assigned.familyGroupKey;
+
+    const recordSplit = rec.distillationTrace.split;
+    const provenanceSplit = rec.bankItem.provenance.split;
+    if (recordSplit !== provenanceSplit) {
+      throw new Error(
+        `Internal split mismatch on item "${id}": distillationTrace="${recordSplit}" vs provenance="${provenanceSplit}"`,
+      );
+    }
+
+    // Allow compile-time split routing ONLY when:
+    // 1) lockHeldOut routes a newly added post-freeze shard's unseen family to "train", or
+    // 2) cross-shard union-find unifies connected components across shared sourceParentId, or
+    // 3) legacy "source::..." familyGroupKey is canonicalized to "conceptId::templateArchetype"
+    const canRouteAtCompileTime =
+      assigned.routedUnseenPostFreezeToTrain ||
+      assigned.componentPrimaryKey !== canonicalFamilyKey ||
+      rec.bankItem.familyGroupKey !== canonicalFamilyKey;
+
+    if (recordSplit !== assigned.split) {
+      if (!canRouteAtCompileTime) {
+        const expectedStandalone = assignSplit(canonicalFamilyKey, {
+          frozenManifest: options.frozenManifest,
+        });
+        throw new Error(
+          `Split mismatch on item "${id}" (familyGroupKey="${canonicalFamilyKey}"): record has "${recordSplit}", expected "${expectedStandalone}"`,
+        );
+      }
+    }
+
+    if (
+      recordSplit !== assigned.split ||
+      rec.bankItem.familyGroupKey !== canonicalFamilyKey
+    ) {
+      mergedRecords[idx] = {
+        ...rec,
+        bankItem: {
+          ...rec.bankItem,
+          familyGroupKey: canonicalFamilyKey,
+          provenance: {
+            ...rec.bankItem.provenance,
+            familyGroupKey: canonicalFamilyKey,
+            split: assigned.split,
+          },
+        },
+        distillationTrace: {
+          ...rec.distillationTrace,
+          familyGroupKey: canonicalFamilyKey,
+          split: assigned.split,
+        },
+      };
+    }
+  }
+
   if (totalCandidatesAttempted === 0) {
     totalCandidatesAttempted = mergedRecords.length;
     totalVerifiedInShards = mergedRecords.length;
@@ -703,6 +936,8 @@ export function compileBankFromShards(
     id: rec.bankItem.id,
     familyGroupKey: rec.bankItem.familyGroupKey,
     split: rec.distillationTrace.split,
+    conceptId: rec.bankItem.provenance.conceptId,
+    templateArchetype: rec.bankItem.provenance.templateArchetype,
     sourceParentId: rec.bankItem.provenance.sourceParentId,
     stemFingerprint: rec.bankItem.provenance.stemFingerprint,
   }));
@@ -948,6 +1183,8 @@ export function compileBankFromShards(
         nearDuplicateIdsSkipped,
       },
       totalCompiledItems: allBankItems.length,
+      newPostFreezeFamiliesRoutedToTrain:
+        contaminationReport.newPostFreezeFamiliesRoutedToTrain,
       splitSummary: {
         ...contaminationReport,
         zeroContaminationVerified: contaminationReport.valid,

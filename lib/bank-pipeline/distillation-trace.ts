@@ -1,8 +1,13 @@
 import crypto from "node:crypto";
 
-import { formatSignificantFigures } from "./numeric-checker";
+import {
+  formatSignificantFigures,
+  numbersAgreeWithinTolerance,
+  textContainsNumericValue,
+} from "./numeric-checker";
 import {
   CandidateQuestionInput,
+  CandidateQuestionPlan,
   DatasetSplit,
   QWEN_DISTILLATION_TRACE_SCHEMA_VERSION,
   QwenDistillationTrace,
@@ -27,6 +32,106 @@ export interface BuildDistillationTraceInput {
   bankItem: SixthPhysicsBankItem;
   split: DatasetSplit;
   publicVisualLabels?: readonly string[];
+}
+
+function buildGenericMisconceptionTags(
+  conceptId: string,
+  templateArchetype: string,
+  primaryTarget: string,
+): string[] {
+  return [
+    `intermediate-quantity-stop::${templateArchetype}`,
+    `sign-or-direction-reversal::${conceptId}`,
+    `formula-or-unit-scaling-slip::${primaryTarget}`,
+  ];
+}
+
+function buildPreSolveQuestionPlan(
+  candidate: CandidateQuestionInput,
+): CandidateQuestionPlan {
+  const primaryTarget =
+    candidate.targetQuantityKey?.trim() ||
+    candidate.hiddenQuantities[0]?.trim() ||
+    "conceptual-target";
+
+  const postSolveRationales = new Set(
+    (candidate.options ?? [])
+      .filter((o) => !o.isCorrect && o.distractorRationale?.trim())
+      .map((o) => o.distractorRationale!.trim().toLowerCase()),
+  );
+
+  if (candidate.questionPlan) {
+    const filteredDistractorStrategy = candidate.questionPlan.distractorStrategy
+      ?.map((entry) => entry.trim())
+      .filter(
+        (entry) =>
+          entry.length > 0 && !postSolveRationales.has(entry.toLowerCase()),
+      );
+
+    return {
+      targetSummary: candidate.questionPlan.targetSummary.trim(),
+      ...(candidate.format === "mcq"
+        ? {
+            distractorStrategy:
+              filteredDistractorStrategy && filteredDistractorStrategy.length > 0
+                ? filteredDistractorStrategy
+                : buildGenericMisconceptionTags(
+                    candidate.conceptId,
+                    candidate.templateArchetype,
+                    primaryTarget,
+                  ),
+          }
+        : filteredDistractorStrategy && filteredDistractorStrategy.length > 0
+          ? { distractorStrategy: filteredDistractorStrategy }
+          : {}),
+      ...(candidate.questionPlan.subpartStrategy
+        ? { subpartStrategy: [...candidate.questionPlan.subpartStrategy] }
+        : {}),
+      ...(candidate.questionPlan.assumptions
+        ? { assumptions: [...candidate.questionPlan.assumptions] }
+        : {}),
+    };
+  }
+
+  if (candidate.format === "mcq") {
+    return {
+      targetSummary: `Assess ${candidate.conceptId} (${candidate.templateArchetype}) at ${candidate.difficulty} difficulty via single-best-answer reasoning targeting ${primaryTarget}`,
+      distractorStrategy: buildGenericMisconceptionTags(
+        candidate.conceptId,
+        candidate.templateArchetype,
+        primaryTarget,
+      ),
+    };
+  }
+
+  return {
+    targetSummary: `Assess ${candidate.conceptId} (${candidate.templateArchetype}) at ${candidate.difficulty} difficulty via multi-step structured problem`,
+    subpartStrategy: (candidate.parts ?? []).map(
+      (p) =>
+        `part (${p.partId}): target ${p.targetQuantityKey?.trim() || "qualitative-principle"}`,
+    ),
+  };
+}
+
+function collectPublicNumbersFromSpec(value: unknown, hiddenSet: ReadonlySet<string>): number[] {
+  const out: number[] = [];
+  if (typeof value === "number" && Number.isFinite(value)) {
+    out.push(value);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      out.push(...collectPublicNumbersFromSpec(item, hiddenSet));
+    }
+    return out;
+  }
+  if (value !== null && typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (hiddenSet.has(k)) continue;
+      out.push(...collectPublicNumbersFromSpec(v, hiddenSet));
+    }
+  }
+  return out;
 }
 
 export function buildQwenDistillationTrace(
@@ -54,28 +159,14 @@ export function buildQwenDistillationTrace(
     seed: candidate.seed,
   };
 
-  const defaultPlan =
-    candidate.questionPlan ??
-    (bankItem.format === "mcq"
-      ? {
-          targetSummary: `Assess ${candidate.conceptId} (${candidate.templateArchetype}) via single-best-answer calculation/reasoning`,
-          distractorStrategy: (bankItem.options ?? [])
-            .filter((o) => !o.isCorrect && o.distractorRationale)
-            .map((o) => o.distractorRationale!),
-        }
-      : {
-          targetSummary: `Assess ${candidate.conceptId} (${candidate.templateArchetype}) via multi-step structured problem`,
-          subpartStrategy: (bankItem.parts ?? []).map(
-            (p) => `(${p.partId}) [${p.marks}]: ${p.targetQuantityKey ?? "conceptual reasoning"}`,
-          ),
-        });
+  const preSolvePlan = buildPreSolveQuestionPlan(candidate);
 
   const scenarioProposalPayload = {
     action: "solve_and_render_scenario" as const,
     domain: candidate.domain,
     scenarioSpec: candidate.scenarioSpec,
     hiddenQuantities: candidate.hiddenQuantities,
-    questionPlan: defaultPlan,
+    questionPlan: preSolvePlan,
   };
   const scenarioArgumentsJson = JSON.stringify(scenarioProposalPayload);
 
@@ -233,14 +324,97 @@ export function validateQwenDistillationTrace(
     );
   }
 
+  const parsedMessages: Record<number, Record<string, unknown>> = {};
   for (const idx of [1, 2, 3, 4] as const) {
     try {
       const parsed: unknown = JSON.parse(trace.messages[idx].content);
-      if (parsed === null || typeof parsed !== "object") {
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
         issues.push(`Message[${idx}] content must be a JSON object`);
+      } else {
+        parsedMessages[idx] = parsed as Record<string, unknown>;
       }
     } catch {
       issues.push(`Message[${idx}] content is not valid JSON`);
+    }
+  }
+
+  // Verify Step 1 (propose_scenario) has zero post-solve distractorRationale or hidden answer leakage
+  const step1Obj = parsedMessages[2];
+  const receiptObj = parsedMessages[3];
+  const step2Obj = parsedMessages[4];
+
+  if (step1Obj && receiptObj && step2Obj) {
+    const questionPlan = step1Obj.questionPlan as
+      | CandidateQuestionPlan
+      | undefined;
+    if (questionPlan && typeof questionPlan === "object") {
+      const postSolveOptions = Array.isArray(step2Obj.options)
+        ? (step2Obj.options as Array<{
+            isCorrect?: boolean;
+            distractorRationale?: string;
+          }>)
+        : [];
+      const postSolveRationaleSet = new Set(
+        postSolveOptions
+          .filter((o) => !o.isCorrect && typeof o.distractorRationale === "string")
+          .map((o) => o.distractorRationale!.trim().toLowerCase())
+          .filter(Boolean),
+      );
+
+      for (const entry of questionPlan.distractorStrategy ?? []) {
+        if (
+          typeof entry === "string" &&
+          postSolveRationaleSet.has(entry.trim().toLowerCase())
+        ) {
+          issues.push(
+            `Step 1 propose_scenario questionPlan.distractorStrategy leaks post-solve distractorRationale: "${entry}"`,
+          );
+        }
+      }
+
+      const hiddenKeys = Array.isArray(step1Obj.hiddenQuantities)
+        ? (step1Obj.hiddenQuantities as unknown[]).filter(
+            (k): k is string => typeof k === "string",
+          )
+        : [];
+      const hiddenSet = new Set(hiddenKeys);
+      const publicSpecNumbers = collectPublicNumbersFromSpec(
+        step1Obj.scenarioSpec,
+        hiddenSet,
+      );
+      const verifiedQuantities =
+        receiptObj.verifiedQuantities !== null &&
+        typeof receiptObj.verifiedQuantities === "object"
+          ? (receiptObj.verifiedQuantities as Record<string, unknown>)
+          : {};
+      const planText = JSON.stringify(questionPlan);
+
+      for (const hiddenKey of hiddenKeys) {
+        const val = verifiedQuantities[hiddenKey];
+        if (
+          typeof val === "number" &&
+          Number.isFinite(val) &&
+          Math.abs(val) > 1e-12
+        ) {
+          const coincidesWithGiven = publicSpecNumbers.some((pub) =>
+            numbersAgreeWithinTolerance(pub, val, {
+              significantFigures: 3,
+              relativeTolerance: 0.006,
+            }),
+          );
+          if (
+            !coincidesWithGiven &&
+            textContainsNumericValue(planText, val, {
+              significantFigures: 3,
+              relativeTolerance: 0.005,
+            })
+          ) {
+            issues.push(
+              `Step 1 propose_scenario questionPlan leaks post-solve hidden quantity "${hiddenKey}" = ${formatSignificantFigures(val, 3)}`,
+            );
+          }
+        }
+      }
     }
   }
 

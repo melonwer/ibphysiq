@@ -2,15 +2,25 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { validateQwenDistillationTrace } from "@/lib/bank-pipeline/distillation-trace";
+import {
+  buildQwenDistillationTrace,
+  validateQwenDistillationTrace,
+} from "@/lib/bank-pipeline/distillation-trace";
 import { buildSampleCandidates } from "@/lib/bank-pipeline/sample-candidates";
 import {
+  CompiledBankSummary,
   compileBankFromShards,
   ingestCandidatesIntoShard,
+  readShardAttempts,
   readShardRecords,
+  shardAttemptsPath,
+  shardJsonlPath,
   solveCandidateScenariosOnly,
 } from "@/lib/bank-pipeline/shard-store";
-import { parseFrozenManifest } from "@/lib/bank-pipeline/split-assigner";
+import {
+  assignSplit,
+  parseFrozenManifest,
+} from "@/lib/bank-pipeline/split-assigner";
 import { QwenDistillationTrace } from "@/lib/bank-pipeline/types";
 import { planWorkOrders } from "@/lib/bank-pipeline/work-order-planner";
 
@@ -225,5 +235,243 @@ describe("shard-store, distillation traces, work-order planner, and CLIs", () =>
     } finally {
       logSpy.mockRestore();
     }
+  });
+
+  it("SHOULD-FIX 3 regression: truncates/repairs trailing incomplete crash fragments before appending new shard records", () => {
+    const shardsDir = path.join(tempRoot, "crash-shards");
+    const samples = buildSampleCandidates();
+
+    // 1. Ingest 2 valid candidates cleanly
+    const initial = ingestCandidatesIntoShard({
+      shardId: "worker-crash-01",
+      shardsDir,
+      candidates: samples.slice(0, 2),
+    });
+    expect(initial.ingestedCount).toBe(2);
+
+    // 2. Simulate an interrupted process crash leaving a non-newline-terminated JSON fragment on both files
+    const shardFile = shardJsonlPath(shardsDir, "worker-crash-01");
+    const attemptsFile = shardAttemptsPath(shardsDir, "worker-crash-01");
+    fs.appendFileSync(
+      shardFile,
+      '{"schemaVersion":"sixthphysics-shard-record/1.0.0","shardId":"worker-crash-01","truncated',
+      "utf8",
+    );
+    fs.appendFileSync(
+      attemptsFile,
+      '{"shardId":"worker-crash-01","totalCandidates":',
+      "utf8",
+    );
+
+    expect(readShardRecords(shardsDir, "worker-crash-01")).toHaveLength(2);
+
+    // 3. Re-ingest with a 3rd candidate: must truncate the incomplete fragment BEFORE appending!
+    const afterCrash = ingestCandidatesIntoShard({
+      shardId: "worker-crash-01",
+      shardsDir,
+      candidates: samples.slice(0, 3),
+    });
+    expect(afterCrash.alreadyPresentCount).toBe(2);
+    expect(afterCrash.ingestedCount).toBe(1);
+
+    // 4. Subsequent reads and full bank compilation must succeed with zero mid-file JSON errors
+    const recoveredRecords = readShardRecords(shardsDir, "worker-crash-01");
+    expect(recoveredRecords).toHaveLength(3);
+    expect(recoveredRecords.map((r) => r.bankItem.id)).toEqual([
+      samples[0].id,
+      samples[1].id,
+      samples[2].id,
+    ]);
+
+    const rawLines = fs
+      .readFileSync(shardFile, "utf8")
+      .split("\n")
+      .filter((line) => line.trim().length > 0);
+    expect(rawLines).toHaveLength(3);
+    for (const line of rawLines) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+
+    expect(readShardAttempts(shardsDir, "worker-crash-01")).toHaveLength(2);
+  });
+
+  it("SHOULD-FIX 5 regression: keeps frozen val/test 100% immutable during compile-bank and records newPostFreezeFamiliesRoutedToTrain in SUMMARY.json", () => {
+    const shardsDir = path.join(tempRoot, "freeze-shards");
+    const compiledV1 = path.join(tempRoot, "compiled-v1");
+    const compiledV2 = path.join(tempRoot, "compiled-v2");
+    const samples = buildSampleCandidates();
+
+    ingestCandidatesIntoShard({
+      shardId: "wave1-shard",
+      shardsDir,
+      candidates: samples,
+    });
+
+    const summaryV1 = compileBankFromShards({
+      shardsDir,
+      outDir: compiledV1,
+    });
+    expect(summaryV1.newPostFreezeFamiliesRoutedToTrain).toEqual([]);
+
+    const frozenManifest = parseFrozenManifest(
+      fs.readFileSync(
+        path.join(compiledV1, "distillation/frozen-eval-manifest.json"),
+        "utf8",
+      ),
+    );
+    expect(frozenManifest.lockHeldOut).toBe(true);
+
+    // Find an unseen post-freeze archetype that would naturally hash to "test" without lockHeldOut
+    let unseenTestArchetype = "";
+    for (let i = 1; i < 300; i += 1) {
+      const arch = `post-freeze-motor-variant-${i}`;
+      if (
+        assignSplit(`uncertainties-suvat-and-efficiency::${arch}`) === "test"
+      ) {
+        unseenTestArchetype = arch;
+        break;
+      }
+    }
+    expect(unseenTestArchetype).not.toBe("");
+
+    // Ingest post-freeze candidate (even without passing frozenManifest at ingest time!)
+    const postFreezeCandidate = {
+      ...samples[8], // sp-pure-mcq-009
+      id: "sp-pure-mcq-postfreeze-010",
+      templateArchetype: unseenTestArchetype,
+      stem: "A hoist motor consumes 800 W from a DC bus while delivering 600 W of mechanical lifting power steadily over a 20 s lift. What thermal energy is dissipated to the air during the 20 s?",
+    };
+    const postIngest = ingestCandidatesIntoShard({
+      shardId: "wave2-postfreeze-shard",
+      shardsDir,
+      candidates: [postFreezeCandidate],
+    });
+    expect(postIngest.ingestedCount).toBe(1);
+
+    // Also verify ingesting with frozenManifest rejects a new item targeting a locked held-out family
+    const heldOutTestId = frozenManifest.heldOutItemIds.test[0];
+    if (heldOutTestId) {
+      const heldOutSample = samples.find((s) => s.id === heldOutTestId)!;
+      const blockedAttempt = ingestCandidatesIntoShard({
+        shardId: "wave2-blocked-shard",
+        shardsDir,
+        frozenManifest,
+        candidates: [
+          {
+            ...heldOutSample,
+            id: `${heldOutSample.id}-intruder`,
+            stem: `${heldOutSample.stem} Assume standard laboratory conditions throughout.`,
+          },
+        ],
+      });
+      expect(blockedAttempt.rejectedCount).toBe(1);
+      expect(blockedAttempt.results[0].issues[0].code).toBe(
+        "split-contamination",
+      );
+    }
+
+    // Compile with frozenManifest: unseen family is routed to train, val & test stay 100% immutable!
+    const summaryV2 = compileBankFromShards({
+      shardsDir,
+      outDir: compiledV2,
+      frozenManifest,
+    });
+    const expectedNewFamily = `uncertainties-suvat-and-efficiency::${unseenTestArchetype}`;
+    expect(summaryV2.newPostFreezeFamiliesRoutedToTrain).toEqual([
+      expectedNewFamily,
+    ]);
+    expect(summaryV2.splitSummary.itemCounts.val).toBe(
+      summaryV1.splitSummary.itemCounts.val,
+    );
+    expect(summaryV2.splitSummary.itemCounts.test).toBe(
+      summaryV1.splitSummary.itemCounts.test,
+    );
+    expect(summaryV2.splitSummary.itemCounts.train).toBe(
+      summaryV1.splitSummary.itemCounts.train + 1,
+    );
+
+    const summaryOnDisk = JSON.parse(
+      fs.readFileSync(path.join(compiledV2, "SUMMARY.json"), "utf8"),
+    ) as CompiledBankSummary;
+    expect(summaryOnDisk.newPostFreezeFamiliesRoutedToTrain).toEqual([
+      expectedNewFamily,
+    ]);
+  });
+
+  it("SHOULD-FIX 6 regression: prevents post-solve distractorRationale and solved numbers from leaking into Step 1 propose_scenario", () => {
+    const shardsDir = path.join(tempRoot, "leak-check-shards");
+    const samples = buildSampleCandidates();
+    ingestCandidatesIntoShard({
+      shardId: "trace-audit-shard",
+      shardsDir,
+      candidates: samples,
+    });
+
+    const records = readShardRecords(shardsDir, "trace-audit-shard");
+    expect(records).toHaveLength(9);
+
+    for (const rec of records) {
+      const step1 = JSON.parse(rec.distillationTrace.messages[2].content) as {
+        questionPlan: {
+          targetSummary: string;
+          distractorStrategy?: string[];
+        };
+      };
+      const postSolveRationales = (rec.bankItem.options ?? [])
+        .filter((o) => !o.isCorrect && o.distractorRationale)
+        .map((o) => o.distractorRationale!);
+
+      for (const rationale of postSolveRationales) {
+        expect(step1.questionPlan.distractorStrategy ?? []).not.toContain(
+          rationale,
+        );
+        expect(rec.distillationTrace.messages[2].content).not.toContain(
+          rationale,
+        );
+      }
+    }
+
+    // Specifically verify sp-circuits-mcq-003 (where distractorRationale mentions solved I = 3.0 A)
+    const circuitsRec = records.find(
+      (r) => r.bankItem.id === "sp-circuits-mcq-003",
+    )!;
+    expect(circuitsRec.distillationTrace.messages[2].content).not.toContain(
+      "3.0 A",
+    );
+    expect(circuitsRec.distillationTrace.messages[2].content).not.toContain(
+      "24.0",
+    );
+
+    // Verify caller-supplied questionPlan with copied distractorRationale is stripped in buildQwenDistillationTrace
+    const circuitsCandidate = samples[2];
+    const copiedRationale = circuitsCandidate.options![2].distractorRationale!;
+    const strippedTrace = buildQwenDistillationTrace({
+      candidate: {
+        ...circuitsCandidate,
+        questionPlan: {
+          targetSummary: "Compute resistor power",
+          distractorStrategy: [copiedRationale],
+        },
+      },
+      bankItem: circuitsRec.bankItem,
+      split: "train",
+    });
+    expect(strippedTrace.messages[2].content).not.toContain(copiedRationale);
+    expect(validateQwenDistillationTrace(strippedTrace).valid).toBe(true);
+
+    // Verify validateQwenDistillationTrace rejects a trace if Step 1 questionPlan leaks solved hidden value 24.0
+    const leakedTrace = buildQwenDistillationTrace({
+      candidate: {
+        ...circuitsCandidate,
+        questionPlan: {
+          targetSummary: "Compute branch power equal to 24.0 W",
+        },
+      },
+      bankItem: circuitsRec.bankItem,
+      split: "train",
+    });
+    const leakCheck = validateQwenDistillationTrace(leakedTrace);
+    expect(leakCheck.valid).toBe(false);
+    expect(leakCheck.issues.join(" ")).toMatch(/Step 1 propose_scenario/);
   });
 });

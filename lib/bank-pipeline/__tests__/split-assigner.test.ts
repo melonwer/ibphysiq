@@ -1,6 +1,8 @@
 import {
   assignSplit,
+  assignSplitsForBatch,
   buildFamilyGroupKey,
+  buildSourceGroupKey,
   createFrozenEvaluationManifest,
   hashFamilyGroupToUnitInterval,
   parseFrozenManifest,
@@ -11,7 +13,7 @@ import {
 import { DatasetSplit } from "@/lib/bank-pipeline/types";
 
 describe("split-assigner", () => {
-  it("builds normalized familyGroupKeys and prioritizes sourceParentId when present", () => {
+  it("builds normalized conceptId::templateArchetype familyGroupKeys without erasing archetype when sourceParentId is present", () => {
     expect(
       buildFamilyGroupKey({
         conceptId: "Kinematics Motion",
@@ -25,13 +27,23 @@ describe("split-assigner", () => {
         templateArchetype: "variant-a",
         sourceParentId: "IB-2023-P1-Q04",
       }),
-    ).toBe("source::ib-2023-p1-q04");
+    ).toBe("kinematics::variant-a");
+
+    expect(buildSourceGroupKey("IB-2023-P1-Q04")).toBe("source::ib-2023-p1-q04");
+    expect(buildSourceGroupKey(undefined)).toBeUndefined();
 
     expect(() =>
       buildFamilyGroupKey({ conceptId: "", templateArchetype: "arch" }),
     ).toThrow(/must not be empty/);
     expect(() =>
       buildFamilyGroupKey({ conceptId: "bad::slug", templateArchetype: "arch" }),
+    ).toThrow(/delimiter/);
+    expect(() =>
+      buildFamilyGroupKey({
+        conceptId: "kinematics",
+        templateArchetype: "arch",
+        sourceParentId: "bad::parent",
+      }),
     ).toThrow(/delimiter/);
   });
 
@@ -199,5 +211,159 @@ describe("split-assigner", () => {
         ),
       ).toBe(true);
     }
+  });
+
+  it("SHOULD-FIX 4 regression: enforces union-find disjointness across BOTH conceptId::templateArchetype AND sourceParentId", () => {
+    // 1. Same archetype with and without sourceParentId always produces the same primary key & split
+    const withoutParentKey = buildFamilyGroupKey({
+      conceptId: "projectile-motion",
+      templateArchetype: "launch-range",
+    });
+    const withParentKey = buildFamilyGroupKey({
+      conceptId: "projectile-motion",
+      templateArchetype: "launch-range",
+      sourceParentId: "src-5",
+    });
+    expect(withParentKey).toBe("projectile-motion::launch-range");
+    expect(assignSplit(withParentKey)).toBe(assignSplit(withoutParentKey));
+
+    // 2. Union-find batch resolver unifies two distinct archetypes bridged by a shared sourceParentId
+    // Find two archetypes that would hash into DIFFERENT splits in isolation
+    let archTrain = "";
+    let archValOrTest = "";
+    for (let i = 0; i < 200; i += 1) {
+      const candidateArch = `arch-probe-${i}`;
+      const split = assignSplit(`projectile-motion::${candidateArch}`);
+      if (!archTrain && split === "train") {
+        archTrain = candidateArch;
+      } else if (!archValOrTest && split !== "train") {
+        archValOrTest = candidateArch;
+      }
+      if (archTrain && archValOrTest) break;
+    }
+    expect(archTrain).not.toBe("");
+    expect(archValOrTest).not.toBe("");
+
+    const batchAssigned = assignSplitsForBatch([
+      {
+        id: "item-standalone-a",
+        conceptId: "projectile-motion",
+        templateArchetype: archTrain,
+      },
+      {
+        id: "item-bridged-a",
+        conceptId: "projectile-motion",
+        templateArchetype: archTrain,
+        sourceParentId: "src-5",
+      },
+      {
+        id: "item-bridged-b",
+        conceptId: "projectile-motion",
+        templateArchetype: archValOrTest,
+        sourceParentId: "src-5",
+      },
+      {
+        id: "item-standalone-b",
+        conceptId: "projectile-motion",
+        templateArchetype: archValOrTest,
+      },
+    ]);
+
+    const unifiedSplits = new Set(
+      [...batchAssigned.values()].map((entry) => entry.split),
+    );
+    expect(unifiedSplits.size).toBe(1);
+
+    // 3. verifyZeroSplitContamination catches legacy "source::src-5" masking archetype cross-split leak
+    const sneakyContaminated: SplitAuditRecord[] = [
+      {
+        id: "item-no-source",
+        familyGroupKey: "projectile-motion::launch-range",
+        conceptId: "projectile-motion",
+        templateArchetype: "launch-range",
+        split: "train",
+      },
+      {
+        id: "item-with-source",
+        familyGroupKey: "source::src-5",
+        conceptId: "projectile-motion",
+        templateArchetype: "launch-range",
+        sourceParentId: "src-5",
+        split: "val",
+      },
+    ];
+    const sneakyReport = verifyZeroSplitContamination(sneakyContaminated);
+    expect(sneakyReport.valid).toBe(false);
+    expect(
+      sneakyReport.violations.some(
+        (v) => v.kind === "family-group-cross-split",
+      ),
+    ).toBe(true);
+  });
+
+  it("SHOULD-FIX 5 regression: enforces lockHeldOut immutability by routing unseen post-freeze families to train and rejecting val/test membership changes", () => {
+    const initialRecords: SplitAuditRecord[] = [];
+    for (let i = 0; i < 60; i += 1) {
+      const key = `waves::pre-freeze-${i}`;
+      initialRecords.push({
+        id: `pre-${i}`,
+        familyGroupKey: key,
+        conceptId: "waves",
+        templateArchetype: `pre-freeze-${i}`,
+        split: assignSplit(key),
+      });
+    }
+
+    const frozenManifest = createFrozenEvaluationManifest(initialRecords, {
+      createdAt: "2026-11-17T20:00:00.000Z",
+      lockHeldOut: true,
+    });
+    expect(frozenManifest.lockHeldOut).toBe(true);
+    expect(frozenManifest.heldOutItemIds.val.length).toBeGreaterThan(0);
+    expect(frozenManifest.heldOutItemIds.test.length).toBeGreaterThan(0);
+
+    // Every unseen post-freeze family MUST route to "train", even if raw hash >= 0.70
+    let wouldHaveBeenHeldOutCount = 0;
+    for (let j = 0; j < 200; j += 1) {
+      const unseenKey = `quantum-nuclear::post-freeze-unseen-${j}`;
+      if (assignSplit(unseenKey) !== "train") {
+        wouldHaveBeenHeldOutCount += 1;
+      }
+      expect(assignSplit(unseenKey, { frozenManifest })).toBe("train");
+    }
+    expect(wouldHaveBeenHeldOutCount).toBeGreaterThan(30);
+
+    // Attempting to inject a new item into a frozen test family throws / fails audit
+    const lockedTestItem = initialRecords.find((r) => r.split === "test")!;
+    expect(() =>
+      assignSplitsForBatch(
+        [
+          ...initialRecords.map((r) => ({
+            id: r.id,
+            conceptId: r.conceptId!,
+            templateArchetype: r.templateArchetype!,
+          })),
+          {
+            id: "injected-into-locked-test-family",
+            conceptId: lockedTestItem.conceptId!,
+            templateArchetype: lockedTestItem.templateArchetype!,
+          },
+        ],
+        { frozenManifest },
+      ),
+    ).toThrow(/locked held-out "test"/);
+
+    // Removing a locked test item also fails verifyZeroSplitContamination
+    const withDeletedTestItem = initialRecords.filter(
+      (r) => r.id !== lockedTestItem.id,
+    );
+    const deletedAudit = verifyZeroSplitContamination(
+      withDeletedTestItem,
+      frozenManifest,
+    );
+    expect(deletedAudit.valid).toBe(false);
+    expect(
+      deletedAudit.violations.some((v) => v.kind === "frozen-item-mismatch"),
+    ).toBe(true);
   });
 });

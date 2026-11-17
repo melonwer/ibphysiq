@@ -103,6 +103,8 @@ export function runCompileBankCli(argv: readonly string[]): number {
         totalCompiledItems: summary.totalCompiledItems,
         overallPassRate: summary.attemptMetrics.overallPassRate,
         splitItemCounts: summary.splitSummary.itemCounts,
+        newPostFreezeFamiliesRoutedToTrain:
+          summary.newPostFreezeFamiliesRoutedToTrain,
         zeroContaminationVerified:
           summary.splitSummary.zeroContaminationVerified,
         coverageByDomain: summary.coverageByDomain,

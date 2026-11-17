@@ -18,7 +18,7 @@ Every solver-verified candidate question ingested by the pipeline produces two s
 2. **`QwenDistillationTrace` (`qwen-distillation-trace/1.0.0`)** — Exact 5-message neuro-symbolic SFT trajectory for QLoRA fine-tuning **`Qwen/Qwen3.5-9B`** (24 GB VRAM RTX 5090):
    - `messages[0]` (`system`): Two-step deterministic harness contract
    - `messages[1]` (`user`): Target syllabus, concept, domain, visual family, format, difficulty, and RNG seed
-   - `messages[2]` (`assistant`, `step: "propose_scenario"`): Structured `solve_and_render_scenario` proposal containing `scenarioSpec`, `hiddenQuantities`, and `questionPlan`
+   - `messages[2]` (`assistant`, `step: "propose_scenario"`): Structured `solve_and_render_scenario` proposal containing `scenarioSpec`, `hiddenQuantities`, and strictly pre-solve `questionPlan` (generic pre-solve misconception/subpart strategy tags—never leaking post-solve `distractorRationale` strings or solved numbers)
    - `messages[3]` (`tool`, `name: "physics_harness"`): Deterministic solver receipt (`verifiedQuantities`, `formattedQuantities3sf`, `visualReceipt`)
    - `messages[4]` (`assistant`, `step: "author_package"`): Verified student question package, distractors/subparts, worked solution, and mark scheme matching exact solver outputs
 
@@ -29,9 +29,9 @@ Every solver-verified candidate question ingested by the pipeline produces two s
 Implemented in [split-assigner.ts](../lib/bank-pipeline/split-assigner.ts):
 
 - Every item is assigned to `train` (`70%`), `val` (`15%`), or `test` (`15%`) using 48 bits of `SHA-256("${salt}::${familyGroupKey}")`.
-- `familyGroupKey` is strictly `${conceptId}::${templateArchetype}` (or `source::${sourceParentId}` when derived from a parent question).
-- **Zero parametric leakage**: All seed/parameter variants of an archetype share the exact same `familyGroupKey` and therefore land in **one split**.
-- **Held-out freeze**: `compile-bank.ts` emits `distillation/frozen-eval-manifest.json` (`sixthphysics-frozen-eval-manifest/1.0.0`) with a canonical SHA-256 checksum locking `val` and `test` family groups and item IDs prior to QLoRA training. Passing `--frozen-manifest` rejects any attempt to move a held-out group or item across splits.
+- Primary `familyGroupKey` is `${conceptId}::${templateArchetype}`; when `sourceParentId` is also present (`source::${sourceParentId}`), union-find connected components (`assignSplitsForBatch`) and `verifyZeroSplitContamination` enforce disjointness across **both** `conceptId::templateArchetype` and `sourceParentId` so shared archetypes and shared source lineages never cross splits.
+- **Zero parametric leakage**: All seed/parameter variants of an archetype or connected source lineage stay in **one split**.
+- **Held-out freeze (`lockHeldOut: true`)**: `compile-bank.ts` emits `distillation/frozen-eval-manifest.json` (`sixthphysics-frozen-eval-manifest/1.0.0`) with a canonical SHA-256 checksum locking `val` and `test` family groups and item IDs prior to QLoRA training. Passing `--frozen-manifest` keeps `val` and `test` 100% immutable: unseen post-freeze family groups route strictly to `train` (recorded under `newPostFreezeFamiliesRoutedToTrain` in `SUMMARY.json`), while any attempt to add, move, or remove frozen `val`/`test` membership is rejected.
 
 ---
 
@@ -47,7 +47,7 @@ Implemented in [package-gate.ts](../lib/bank-pipeline/package-gate.ts), [numeric
 | `givens` | `missing-required-given`, `stem-answer-leak` | Every required physical given is visible in student prose or SVG (supporting SI prefixes such as `kΩ`, `mA`, `nC` and scientific notation); hidden target answers never appear in student stem |
 | `mcq` | `mcq-invalid-options`, `mcq-duplicate-options`, `mcq-non-unique-correct`, `mcq-distractor-matches-answer`, `mcq-missing-distractor-rationale` | Exactly 4 distinct options `A`–`D` (catching equivalent formatting like `24 W` vs `24.0 W` while preserving directional vector contrasts), 1 correct option, and misconception rationales on all 3 distractors |
 | `structured` / `mark-scheme` | `structured-invalid-parts`, `structured-dependency-invalid`, `mark-sum-mismatch`, `mark-scheme-coverage-mismatch` | Acyclic forward `dependsOnPartIds`, part marks sum to `totalMarks`, and `markScheme` points cover every mark of every subpart |
-| `ground-truth` | `ground-truth-mismatch` | Correct MCQ option, quantitative subpart `expectedAnswer`, `workedSolution`, and `markScheme` agree with solver `verifiedQuantities` within explicit 3 s.f. tolerance (`1%` default) |
+| `ground-truth` | `ground-truth-mismatch` | Mandatory resolvable `targetQuantityKey` on all quantitative MCQs and all numeric structured subparts (plus at least 1 solver-verified quantitative subpart per quantitative structured item); only explicit `targetMode: "qualitative"` items with non-numeric solver classifications may omit numeric targets. Correct options, subpart `expectedAnswer`s, `workedSolution`, and `markScheme` must agree with solver `verifiedQuantities` within 3 s.f. tolerance (`1%` default) |
 | `deduplication` | `near-duplicate-stem` | Canonical number-normalized stem SHA-256 fingerprint and 3-gram shingle Jaccard similarity (`< 0.90`) prevent duplicate or trivially paraphrased items |
 
 ---
@@ -64,7 +64,7 @@ Implemented in [package-gate.ts](../lib/bank-pipeline/package-gate.ts), [numeric
 
 ### Plugging in the 6 Wave 1 Visual Modules
 
-Once the 6 sibling `lib/visuals/*` branches merge, register each in [domain-registry.ts](../lib/bank-pipeline/domain-registry.ts) with 1 line:
+Once the 6 sibling `lib/visuals/*` branches merge, register each in [domain-registry.ts](../lib/bank-pipeline/domain-registry.ts) with 1 line (`registerVisualModule` normalizes flat/`{ quantities }`/`QuantityValue`/nested solver returns, `{ valid, issues, errors }` validation results, and merges `spec.hiddenQuantities` + `spec.visibility.hiddenQuantities` + candidate `hiddenQuantities` into both `mergedSpec` and the 2nd `{ hiddenQuantities }` render options argument):
 
 ```ts
 registerVisualModule("waves", { validate: validateWavesScenario, solve: solveWavesScenario, render: renderWavesSvg });
@@ -109,7 +109,7 @@ Recommended two-step worker loop matching the neuro-symbolic harness:
      --shard wo-0001-ib-sl-graphs-kinematics-motion-graphs-mcq \
      --input /tmp/worker-candidates.json
    ```
-   - Passing items are appended immediately to `<shard-id>.jsonl`.
+   - Passing items are appended immediately to `<shard-id>.jsonl` (if an interrupted process left a trailing incomplete/unterminated JSON fragment, shard ingestion atomically truncates/repairs up to the last valid newline-terminated record before appending).
    - If any item is rejected, inspect `results[].issues` (`code`, `expected`, `actual`, `repairHint`), repair the rejected entries in `/tmp/worker-candidates.json`, and re-run the exact same command: already-ingested item IDs are skipped idempotently (`status: "already-present"`).
 
 To emit a reference batch of 9 verified candidates across `graphs`, `circuits`, `fields`, `mechanics`, and `pure-calculation`:

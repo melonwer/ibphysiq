@@ -28,10 +28,28 @@ export interface SplitAssignOptions {
   frozenManifest?: FrozenEvaluationManifest;
 }
 
+export interface SplitBatchItem {
+  id: string;
+  conceptId: string;
+  templateArchetype: string;
+  sourceParentId?: string;
+}
+
+export interface BatchItemSplitAssignment {
+  id: string;
+  familyGroupKey: string;
+  sourceGroupKey?: string;
+  componentPrimaryKey: string;
+  split: DatasetSplit;
+  routedUnseenPostFreezeToTrain: boolean;
+}
+
 export interface SplitAuditRecord {
   id: string;
   familyGroupKey: string;
   split: DatasetSplit;
+  conceptId?: string;
+  templateArchetype?: string;
   sourceParentId?: string;
   stemFingerprint?: string;
 }
@@ -54,6 +72,7 @@ export interface SplitContaminationReport {
   groupCounts: Record<DatasetSplit, number>;
   itemCounts: Record<DatasetSplit, number>;
   itemRatios: Record<DatasetSplit, number>;
+  newPostFreezeFamiliesRoutedToTrain: string[];
   violations: ContaminationViolation[];
 }
 
@@ -69,9 +88,9 @@ function normalizeSegment(label: string, raw: string): string {
 }
 
 /**
- * Builds the canonical contamination-control key `${conceptId}::${templateArchetype}`
- * (or `source::${sourceParentId}` when derived from an existing parent item) so all
- * parametric variants of an archetype or source parent stay in one split.
+ * Builds the canonical primary archetype key `${conceptId}::${templateArchetype}`
+ * while validating optional `sourceParentId` so `sourceParentId` never hides or
+ * replaces `conceptId::templateArchetype`.
  */
 export function buildFamilyGroupKey(input: FamilyGroupKeyInput): string {
   const concept = normalizeSegment("conceptId", input.conceptId);
@@ -80,10 +99,23 @@ export function buildFamilyGroupKey(input: FamilyGroupKeyInput): string {
     input.templateArchetype,
   );
   if (input.sourceParentId !== undefined && input.sourceParentId.trim() !== "") {
-    const parent = normalizeSegment("sourceParentId", input.sourceParentId);
-    return `source::${parent}`;
+    normalizeSegment("sourceParentId", input.sourceParentId);
   }
   return `${concept}::${archetype}`;
+}
+
+/**
+ * Builds the canonical source lineage key `source::${sourceParentId}` when an item
+ * derives from a shared source parent question.
+ */
+export function buildSourceGroupKey(
+  sourceParentId?: string,
+): string | undefined {
+  if (sourceParentId === undefined || sourceParentId.trim() === "") {
+    return undefined;
+  }
+  const parent = normalizeSegment("sourceParentId", sourceParentId);
+  return `source::${parent}`;
 }
 
 export function validateSplitRatios(ratios: SplitRatios): void {
@@ -130,7 +162,8 @@ export function hashFamilyGroupToUnitInterval(
 
 /**
  * Deterministically assigns `train` (70%), `val` (15%), or `test` (15%) strictly
- * from `familyGroupKey`, respecting any frozen held-out evaluation manifest.
+ * from `familyGroupKey`, respecting any frozen held-out evaluation manifest and
+ * routing unseen post-freeze groups to `train` when `lockHeldOut: true`.
  */
 export function assignSplit(
   familyGroupKey: string,
@@ -149,6 +182,9 @@ export function assignSplit(
     if (frozen !== undefined) {
       return frozen;
     }
+    if (options.frozenManifest.lockHeldOut) {
+      return "train";
+    }
   }
 
   const salt = options.salt ?? options.frozenManifest?.salt ?? DEFAULT_SPLIT_SALT;
@@ -164,6 +200,201 @@ export function assignSplit(
     return "val";
   }
   return "test";
+}
+
+class DisjointKeySet {
+  private readonly parent = new Map<string, string>();
+
+  add(key: string): void {
+    if (!this.parent.has(key)) {
+      this.parent.set(key, key);
+    }
+  }
+
+  find(key: string): string {
+    this.add(key);
+    let root = key;
+    while (this.parent.get(root)! !== root) {
+      root = this.parent.get(root)!;
+    }
+    let cur = key;
+    while (cur !== root) {
+      const next = this.parent.get(cur)!;
+      this.parent.set(cur, root);
+      cur = next;
+    }
+    return root;
+  }
+
+  union(a: string, b: string): void {
+    const rootA = this.find(a);
+    const rootB = this.find(b);
+    if (rootA === rootB) return;
+    if (rootA < rootB) {
+      this.parent.set(rootB, rootA);
+    } else {
+      this.parent.set(rootA, rootB);
+    }
+  }
+
+  components(): Map<string, string[]> {
+    const groups = new Map<string, string[]>();
+    for (const key of this.parent.keys()) {
+      const root = this.find(key);
+      const list = groups.get(root) ?? [];
+      list.push(key);
+      groups.set(root, list);
+    }
+    for (const list of groups.values()) {
+      list.sort();
+    }
+    return groups;
+  }
+}
+
+/**
+ * Resolves connected components across `{conceptId::templateArchetype, source::sourceParentId}`
+ * via union-find so items sharing EITHER an archetype OR a `sourceParentId` never split
+ * across `train`/`val`/`test`, while enforcing `lockHeldOut` immutability on frozen manifests.
+ */
+export function assignSplitsForBatch(
+  items: readonly SplitBatchItem[],
+  options: SplitAssignOptions = {},
+): Map<string, BatchItemSplitAssignment> {
+  if (options.frozenManifest) {
+    verifyFrozenManifestChecksum(options.frozenManifest);
+  }
+
+  const dsu = new DisjointKeySet();
+  const normalizedItems = items.map((item) => {
+    const familyGroupKey = buildFamilyGroupKey({
+      conceptId: item.conceptId,
+      templateArchetype: item.templateArchetype,
+      sourceParentId: item.sourceParentId,
+    });
+    const sourceGroupKey = buildSourceGroupKey(item.sourceParentId);
+    dsu.add(familyGroupKey);
+    if (sourceGroupKey !== undefined) {
+      dsu.add(sourceGroupKey);
+      dsu.union(familyGroupKey, sourceGroupKey);
+    }
+    return {
+      id: item.id,
+      familyGroupKey,
+      sourceGroupKey,
+    };
+  });
+
+  const frozenValIds = new Set(options.frozenManifest?.heldOutItemIds.val ?? []);
+  const frozenTestIds = new Set(
+    options.frozenManifest?.heldOutItemIds.test ?? [],
+  );
+
+  const itemsByRoot = new Map<string, typeof normalizedItems>();
+  for (const entry of normalizedItems) {
+    const root = dsu.find(entry.familyGroupKey);
+    const list = itemsByRoot.get(root) ?? [];
+    list.push(entry);
+    itemsByRoot.set(root, list);
+  }
+
+  const componentResolution = new Map<
+    string,
+    {
+      primaryKey: string;
+      split: DatasetSplit;
+      routedUnseenPostFreezeToTrain: boolean;
+    }
+  >();
+
+  for (const [root, keys] of dsu.components().entries()) {
+    const archetypeKeys = keys.filter((k) => !k.startsWith("source::"));
+    const primaryKey = archetypeKeys[0] ?? keys[0];
+
+    const frozenSplits = new Set<DatasetSplit>();
+    if (options.frozenManifest) {
+      for (const k of keys) {
+        const s = options.frozenManifest.frozenGroups[k];
+        if (s !== undefined) {
+          frozenSplits.add(s);
+        }
+      }
+      for (const item of itemsByRoot.get(root) ?? []) {
+        if (frozenValIds.has(item.id)) {
+          frozenSplits.add("val");
+        }
+        if (frozenTestIds.has(item.id)) {
+          frozenSplits.add("test");
+        }
+      }
+    }
+
+    if (frozenSplits.size > 1) {
+      throw new Error(
+        `Split contamination conflict: connected component [${keys.join(", ")}] spans incompatible frozen splits (${[...frozenSplits].sort().join(", ")})`,
+      );
+    }
+
+    if (frozenSplits.size === 1) {
+      componentResolution.set(root, {
+        primaryKey,
+        split: [...frozenSplits][0],
+        routedUnseenPostFreezeToTrain: false,
+      });
+    } else if (options.frozenManifest?.lockHeldOut) {
+      componentResolution.set(root, {
+        primaryKey,
+        split: "train",
+        routedUnseenPostFreezeToTrain: true,
+      });
+    } else {
+      componentResolution.set(root, {
+        primaryKey,
+        split: assignSplit(primaryKey, options),
+        routedUnseenPostFreezeToTrain: false,
+      });
+    }
+  }
+
+  const assignments = new Map<string, BatchItemSplitAssignment>();
+  for (const entry of normalizedItems) {
+    const root = dsu.find(entry.familyGroupKey);
+    const resolved = componentResolution.get(root)!;
+
+    if (options.frozenManifest?.lockHeldOut) {
+      if (resolved.split === "val" && !frozenValIds.has(entry.id)) {
+        throw new Error(
+          `Item "${entry.id}" (family "${entry.familyGroupKey}") attempts to alter locked held-out "val" membership`,
+        );
+      }
+      if (resolved.split === "test" && !frozenTestIds.has(entry.id)) {
+        throw new Error(
+          `Item "${entry.id}" (family "${entry.familyGroupKey}") attempts to alter locked held-out "test" membership`,
+        );
+      }
+      if (frozenValIds.has(entry.id) && resolved.split !== "val") {
+        throw new Error(
+          `Locked held-out "val" item "${entry.id}" cannot move to "${resolved.split}"`,
+        );
+      }
+      if (frozenTestIds.has(entry.id) && resolved.split !== "test") {
+        throw new Error(
+          `Locked held-out "test" item "${entry.id}" cannot move to "${resolved.split}"`,
+        );
+      }
+    }
+
+    assignments.set(entry.id, {
+      id: entry.id,
+      familyGroupKey: entry.familyGroupKey,
+      ...(entry.sourceGroupKey ? { sourceGroupKey: entry.sourceGroupKey } : {}),
+      componentPrimaryKey: resolved.primaryKey,
+      split: resolved.split,
+      routedUnseenPostFreezeToTrain: resolved.routedUnseenPostFreezeToTrain,
+    });
+  }
+
+  return assignments;
 }
 
 function canonicalFrozenPayloadString(
@@ -225,6 +456,7 @@ export function createFrozenEvaluationManifest(
     ratios?: SplitRatios;
     createdAt?: string;
     freezeAllSplits?: boolean;
+    lockHeldOut?: boolean;
   } = {},
 ): FrozenEvaluationManifest {
   const audit = verifyZeroSplitContamination(records);
@@ -237,13 +469,26 @@ export function createFrozenEvaluationManifest(
   const ratios = options.ratios ?? { ...DEFAULT_SPLIT_RATIOS };
   validateSplitRatios(ratios);
 
+  const freezeAll = options.freezeAllSplits ?? true;
+  const lockHeldOut = options.lockHeldOut ?? true;
   const frozenGroups: Record<string, DatasetSplit> = {};
   const valIds: string[] = [];
   const testIds: string[] = [];
 
   for (const record of records) {
-    if (options.freezeAllSplits || record.split !== "train") {
+    if (freezeAll || record.split !== "train") {
       frozenGroups[record.familyGroupKey] = record.split;
+      if (record.conceptId && record.templateArchetype) {
+        const archKey = buildFamilyGroupKey({
+          conceptId: record.conceptId,
+          templateArchetype: record.templateArchetype,
+        });
+        frozenGroups[archKey] = record.split;
+      }
+      const srcKey = buildSourceGroupKey(record.sourceParentId);
+      if (srcKey) {
+        frozenGroups[srcKey] = record.split;
+      }
     }
     if (record.split === "val") {
       valIds.push(record.id);
@@ -263,7 +508,7 @@ export function createFrozenEvaluationManifest(
     createdAt: options.createdAt ?? new Date().toISOString(),
     salt,
     ratios: { ...ratios },
-    lockHeldOut: true,
+    lockHeldOut,
     frozenGroups: orderedGroups,
     heldOutItemIds: {
       val: [...new Set(valIds)].sort(),
@@ -294,9 +539,27 @@ export function parseFrozenManifest(jsonText: string): FrozenEvaluationManifest 
   return manifest;
 }
 
+function recordSplitMembership(
+  map: Map<string, { splits: Set<DatasetSplit>; itemIds: string[] }>,
+  key: string,
+  split: DatasetSplit,
+  itemId: string,
+): void {
+  const entry = map.get(key) ?? {
+    splits: new Set<DatasetSplit>(),
+    itemIds: [],
+  };
+  entry.splits.add(split);
+  if (!entry.itemIds.includes(itemId)) {
+    entry.itemIds.push(itemId);
+  }
+  map.set(key, entry);
+}
+
 /**
  * Audits a set of items/traces to guarantee zero cross-split contamination across
- * familyGroupKey, sourceParentId, stemFingerprint, and optional frozen manifest.
+ * BOTH `conceptId::templateArchetype` AND `sourceParentId`, plus `stemFingerprint`
+ * and optional frozen evaluation manifest (`lockHeldOut` immutability).
  */
 export function verifyZeroSplitContamination(
   records: readonly SplitAuditRecord[],
@@ -333,55 +596,85 @@ export function verifyZeroSplitContamination(
 
   const frozenValIds = new Set(frozenManifest?.heldOutItemIds.val ?? []);
   const frozenTestIds = new Set(frozenManifest?.heldOutItemIds.test ?? []);
+  const seenValIds = new Set<string>();
+  const seenTestIds = new Set<string>();
+  const newPostFreezeFamilies = new Set<string>();
 
   for (const record of records) {
     itemCounts[record.split] += 1;
-    groupsPerSplit[record.split].add(record.familyGroupKey);
+    const rawFamilyKey = record.familyGroupKey.trim();
+    const explicitArchKey =
+      record.conceptId?.trim() && record.templateArchetype?.trim()
+        ? buildFamilyGroupKey({
+            conceptId: record.conceptId,
+            templateArchetype: record.templateArchetype,
+          })
+        : undefined;
+    const primaryArchKey =
+      explicitArchKey ??
+      (!rawFamilyKey.startsWith("source::") ? rawFamilyKey : undefined);
 
-    const famEntry = byFamily.get(record.familyGroupKey) ?? {
-      splits: new Set<DatasetSplit>(),
-      itemIds: [],
-    };
-    famEntry.splits.add(record.split);
-    famEntry.itemIds.push(record.id);
-    byFamily.set(record.familyGroupKey, famEntry);
+    groupsPerSplit[record.split].add(primaryArchKey ?? rawFamilyKey);
 
-    if (record.sourceParentId && record.sourceParentId.trim() !== "") {
-      const normalizedParent = record.sourceParentId.trim().toLowerCase();
-      const parentEntry = bySourceParent.get(normalizedParent) ?? {
-        splits: new Set<DatasetSplit>(),
-        itemIds: [],
-      };
-      parentEntry.splits.add(record.split);
-      parentEntry.itemIds.push(record.id);
-      bySourceParent.set(normalizedParent, parentEntry);
+    recordSplitMembership(byFamily, rawFamilyKey, record.split, record.id);
+    if (explicitArchKey && explicitArchKey !== rawFamilyKey) {
+      recordSplitMembership(byFamily, explicitArchKey, record.split, record.id);
+    }
+
+    const explicitParent =
+      record.sourceParentId && record.sourceParentId.trim() !== ""
+        ? normalizeSegment("sourceParentId", record.sourceParentId)
+        : undefined;
+    const legacyParent = rawFamilyKey.startsWith("source::")
+      ? rawFamilyKey.slice("source::".length).trim().toLowerCase()
+      : undefined;
+
+    for (const parentId of new Set(
+      [explicitParent, legacyParent].filter(
+        (p): p is string => Boolean(p && p.length > 0),
+      ),
+    )) {
+      recordSplitMembership(bySourceParent, parentId, record.split, record.id);
     }
 
     if (record.stemFingerprint && record.stemFingerprint.trim() !== "") {
-      const stemEntry = byStemHash.get(record.stemFingerprint) ?? {
-        splits: new Set<DatasetSplit>(),
-        itemIds: [],
-      };
-      stemEntry.splits.add(record.split);
-      stemEntry.itemIds.push(record.id);
-      byStemHash.set(record.stemFingerprint, stemEntry);
+      recordSplitMembership(
+        byStemHash,
+        record.stemFingerprint.trim(),
+        record.split,
+        record.id,
+      );
+    }
+
+    if (record.split === "val") {
+      seenValIds.add(record.id);
+    } else if (record.split === "test") {
+      seenTestIds.add(record.id);
     }
 
     if (frozenManifest) {
-      const expectedFrozenSplit =
-        frozenManifest.frozenGroups[record.familyGroupKey];
-      if (
-        expectedFrozenSplit !== undefined &&
-        expectedFrozenSplit !== record.split
-      ) {
-        violations.push({
-          kind: "frozen-group-mismatch",
-          key: record.familyGroupKey,
-          splits: [expectedFrozenSplit, record.split],
-          itemIds: [record.id],
-          message: `Item ${record.id} placed familyGroupKey "${record.familyGroupKey}" in "${record.split}", violating frozen split "${expectedFrozenSplit}"`,
-        });
+      const candidateFrozenKeys = new Set<string>([rawFamilyKey]);
+      if (explicitArchKey) candidateFrozenKeys.add(explicitArchKey);
+      if (explicitParent) candidateFrozenKeys.add(`source::${explicitParent}`);
+      if (legacyParent) candidateFrozenKeys.add(`source::${legacyParent}`);
+
+      let matchedFrozenGroup = false;
+      for (const fKey of candidateFrozenKeys) {
+        const expectedFrozenSplit = frozenManifest.frozenGroups[fKey];
+        if (expectedFrozenSplit !== undefined) {
+          matchedFrozenGroup = true;
+          if (expectedFrozenSplit !== record.split) {
+            violations.push({
+              kind: "frozen-group-mismatch",
+              key: fKey,
+              splits: [expectedFrozenSplit, record.split],
+              itemIds: [record.id],
+              message: `Item ${record.id} placed group "${fKey}" in "${record.split}", violating frozen split "${expectedFrozenSplit}"`,
+            });
+          }
+        }
       }
+
       if (frozenValIds.has(record.id) && record.split !== "val") {
         violations.push({
           kind: "frozen-item-mismatch",
@@ -398,6 +691,55 @@ export function verifyZeroSplitContamination(
           splits: ["test", record.split],
           itemIds: [record.id],
           message: `Held-out test item ${record.id} moved to "${record.split}"`,
+        });
+      }
+
+      if (frozenManifest.lockHeldOut) {
+        if (record.split === "val" && !frozenValIds.has(record.id)) {
+          violations.push({
+            kind: "frozen-item-mismatch",
+            key: record.id,
+            splits: ["val"],
+            itemIds: [record.id],
+            message: `Item ${record.id} ("${rawFamilyKey}") entered locked held-out "val" split while lockHeldOut is true`,
+          });
+        }
+        if (record.split === "test" && !frozenTestIds.has(record.id)) {
+          violations.push({
+            kind: "frozen-item-mismatch",
+            key: record.id,
+            splits: ["test"],
+            itemIds: [record.id],
+            message: `Item ${record.id} ("${rawFamilyKey}") entered locked held-out "test" split while lockHeldOut is true`,
+          });
+        }
+        if (!matchedFrozenGroup && record.split === "train") {
+          newPostFreezeFamilies.add(primaryArchKey ?? rawFamilyKey);
+        }
+      }
+    }
+  }
+
+  if (frozenManifest?.lockHeldOut) {
+    for (const valId of frozenValIds) {
+      if (!seenValIds.has(valId) && !records.some((r) => r.id === valId)) {
+        violations.push({
+          kind: "frozen-item-mismatch",
+          key: valId,
+          splits: ["val"],
+          itemIds: [valId],
+          message: `Held-out val item ${valId} is missing from locked evaluation split`,
+        });
+      }
+    }
+    for (const testId of frozenTestIds) {
+      if (!seenTestIds.has(testId) && !records.some((r) => r.id === testId)) {
+        violations.push({
+          kind: "frozen-item-mismatch",
+          key: testId,
+          splits: ["test"],
+          itemIds: [testId],
+          message: `Held-out test item ${testId} is missing from locked evaluation split`,
         });
       }
     }
@@ -458,6 +800,7 @@ export function verifyZeroSplitContamination(
     },
     itemCounts,
     itemRatios,
+    newPostFreezeFamiliesRoutedToTrain: [...newPostFreezeFamilies].sort(),
     violations,
   };
 }

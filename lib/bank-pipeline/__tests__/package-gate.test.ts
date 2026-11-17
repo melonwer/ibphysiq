@@ -1,8 +1,15 @@
+import {
+  registerVisualModule,
+  resetDomainRegistryToDefaults,
+} from "@/lib/bank-pipeline/domain-registry";
 import { verifyCandidateWithGate } from "@/lib/bank-pipeline/package-gate";
 import { buildSampleCandidates } from "@/lib/bank-pipeline/sample-candidates";
 import { CandidateQuestionInput } from "@/lib/bank-pipeline/types";
 
 describe("package-gate", () => {
+  afterEach(() => {
+    resetDomainRegistryToDefaults();
+  });
   it("accepts all 9 solver-verified sample candidates across graphs, circuits, fields, mechanics, and pure-calculation", () => {
     const samples = buildSampleCandidates();
     expect(samples).toHaveLength(9);
@@ -283,5 +290,240 @@ describe("package-gate", () => {
     expect(
       second.evaluation.issues.some((i) => i.code === "near-duplicate-stem"),
     ).toBe(true);
+  });
+
+  it("BLOCKER 1 regression: rejects quantitative MCQs missing resolvable targetQuantityKey (0 or 2 hiddenQuantities) and blocks qualitative-mode numeric bypass", () => {
+    const graphsMcq = buildSampleCandidates()[0]; // sp-graphs-mcq-001, true distanceM = 27.0 m
+    const forgedOptions = graphsMcq.options!.map((opt) =>
+      opt.isCorrect ? { ...opt, text: "987654 units" } : opt,
+    );
+
+    // Case A: 2 hiddenQuantities, targetQuantityKey removed, wrong option "987654 units"
+    const twoHiddenNoTarget: CandidateQuestionInput = {
+      ...graphsMcq,
+      id: "sp-graphs-mcq-bypass-2hidden",
+      targetQuantityKey: undefined,
+      hiddenQuantities: ["distanceM", "displacementM"],
+      options: forgedOptions,
+    };
+    const resTwoHidden = verifyCandidateWithGate(twoHiddenNoTarget);
+    expect(resTwoHidden.evaluation.valid).toBe(false);
+    expect(
+      resTwoHidden.evaluation.issues.some(
+        (i) => i.code === "ground-truth-mismatch",
+      ),
+    ).toBe(true);
+
+    // Case B: 0 hiddenQuantities, targetQuantityKey removed, wrong option "987654 units"
+    const zeroHiddenNoTarget: CandidateQuestionInput = {
+      ...graphsMcq,
+      id: "sp-graphs-mcq-bypass-0hidden",
+      targetQuantityKey: undefined,
+      hiddenQuantities: [],
+      options: forgedOptions,
+    };
+    const resZeroHidden = verifyCandidateWithGate(zeroHiddenNoTarget);
+    expect(resZeroHidden.evaluation.valid).toBe(false);
+    expect(
+      resZeroHidden.evaluation.issues.some(
+        (i) => i.code === "ground-truth-mismatch",
+      ),
+    ).toBe(true);
+
+    // Case C: Attempting to abuse targetMode: "qualitative" with numeric option "987654 units"
+    const fakeQualitativeNumeric: CandidateQuestionInput = {
+      ...graphsMcq,
+      id: "sp-graphs-mcq-fake-qualitative",
+      targetMode: "qualitative",
+      targetQuantityKey: undefined,
+      hiddenQuantities: [],
+      options: forgedOptions,
+    };
+    const resFakeQual = verifyCandidateWithGate(fakeQualitativeNumeric);
+    expect(resFakeQual.evaluation.valid).toBe(false);
+    expect(
+      resFakeQual.evaluation.issues.some(
+        (i) => i.code === "ground-truth-mismatch",
+      ),
+    ).toBe(true);
+
+    // Case D: Legitimate qualitative MCQ verified against a non-numeric solver classification
+    registerVisualModule("em-induction", {
+      validate: () => ({ valid: true, issues: [] }),
+      solve: () => ({
+        inducedCurrentSense: "counterclockwise",
+      }),
+      render: () =>
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200"><circle cx="150" cy="100" r="50"/></svg>',
+    });
+
+    const validQualitativeMcq: CandidateQuestionInput = {
+      id: "sp-em-qualitative-ok",
+      conceptId: "lenz-law",
+      templateArchetype: "increasing-into-page-flux",
+      seed: 901,
+      syllabi: [{ syllabus: "ib", level: "HL", topicId: "D.3" }],
+      format: "mcq",
+      targetMode: "qualitative",
+      targetQuantityKey: "inducedCurrentSense",
+      difficulty: "foundation",
+      domain: "em-induction",
+      scenarioSpec: { kind: "lenz-ring" },
+      hiddenQuantities: ["inducedCurrentSense"],
+      requiredGivens: [],
+      stem: "A conducting ring lies in the plane of the page while a uniform magnetic field directed into the page increases steadily. What is the sense of the induced current in the ring?",
+      options: [
+        {
+          label: "A",
+          text: "Clockwise around the ring",
+          isCorrect: false,
+          distractorRationale: "Applies right-hand grip rule to the external field rather than the opposing induced field.",
+        },
+        {
+          label: "B",
+          text: "Counterclockwise around the ring",
+          isCorrect: true,
+        },
+        {
+          label: "C",
+          text: "Radially outward",
+          isCorrect: false,
+          distractorRationale: "Confuses closed-loop induced emf with radial Hall deflection.",
+        },
+        {
+          label: "D",
+          text: "Zero induced current",
+          isCorrect: false,
+          distractorRationale: "Assumes uniform spatial field means constant magnetic flux despite dB/dt > 0.",
+        },
+      ],
+      workedSolution:
+        "By Lenz's law, the induced magnetic flux opposes the increasing into-the-page flux, pointing out of the page and driving a counterclockwise current.",
+      markScheme: [
+        {
+          code: "A1",
+          criterion: "Identifies counterclockwise induced current by Lenz's law.",
+          marks: 1,
+        },
+      ],
+      totalMarks: 1,
+    };
+    expect(verifyCandidateWithGate(validQualitativeMcq).evaluation.valid).toBe(
+      true,
+    );
+
+    const wrongQualitativeMcq: CandidateQuestionInput = {
+      ...validQualitativeMcq,
+      id: "sp-em-qualitative-wrong",
+      options: validQualitativeMcq.options!.map((o) =>
+        o.label === "A"
+          ? { label: "A", text: o.text, isCorrect: true }
+          : o.label === "B"
+            ? {
+                label: "B",
+                text: o.text,
+                isCorrect: false,
+                distractorRationale: "Reversed.",
+              }
+            : o,
+      ),
+    };
+    const resWrongQual = verifyCandidateWithGate(wrongQualitativeMcq);
+    expect(resWrongQual.evaluation.valid).toBe(false);
+    expect(
+      resWrongQual.evaluation.issues.some(
+        (i) => i.code === "ground-truth-mismatch",
+      ),
+    ).toBe(true);
+  });
+
+  it("BLOCKER 2 regression: rejects structured items when numeric parts omit targetQuantityKey or item has zero solver-checked quantitative parts", () => {
+    const graphsStruct = buildSampleCandidates()[1]; // sp-graphs-struct-002
+
+    // Case A: Every part's targetQuantityKey removed and expectedAnswer set to "987654 units"
+    const allBypassed: CandidateQuestionInput = {
+      ...graphsStruct,
+      id: "sp-graphs-struct-bypass-all",
+      parts: graphsStruct.parts!.map((part) => ({
+        ...part,
+        targetQuantityKey: undefined,
+        expectedAnswer: "987654 units",
+      })),
+    };
+    const resAll = verifyCandidateWithGate(allBypassed);
+    expect(resAll.evaluation.valid).toBe(false);
+    expect(
+      resAll.evaluation.issues.some((i) => i.code === "ground-truth-mismatch"),
+    ).toBe(true);
+
+    // Case B: Only part (b) omits targetQuantityKey while claiming numeric answer "987654 units"
+    const singlePartBypassed: CandidateQuestionInput = {
+      ...graphsStruct,
+      id: "sp-graphs-struct-bypass-one",
+      parts: graphsStruct.parts!.map((part) =>
+        part.partId === "b"
+          ? { ...part, targetQuantityKey: undefined, expectedAnswer: "987654 units" }
+          : part,
+      ),
+    };
+    const resOne = verifyCandidateWithGate(singlePartBypassed);
+    expect(resOne.evaluation.valid).toBe(false);
+    expect(
+      resOne.evaluation.issues.some((i) => i.code === "ground-truth-mismatch"),
+    ).toBe(true);
+
+    // Case C: Quantitative structured item with 0 solver-checked parts even if prose avoids digits
+    const zeroCheckedParts: CandidateQuestionInput = {
+      ...graphsStruct,
+      id: "sp-graphs-struct-zero-quant",
+      parts: graphsStruct.parts!.map((part) => ({
+        ...part,
+        targetQuantityKey: undefined,
+        expectedAnswer: "Motion decelerates uniformly along straight rail",
+        workingSteps: ["Read slope qualitatively from velocity-time graph"],
+      })),
+    };
+    const resZeroChecked = verifyCandidateWithGate(zeroCheckedParts);
+    expect(resZeroChecked.evaluation.valid).toBe(false);
+    expect(
+      resZeroChecked.evaluation.issues.some(
+        (i) => i.code === "ground-truth-mismatch",
+      ),
+    ).toBe(true);
+
+    // Case D: Mixed structured item with 1 valid qualitative conceptual part + solver-checked quantitative parts passes
+    const mixedStructured: CandidateQuestionInput = {
+      ...graphsStruct,
+      id: "sp-graphs-struct-mixed-ok",
+      totalMarks: 6,
+      parts: [
+        {
+          partId: "a",
+          prompt: "State the physical feature of the velocity–time graph that represents acceleration.",
+          marks: 1,
+          targetMode: "qualitative",
+          expectedAnswer: "Gradient of the velocity–time line",
+          workingSteps: ["Identify acceleration as rate of change of velocity, given by graph gradient."],
+        },
+        ...graphsStruct.parts!.map((p, idx) => ({
+          ...p,
+          partId: idx === 0 ? "b" : idx === 1 ? "c" : "d",
+          dependsOnPartIds: p.dependsOnPartIds?.map(() => "b"),
+        })),
+      ],
+      markScheme: [
+        {
+          code: "B1",
+          partId: "a",
+          criterion: "States gradient (or slope) of the velocity–time graph.",
+          marks: 1,
+        },
+        ...graphsStruct.markScheme.map((m) => ({
+          ...m,
+          partId: m.partId === "a" ? "b" : m.partId === "b" ? "c" : "d",
+        })),
+      ],
+    };
+    expect(verifyCandidateWithGate(mixedStructured).evaluation.valid).toBe(true);
   });
 });

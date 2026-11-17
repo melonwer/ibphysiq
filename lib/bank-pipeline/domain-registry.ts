@@ -55,7 +55,7 @@ import {
 } from "@/lib/visuals/types";
 
 import { formatSignificantFigures } from "./numeric-checker";
-import { PhysicsDomainId, VerifiedQuantityMap } from "./types";
+import { PhysicsDomainId, VerifiedQuantityMap, VerifiedScalar } from "./types";
 
 export interface DomainValidationResult {
   valid: boolean;
@@ -83,7 +83,7 @@ export interface DomainRenderOutput {
 }
 
 export interface DomainAdapter<
-  TSpec extends Record<string, unknown> = Record<string, unknown>,
+  TSpec extends object = Record<string, unknown>,
 > {
   readonly domain: PhysicsDomainId;
   readonly defaultVisualFamily: string;
@@ -99,18 +99,51 @@ export interface DomainAdapter<
   sampleScenario?(seed: number, kind?: string): TSpec;
 }
 
+export interface QuantityValueLike {
+  readonly value: VerifiedScalar;
+  readonly unit?: string;
+  readonly symbol?: string;
+  readonly label?: string;
+  readonly uncertainty?: number;
+  readonly formatted?: string;
+}
+
+export type FlexibleValidationIssue =
+  | string
+  | {
+      readonly message?: string;
+      readonly path?: string;
+      readonly code?: string;
+    };
+
 export type FlexibleValidationReturn =
   | DomainValidationResult
-  | { valid: boolean; issues: ReadonlyArray<string | { message: string }> }
-  | readonly string[]
+  | {
+      readonly valid: boolean;
+      readonly issues?: readonly FlexibleValidationIssue[];
+      readonly errors?:
+        | readonly FlexibleValidationIssue[]
+        | Readonly<Record<string, string | FlexibleValidationIssue>>;
+    }
+  | readonly FlexibleValidationIssue[]
   | boolean;
 
+export type FlexibleSolveReturn =
+  | VerifiedQuantityMap
+  | {
+      readonly quantities: Readonly<
+        Record<string, VerifiedScalar | QuantityValueLike>
+      >;
+    }
+  | object;
+
 export interface IncomingVisualModuleHooks<
-  TSpec extends Record<string, unknown> = Record<string, unknown>,
+  TSpec extends object = Record<string, unknown>,
+  TRenderOpts extends object = DomainRenderOptions,
 > {
   validate: (spec: TSpec) => FlexibleValidationReturn;
-  solve: (spec: TSpec) => VerifiedQuantityMap;
-  render: (spec: TSpec) => string;
+  solve: (spec: TSpec) => FlexibleSolveReturn;
+  render: (spec: TSpec, options?: TRenderOpts) => string;
   visualFamily?: string;
   solverId?: string;
   rendererVersion?: string;
@@ -1546,6 +1579,24 @@ function buildPureCalculationAdapter(): DomainAdapter {
 //   registerVisualModule("em-induction", { validate: validateEmInductionScenario, solve: solveEmInductionScenario, render: renderEmInductionSvg });
 //   registerVisualModule("quantum-nuclear", { validate: validateQuantumNuclearScenario, solve: solveQuantumNuclearScenario, render: renderQuantumNuclearSvg });
 
+function formatFlexibleIssue(item: FlexibleValidationIssue): string {
+  if (typeof item === "string") {
+    return item;
+  }
+  const msg = item.message?.trim();
+  const pathStr = item.path?.trim();
+  if (pathStr && msg) {
+    return `${pathStr}: ${msg}`;
+  }
+  if (msg) {
+    return msg;
+  }
+  if (item.code?.trim()) {
+    return item.code.trim();
+  }
+  return JSON.stringify(item);
+}
+
 function normalizeFlexibleValidation(
   raw: FlexibleValidationReturn,
 ): DomainValidationResult {
@@ -1556,23 +1607,255 @@ function normalizeFlexibleValidation(
     };
   }
   if (Array.isArray(raw)) {
-    const issues = raw.map((item) => String(item));
+    const issues = (raw as readonly FlexibleValidationIssue[]).map(
+      formatFlexibleIssue,
+    );
     return { valid: issues.length === 0, issues };
   }
   const obj = raw as {
     valid: boolean;
-    issues: ReadonlyArray<string | { message: string }>;
+    issues?: readonly FlexibleValidationIssue[];
+    errors?:
+      | readonly FlexibleValidationIssue[]
+      | Readonly<Record<string, string | FlexibleValidationIssue>>;
   };
-  const issues = obj.issues.map((item) =>
-    typeof item === "string" ? item : item.message,
+
+  const collected: string[] = [];
+  if (Array.isArray(obj.issues)) {
+    for (const issue of obj.issues) {
+      collected.push(formatFlexibleIssue(issue));
+    }
+  }
+  if (Array.isArray(obj.errors)) {
+    for (const err of obj.errors) {
+      collected.push(formatFlexibleIssue(err));
+    }
+  } else if (obj.errors && typeof obj.errors === "object") {
+    for (const [field, errVal] of Object.entries(obj.errors)) {
+      const formatted = formatFlexibleIssue(errVal);
+      collected.push(formatted.startsWith(`${field}:`) ? formatted : `${field}: ${formatted}`);
+    }
+  }
+
+  const valid = Boolean(obj.valid) && collected.length === 0;
+  if (!valid && collected.length === 0) {
+    collected.push("Scenario failed domain validation");
+  }
+  return { valid, issues: collected };
+}
+
+const QUANTITY_WRAPPER_META_KEYS = new Set([
+  "value",
+  "unit",
+  "symbol",
+  "label",
+  "formatted",
+  "uncertainty",
+]);
+
+function isVerifiedScalar(val: unknown): val is VerifiedScalar {
+  return (
+    typeof val === "number" ||
+    typeof val === "string" ||
+    typeof val === "boolean"
   );
-  return { valid: obj.valid && issues.length === 0, issues };
+}
+
+function isPoint2DObject(obj: Record<string, unknown>): boolean {
+  const keys = Object.keys(obj);
+  return (
+    keys.length === 2 &&
+    typeof obj.x === "number" &&
+    typeof obj.y === "number"
+  );
+}
+
+function unwrapQuantityEntry(val: unknown): VerifiedScalar | undefined {
+  if (isVerifiedScalar(val)) {
+    return val;
+  }
+  if (
+    val !== null &&
+    typeof val === "object" &&
+    !Array.isArray(val) &&
+    "value" in val &&
+    isVerifiedScalar((val as { value?: unknown }).value)
+  ) {
+    return (val as { value: VerifiedScalar }).value;
+  }
+  return undefined;
+}
+
+function collectNestedQuantities(
+  source: Record<string, unknown>,
+  target: VerifiedQuantityMap,
+  prefix: string,
+  depth: number,
+): void {
+  if (depth > 3) {
+    return;
+  }
+  for (const [key, val] of Object.entries(source)) {
+    if (depth === 0 && (key === "quantities" || key === "classifications")) {
+      continue;
+    }
+    if (val === null || val === undefined || Array.isArray(val)) {
+      continue;
+    }
+
+    const dottedKey = prefix ? `${prefix}.${key}` : key;
+    if (isVerifiedScalar(val)) {
+      if (!(dottedKey in target)) {
+        target[dottedKey] = val;
+      }
+      if (prefix && key !== "x" && key !== "y" && !(key in target)) {
+        target[key] = val;
+      }
+      continue;
+    }
+
+    if (typeof val === "object") {
+      const nestedRecord = val as Record<string, unknown>;
+      if (isPoint2DObject(nestedRecord)) {
+        continue;
+      }
+
+      const unwrapped = unwrapQuantityEntry(nestedRecord);
+      if (unwrapped !== undefined) {
+        if (!(dottedKey in target)) {
+          target[dottedKey] = unwrapped;
+        }
+        if (prefix && !(key in target)) {
+          target[key] = unwrapped;
+        }
+        const extraFields: Record<string, unknown> = {};
+        for (const [subK, subV] of Object.entries(nestedRecord)) {
+          if (!QUANTITY_WRAPPER_META_KEYS.has(subK)) {
+            extraFields[subK] = subV;
+          }
+        }
+        if (Object.keys(extraFields).length > 0) {
+          collectNestedQuantities(extraFields, target, dottedKey, depth + 1);
+        }
+      } else {
+        collectNestedQuantities(nestedRecord, target, dottedKey, depth + 1);
+      }
+    }
+  }
+}
+
+function normalizeFlexibleSolveOutput(
+  raw: FlexibleSolveReturn,
+): VerifiedQuantityMap {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  const rawRecord = raw as Record<string, unknown>;
+  const normalized: VerifiedQuantityMap = {};
+
+  if (
+    rawRecord.quantities !== null &&
+    typeof rawRecord.quantities === "object" &&
+    !Array.isArray(rawRecord.quantities)
+  ) {
+    for (const [k, v] of Object.entries(
+      rawRecord.quantities as Record<string, unknown>,
+    )) {
+      const scalar = unwrapQuantityEntry(v);
+      if (scalar !== undefined) {
+        normalized[k] = scalar;
+      }
+    }
+  }
+
+  if (
+    rawRecord.classifications !== null &&
+    typeof rawRecord.classifications === "object" &&
+    !Array.isArray(rawRecord.classifications)
+  ) {
+    for (const [k, v] of Object.entries(
+      rawRecord.classifications as Record<string, unknown>,
+    )) {
+      const scalar = unwrapQuantityEntry(v);
+      if (scalar !== undefined && !(k in normalized)) {
+        normalized[k] = scalar;
+      }
+    }
+  }
+
+  collectNestedQuantities(rawRecord, normalized, "", 0);
+  return normalized;
+}
+
+function mergeHiddenQuantitiesForRender<TSpec extends object>(
+  spec: TSpec,
+  optionHidden?: readonly string[],
+): { mergedSpec: TSpec; mergedHidden: string[] } {
+  const specObj = spec as Record<string, unknown>;
+  const rawKeys: string[] = [];
+
+  if (Array.isArray(specObj.hiddenQuantities)) {
+    for (const item of specObj.hiddenQuantities) {
+      if (typeof item === "string" && item.trim()) {
+        rawKeys.push(item.trim());
+      }
+    }
+  }
+
+  const visObj =
+    specObj.visibility !== null &&
+    typeof specObj.visibility === "object" &&
+    !Array.isArray(specObj.visibility)
+      ? (specObj.visibility as Record<string, unknown>)
+      : undefined;
+
+  if (visObj && Array.isArray(visObj.hiddenQuantities)) {
+    for (const item of visObj.hiddenQuantities) {
+      if (typeof item === "string" && item.trim()) {
+        rawKeys.push(item.trim());
+      }
+    }
+  }
+
+  if (optionHidden) {
+    for (const item of optionHidden) {
+      if (typeof item === "string" && item.trim()) {
+        rawKeys.push(item.trim());
+      }
+    }
+  }
+
+  const mergedHidden = [...new Set(rawKeys)];
+  const shouldInjectSpecHidden =
+    mergedHidden.length > 0 || "hiddenQuantities" in specObj;
+
+  if (!shouldInjectSpecHidden && !visObj) {
+    return { mergedSpec: spec, mergedHidden };
+  }
+
+  const cloned: Record<string, unknown> = {
+    ...specObj,
+    ...(shouldInjectSpecHidden ? { hiddenQuantities: mergedHidden } : {}),
+    ...(visObj
+      ? {
+          visibility: {
+            ...visObj,
+            hiddenQuantities: mergedHidden,
+          },
+        }
+      : {}),
+  };
+
+  return {
+    mergedSpec: cloned as TSpec,
+    mergedHidden,
+  };
 }
 
 const registry = new Map<PhysicsDomainId, DomainAdapter>();
 
 export function registerDomainAdapter<
-  TSpec extends Record<string, unknown> = Record<string, unknown>,
+  TSpec extends object = Record<string, unknown>,
 >(adapter: DomainAdapter<TSpec>): DomainAdapter<TSpec> {
   registry.set(adapter.domain, adapter as unknown as DomainAdapter);
   return adapter;
@@ -1584,20 +1867,23 @@ export function registerDomainAdapter<
  * `grav-astro`, `em-induction`, `quantum-nuclear`).
  */
 export function registerVisualModule<
-  TSpec extends Record<string, unknown> = Record<string, unknown>,
+  TSpec extends object = Record<string, unknown>,
+  TRenderOpts extends object = DomainRenderOptions,
 >(
   domain: PhysicsDomainId,
-  hooks: IncomingVisualModuleHooks<TSpec>,
+  hooks: IncomingVisualModuleHooks<TSpec, TRenderOpts>,
 ): DomainAdapter<TSpec> {
   const defaultFamily = hooks.visualFamily ?? domain;
   const solverId = hooks.solverId ?? `sixthphysics/${domain}/1.0.0`;
-  const rendererVersion = hooks.rendererVersion ?? `sixthphysics/${domain}-svg/1.0.0`;
+  const rendererVersion =
+    hooks.rendererVersion ?? `sixthphysics/${domain}-svg/1.0.0`;
 
   const adapter: DomainAdapter<TSpec> = {
     domain,
     defaultVisualFamily: defaultFamily,
     solverId,
-    description: hooks.description ?? `Registered deterministic visual module: ${domain}`,
+    description:
+      hooks.description ?? `Registered deterministic visual module: ${domain}`,
     supportedScenarioKinds: hooks.supportedScenarioKinds ?? ["*"],
     validateScenario(spec: TSpec): DomainValidationResult {
       try {
@@ -1614,15 +1900,22 @@ export function registerVisualModule<
       if (!validation.valid) {
         throw new Error(validation.issues.join("; "));
       }
-      const quantities = hooks.solve(spec);
+      const quantities = normalizeFlexibleSolveOutput(hooks.solve(spec));
       return { solverId, quantities };
     },
-    renderSvg(spec: TSpec, options: DomainRenderOptions = {}): DomainRenderOutput {
-      const specWithVisibility =
-        options.hiddenQuantities && !("hiddenQuantities" in spec)
-          ? ({ ...spec, hiddenQuantities: [...options.hiddenQuantities] } as TSpec)
-          : spec;
-      const svgMarkup = hooks.render(specWithVisibility);
+    renderSvg(
+      spec: TSpec,
+      options: DomainRenderOptions = {},
+    ): DomainRenderOutput {
+      const { mergedSpec, mergedHidden } = mergeHiddenQuantitiesForRender(
+        spec,
+        options.hiddenQuantities,
+      );
+      const renderOpts = {
+        ...(options.id ? { id: options.id } : {}),
+        hiddenQuantities: mergedHidden,
+      } as unknown as TRenderOpts;
+      const svgMarkup = hooks.render(mergedSpec, renderOpts);
       return {
         visualFamily: defaultFamily,
         svgMarkup,

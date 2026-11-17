@@ -66,6 +66,69 @@ function textAgreesWithSignedGroundTruth(
   return false;
 }
 
+function normalizeQualitativePhrase(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function textAgreesWithQualitativeTruth(
+  text: string,
+  expected: string | boolean,
+): boolean {
+  const normalizedHaystack = normalizeQualitativePhrase(text);
+  if (!normalizedHaystack) {
+    return false;
+  }
+  if (typeof expected === "boolean") {
+    const token = expected ? "true" : "false";
+    const yesNo = expected ? "yes" : "no";
+    return (
+      new RegExp(`\\b${token}\\b`).test(normalizedHaystack) ||
+      new RegExp(`\\b${yesNo}\\b`).test(normalizedHaystack)
+    );
+  }
+  const normalizedExpected = normalizeQualitativePhrase(expected);
+  if (!normalizedExpected) {
+    return false;
+  }
+  return normalizedHaystack.includes(normalizedExpected);
+}
+
+function mergeSpecAndCandidateHiddenQuantities(
+  scenarioSpec: Record<string, unknown>,
+  candidateHiddenQuantities: readonly string[],
+): string[] {
+  const rawList: string[] = [];
+  const specHidden = scenarioSpec.hiddenQuantities;
+  if (Array.isArray(specHidden)) {
+    for (const item of specHidden) {
+      if (typeof item === "string" && item.trim()) {
+        rawList.push(item.trim());
+      }
+    }
+  }
+  const visibility = scenarioSpec.visibility;
+  if (visibility !== null && typeof visibility === "object" && !Array.isArray(visibility)) {
+    const visHidden = (visibility as { hiddenQuantities?: unknown }).hiddenQuantities;
+    if (Array.isArray(visHidden)) {
+      for (const item of visHidden) {
+        if (typeof item === "string" && item.trim()) {
+          rawList.push(item.trim());
+        }
+      }
+    }
+  }
+  for (const item of candidateHiddenQuantities) {
+    if (typeof item === "string" && item.trim()) {
+      rawList.push(item.trim());
+    }
+  }
+  return [...new Set(rawList)];
+}
+
 function deriveDefaultRequiredGivens(
   scenarioSpec: Record<string, unknown>,
   hiddenQuantities: readonly string[],
@@ -289,11 +352,15 @@ export function verifyCandidateWithGate(
   // --------------------------------------------------------------------------
   // 3. Deterministic SVG Render, XML Sanity & Zero Answer Leakage
   // --------------------------------------------------------------------------
+  const effectiveHiddenQuantities = mergeSpecAndCandidateHiddenQuantities(
+    candidate.scenarioSpec,
+    candidate.hiddenQuantities,
+  );
   let renderOutput: DomainRenderOutput | undefined;
   if (adapter.renderSvg) {
     try {
       renderOutput = adapter.renderSvg(candidate.scenarioSpec, {
-        hiddenQuantities: candidate.hiddenQuantities,
+        hiddenQuantities: effectiveHiddenQuantities,
         id: candidate.id,
       });
     } catch (error) {
@@ -340,7 +407,7 @@ export function verifyCandidateWithGate(
       ].join(" ; ");
 
       const declaredPublicScalarNums: number[] = [];
-      const hiddenSet = new Set(candidate.hiddenQuantities);
+      const hiddenSet = new Set(effectiveHiddenQuantities);
       for (const [k, v] of Object.entries(candidate.scenarioSpec)) {
         if (!hiddenSet.has(k) && typeof v === "number" && Number.isFinite(v)) {
           declaredPublicScalarNums.push(v);
@@ -359,7 +426,7 @@ export function verifyCandidateWithGate(
 
       const leaks = checkSvgHiddenQuantityLeaks({
         svgMarkup: effectiveSvgMarkup,
-        hiddenQuantities: candidate.hiddenQuantities,
+        hiddenQuantities: effectiveHiddenQuantities,
         verifiedQuantities: solveOutput.quantities,
         publicNumbers,
         publicLabels,
@@ -393,7 +460,7 @@ export function verifyCandidateWithGate(
     candidate.requiredGivens ??
     deriveDefaultRequiredGivens(
       candidate.scenarioSpec,
-      candidate.hiddenQuantities,
+      effectiveHiddenQuantities,
       effectiveSvgMarkup !== undefined,
     );
 
@@ -432,7 +499,7 @@ export function verifyCandidateWithGate(
 
   // Also collect all scalar/array numeric givens in scenarioSpec so stem leak check knows public givens
   for (const [k, v] of Object.entries(candidate.scenarioSpec)) {
-    if (candidate.hiddenQuantities.includes(k)) continue;
+    if (effectiveHiddenQuantities.includes(k)) continue;
     if (typeof v === "number" && Number.isFinite(v)) {
       declaredGivenValues.push(v);
     } else if (Array.isArray(v)) {
@@ -455,7 +522,7 @@ export function verifyCandidateWithGate(
   }
 
   // Check that stem prose does not leak a non-given hidden answer value
-  for (const hiddenKey of candidate.hiddenQuantities) {
+  for (const hiddenKey of effectiveHiddenQuantities) {
     const hiddenVal = solveOutput.quantities[hiddenKey];
     if (
       typeof hiddenVal === "number" &&
@@ -566,87 +633,155 @@ export function verifyCandidateWithGate(
         }
       }
 
-      // Ground-truth numerical verification for MCQ
+      // Ground-truth verification for MCQ (quantitative default vs explicit qualitative)
+      const explicitTargetKey = candidate.targetQuantityKey?.trim();
       const primaryKey =
-        candidate.targetQuantityKey ??
-        (candidate.hiddenQuantities.length === 1
-          ? candidate.hiddenQuantities[0]
-          : undefined);
+        explicitTargetKey && explicitTargetKey.length > 0
+          ? explicitTargetKey
+          : candidate.hiddenQuantities.length === 1 &&
+              candidate.hiddenQuantities[0]?.trim()
+            ? candidate.hiddenQuantities[0].trim()
+            : undefined;
+      const itemTargetMode = candidate.targetMode ?? "quantitative";
+      const combinedSchemeText = [
+        candidate.workedSolution,
+        ...candidate.markScheme.map((m) => m.criterion),
+      ].join(" ");
 
-      if (primaryKey !== undefined && correctOptionIndex !== undefined) {
-        const truth = solveOutput.quantities[primaryKey];
-        if (truth === undefined) {
+      if (itemTargetMode === "qualitative") {
+        if (correctOptionIndex !== undefined) {
+          const correctOpt = opts[correctOptionIndex];
+          const numericInCorrect = extractNumbersFromPhysicsText(correctOpt.text);
+          if (numericInCorrect.length > 0) {
+            issues.push({
+              code: "ground-truth-mismatch",
+              stage: "ground-truth",
+              message: `Qualitative MCQ correct option ${correctOpt.label} ("${correctOpt.text}") contains numeric value "${numericInCorrect[0].rawText}"; quantitative MCQs must use targetMode: "quantitative" with a numeric targetQuantityKey`,
+              actual: correctOpt.text,
+              repairHint:
+                "Set targetMode to \"quantitative\" and specify a numeric solver targetQuantityKey, or remove numerical claims from qualitative options",
+            });
+          }
+        }
+        if (primaryKey === undefined) {
           issues.push({
             code: "ground-truth-mismatch",
             stage: "ground-truth",
-            message: `targetQuantityKey "${primaryKey}" does not exist in solver outputs (${Object.keys(solveOutput.quantities).join(", ")})`,
+            message:
+              "Qualitative MCQ must declare a conceptual targetQuantityKey (or single hiddenQuantities key) resolvable in solver verifiedQuantities",
+            repairHint:
+              "Specify targetQuantityKey pointing to a non-numeric solver classification in verifiedQuantities",
           });
-        } else if (typeof truth === "number") {
-          const correctOpt = opts[correctOptionIndex];
-          if (!textAgreesWithSignedGroundTruth(correctOpt.text, truth, tol)) {
+        } else {
+          const truth = solveOutput.quantities[primaryKey];
+          if (truth === undefined || typeof truth === "number") {
             issues.push({
               code: "ground-truth-mismatch",
               stage: "ground-truth",
-              message: `Correct option ${correctOpt.label} ("${correctOpt.text}") disagrees with solver "${primaryKey}" = ${formatSignificantFigures(truth, 3)} (exact: ${String(truth)})`,
-              expected: formatSignificantFigures(truth, 3),
-              actual: correctOpt.text,
-              repairHint: `Update correct option ${correctOpt.label} to match ${formatSignificantFigures(truth, 3)}`,
+              message: `Qualitative MCQ targetQuantityKey "${primaryKey}" must resolve to a non-numeric conceptual classification in solver outputs; received ${String(truth)}`,
+              actual: String(truth),
+              repairHint:
+                "Use a non-numeric classification key for qualitative MCQs or use targetMode: \"quantitative\" for numeric quantities",
             });
-          }
-
-          // Ensure no distractor is numerically identical when options are pure scalar numbers
-          const correctHasDirection = DIRECTIONAL_PROSE_PATTERN.test(
-            correctOpt.text,
-          );
-          if (!correctHasDirection) {
-            for (const opt of opts) {
-              if (opt.isCorrect) continue;
-              if (
-                !DIRECTIONAL_PROSE_PATTERN.test(opt.text) &&
-                textContainsNumericValue(opt.text, truth, {
-                  significantFigures: 3,
-                  relativeTolerance: 0.005,
-                })
-              ) {
-                issues.push({
-                  code: "mcq-distractor-matches-answer",
-                  stage: "mcq",
-                  message: `Distractor option ${opt.label} ("${opt.text}") numerically matches verified answer ${formatSignificantFigures(truth, 3)}`,
-                  expected: `!= ${formatSignificantFigures(truth, 3)}`,
-                  actual: opt.text,
-                  repairHint: `Replace distractor ${opt.label} with a distinct misconception value`,
-                });
-              }
+          } else if (correctOptionIndex !== undefined) {
+            const correctOpt = opts[correctOptionIndex];
+            if (!textAgreesWithQualitativeTruth(correctOpt.text, truth)) {
+              issues.push({
+                code: "ground-truth-mismatch",
+                stage: "ground-truth",
+                message: `Correct option ${correctOpt.label} ("${correctOpt.text}") does not match solver conceptual classification "${primaryKey}" = "${String(truth)}"`,
+                expected: String(truth),
+                actual: correctOpt.text,
+              });
+            }
+            if (!textAgreesWithQualitativeTruth(combinedSchemeText, truth)) {
+              issues.push({
+                code: "ground-truth-mismatch",
+                stage: "ground-truth",
+                message: `Worked solution / mark scheme does not state verified conceptual classification "${String(truth)}" for "${primaryKey}"`,
+                expected: String(truth),
+              });
             }
           }
-
-          // Check workedSolution & markScheme agree with truth
-          const combinedSchemeText = [
-            candidate.workedSolution,
-            ...candidate.markScheme.map((m) => m.criterion),
-          ].join(" ");
-          if (!textAgreesWithSignedGroundTruth(combinedSchemeText, truth, tol)) {
+        }
+      } else {
+        // Quantitative MCQ (default): MUST have a resolvable numeric targetQuantityKey in verifiedQuantities
+        if (primaryKey === undefined) {
+          issues.push({
+            code: "ground-truth-mismatch",
+            stage: "ground-truth",
+            message: `Quantitative MCQ "${candidate.id}" has no resolvable targetQuantityKey (hiddenQuantities count = ${candidate.hiddenQuantities.length}); solver ground-truth verification cannot be bypassed`,
+            expected: `one of: ${Object.keys(solveOutput.quantities).join(", ")}`,
+            repairHint:
+              "Set targetQuantityKey explicitly to the target numeric quantity in solver verifiedQuantities",
+          });
+        } else {
+          const truth = solveOutput.quantities[primaryKey];
+          if (truth === undefined) {
             issues.push({
               code: "ground-truth-mismatch",
               stage: "ground-truth",
-              message: `Worked solution / mark scheme does not contain verified value ${formatSignificantFigures(truth, 3)} for "${primaryKey}"`,
-              expected: formatSignificantFigures(truth, 3),
+              message: `targetQuantityKey "${primaryKey}" does not exist in solver outputs (${Object.keys(solveOutput.quantities).join(", ")})`,
+            });
+          } else if (typeof truth !== "number") {
+            issues.push({
+              code: "ground-truth-mismatch",
+              stage: "ground-truth",
+              message: `Quantitative MCQ targetQuantityKey "${primaryKey}" resolved to non-numeric value "${String(truth)}"; quantitative MCQs require a finite numeric solver target`,
+              actual: String(truth),
               repairHint:
-                "Ensure workedSolution and markScheme state the solver-verified answer",
+                "Point targetQuantityKey to a numeric solver output, or set targetMode: \"qualitative\" for non-numeric conceptual classifications",
             });
-          }
-        } else if (typeof truth === "string") {
-          const correctOpt = opts[correctOptionIndex];
-          if (
-            !correctOpt.text.toLowerCase().includes(truth.toLowerCase().trim())
-          ) {
-            issues.push({
-              code: "ground-truth-mismatch",
-              stage: "ground-truth",
-              message: `Correct option ${correctOpt.label} ("${correctOpt.text}") does not match solver "${primaryKey}" = "${truth}"`,
-              expected: truth,
-              actual: correctOpt.text,
-            });
+          } else if (correctOptionIndex !== undefined) {
+            const correctOpt = opts[correctOptionIndex];
+            if (!textAgreesWithSignedGroundTruth(correctOpt.text, truth, tol)) {
+              issues.push({
+                code: "ground-truth-mismatch",
+                stage: "ground-truth",
+                message: `Correct option ${correctOpt.label} ("${correctOpt.text}") disagrees with solver "${primaryKey}" = ${formatSignificantFigures(truth, 3)} (exact: ${String(truth)})`,
+                expected: formatSignificantFigures(truth, 3),
+                actual: correctOpt.text,
+                repairHint: `Update correct option ${correctOpt.label} to match ${formatSignificantFigures(truth, 3)}`,
+              });
+            }
+
+            // Ensure no distractor is numerically identical when options are pure scalar numbers
+            const correctHasDirection = DIRECTIONAL_PROSE_PATTERN.test(
+              correctOpt.text,
+            );
+            if (!correctHasDirection) {
+              for (const opt of opts) {
+                if (opt.isCorrect) continue;
+                if (
+                  !DIRECTIONAL_PROSE_PATTERN.test(opt.text) &&
+                  textContainsNumericValue(opt.text, truth, {
+                    significantFigures: 3,
+                    relativeTolerance: 0.005,
+                  })
+                ) {
+                  issues.push({
+                    code: "mcq-distractor-matches-answer",
+                    stage: "mcq",
+                    message: `Distractor option ${opt.label} ("${opt.text}") numerically matches verified answer ${formatSignificantFigures(truth, 3)}`,
+                    expected: `!= ${formatSignificantFigures(truth, 3)}`,
+                    actual: opt.text,
+                    repairHint: `Replace distractor ${opt.label} with a distinct misconception value`,
+                  });
+                }
+              }
+            }
+
+            // Check workedSolution & markScheme agree with truth
+            if (!textAgreesWithSignedGroundTruth(combinedSchemeText, truth, tol)) {
+              issues.push({
+                code: "ground-truth-mismatch",
+                stage: "ground-truth",
+                message: `Worked solution / mark scheme does not contain verified value ${formatSignificantFigures(truth, 3)} for "${primaryKey}"`,
+                expected: formatSignificantFigures(truth, 3),
+                repairHint:
+                  "Ensure workedSolution and markScheme state the solver-verified answer",
+              });
+            }
           }
         }
       }
@@ -670,6 +805,8 @@ export function verifyCandidateWithGate(
     } else {
       const seenPartIds = new Set<string>();
       let partMarkSum = 0;
+      let solverCheckedQuantitativeParts = 0;
+      let solverCheckedQualitativeParts = 0;
 
       for (const part of parts) {
         if (
@@ -711,73 +848,168 @@ export function verifyCandidateWithGate(
         seenPartIds.add(part.partId);
         partMarkSum += part.marks;
 
-        // Ground-truth check for quantitative subparts
-        if (part.targetQuantityKey) {
-          const truth = solveOutput.quantities[part.targetQuantityKey];
+        // Ground-truth check for structured subparts (never bypass numeric answers)
+        const partTargetKey = part.targetQuantityKey?.trim();
+        const extractedAnswerNums = extractNumbersFromPhysicsText(
+          part.expectedAnswer,
+        );
+        const extractedWorkingNums = extractNumbersFromPhysicsText(
+          part.workingSteps.join(" "),
+        );
+
+        if (!partTargetKey) {
+          if (part.targetMode === "qualitative") {
+            if (
+              extractedAnswerNums.length > 0 ||
+              extractedWorkingNums.length > 0
+            ) {
+              issues.push({
+                code: "ground-truth-mismatch",
+                stage: "ground-truth",
+                message: `Qualitative subpart "${part.partId}" contains numerical values in expectedAnswer/workingSteps without a solver-verified targetQuantityKey`,
+                actual: part.expectedAnswer,
+                repairHint:
+                  "Provide a valid numeric targetQuantityKey for any subpart involving numerical calculation, or keep qualitative subparts strictly conceptual",
+              });
+            }
+          } else if (extractedAnswerNums.length > 0) {
+            issues.push({
+              code: "ground-truth-mismatch",
+              stage: "ground-truth",
+              message: `Subpart "${part.partId}" expectedAnswer ("${part.expectedAnswer}") contains numeric value "${extractedAnswerNums[0].rawText}" without a solver-verified targetQuantityKey`,
+              actual: extractedAnswerNums[0].rawValue,
+              repairHint: `Specify targetQuantityKey on subpart "${part.partId}" matching one of: ${Object.keys(solveOutput.quantities).join(", ")}`,
+            });
+          }
+        } else {
+          const truth = solveOutput.quantities[partTargetKey];
           if (truth === undefined) {
             issues.push({
               code: "ground-truth-mismatch",
               stage: "ground-truth",
-              message: `Subpart "${part.partId}" references unknown targetQuantityKey "${part.targetQuantityKey}"`,
+              message: `Subpart "${part.partId}" references unknown targetQuantityKey "${partTargetKey}"`,
             });
           } else if (typeof truth === "number") {
-            if (
-              !textAgreesWithSignedGroundTruth(part.expectedAnswer, truth, tol)
-            ) {
-              const extracted = extractNumbersFromPhysicsText(
-                part.expectedAnswer,
-              );
+            if (part.targetMode === "qualitative") {
               issues.push({
                 code: "ground-truth-mismatch",
                 stage: "ground-truth",
-                message: `Subpart "${part.partId}" expectedAnswer ("${part.expectedAnswer}") disagrees with solver "${part.targetQuantityKey}" = ${formatSignificantFigures(truth, 3)} (exact: ${String(truth)})`,
-                expected: formatSignificantFigures(truth, 3),
-                actual:
-                  extracted.length > 0
-                    ? extracted[0].rawValue
-                    : part.expectedAnswer,
-                repairHint: `Set subpart (${part.partId}) expectedAnswer and mark scheme to ${formatSignificantFigures(truth, 3)}`,
+                message: `Subpart "${part.partId}" is marked qualitative, but targetQuantityKey "${partTargetKey}" resolves to numeric value ${String(truth)}`,
+                actual: truth,
               });
-            }
+            } else {
+              solverCheckedQuantitativeParts += 1;
+              if (
+                !textAgreesWithSignedGroundTruth(
+                  part.expectedAnswer,
+                  truth,
+                  tol,
+                )
+              ) {
+                issues.push({
+                  code: "ground-truth-mismatch",
+                  stage: "ground-truth",
+                  message: `Subpart "${part.partId}" expectedAnswer ("${part.expectedAnswer}") disagrees with solver "${partTargetKey}" = ${formatSignificantFigures(truth, 3)} (exact: ${String(truth)})`,
+                  expected: formatSignificantFigures(truth, 3),
+                  actual:
+                    extractedAnswerNums.length > 0
+                      ? extractedAnswerNums[0].rawValue
+                      : part.expectedAnswer,
+                  repairHint: `Set subpart (${part.partId}) expectedAnswer and mark scheme to ${formatSignificantFigures(truth, 3)}`,
+                });
+              }
 
-            // Verify markScheme points for this part also agree with solver truth
-            const partSchemePoints = candidate.markScheme.filter(
-              (m) =>
-                m.partId === part.partId ||
-                (parts.length === 1 && m.partId === undefined),
-            );
-            const schemeText = partSchemePoints
-              .map((m) => m.criterion)
-              .join(" ");
-            if (
-              partSchemePoints.length > 0 &&
-              !textAgreesWithSignedGroundTruth(schemeText, truth, tol)
-            ) {
-              issues.push({
-                code: "ground-truth-mismatch",
-                stage: "ground-truth",
-                message: `Mark scheme criteria for subpart "${part.partId}" do not contain verified value ${formatSignificantFigures(truth, 3)} for "${part.targetQuantityKey}"`,
-                expected: formatSignificantFigures(truth, 3),
-                actual: schemeText,
-                repairHint: `Include the final verified numerical answer ${formatSignificantFigures(truth, 3)} in an A1/mark-scheme point for part (${part.partId})`,
-              });
+              // Verify markScheme points for this part also agree with solver truth
+              const partSchemePoints = candidate.markScheme.filter(
+                (m) =>
+                  m.partId === part.partId ||
+                  (parts.length === 1 && m.partId === undefined),
+              );
+              const schemeText = partSchemePoints
+                .map((m) => m.criterion)
+                .join(" ");
+              if (
+                partSchemePoints.length > 0 &&
+                !textAgreesWithSignedGroundTruth(schemeText, truth, tol)
+              ) {
+                issues.push({
+                  code: "ground-truth-mismatch",
+                  stage: "ground-truth",
+                  message: `Mark scheme criteria for subpart "${part.partId}" do not contain verified value ${formatSignificantFigures(truth, 3)} for "${partTargetKey}"`,
+                  expected: formatSignificantFigures(truth, 3),
+                  actual: schemeText,
+                  repairHint: `Include the final verified numerical answer ${formatSignificantFigures(truth, 3)} in an A1/mark-scheme point for part (${part.partId})`,
+                });
+              }
+
+              // Verify item-level workedSolution also agrees with solver truth
+              if (
+                !textAgreesWithSignedGroundTruth(
+                  candidate.workedSolution,
+                  truth,
+                  tol,
+                )
+              ) {
+                issues.push({
+                  code: "ground-truth-mismatch",
+                  stage: "ground-truth",
+                  message: `workedSolution does not contain verified value ${formatSignificantFigures(truth, 3)} for subpart "${part.partId}" ("${partTargetKey}")`,
+                  expected: formatSignificantFigures(truth, 3),
+                  repairHint: `Include verified value ${formatSignificantFigures(truth, 3)} for part (${part.partId}) in workedSolution`,
+                });
+              }
             }
-          } else if (typeof truth === "string") {
-            if (
-              !part.expectedAnswer
-                .toLowerCase()
-                .includes(truth.toLowerCase().trim())
-            ) {
+          } else {
+            // Non-numeric string or boolean solver classification
+            if (extractedAnswerNums.length > 0) {
               issues.push({
                 code: "ground-truth-mismatch",
                 stage: "ground-truth",
-                message: `Subpart "${part.partId}" expectedAnswer ("${part.expectedAnswer}") does not match "${truth}"`,
-                expected: truth,
+                message: `Subpart "${part.partId}" expectedAnswer ("${part.expectedAnswer}") contains numeric value "${extractedAnswerNums[0].rawText}", while targetQuantityKey "${partTargetKey}" is non-numeric ("${String(truth)}")`,
+                expected: String(truth),
                 actual: part.expectedAnswer,
               });
+            } else {
+              solverCheckedQualitativeParts += 1;
+              if (
+                !textAgreesWithQualitativeTruth(part.expectedAnswer, truth)
+              ) {
+                issues.push({
+                  code: "ground-truth-mismatch",
+                  stage: "ground-truth",
+                  message: `Subpart "${part.partId}" expectedAnswer ("${part.expectedAnswer}") does not match "${String(truth)}"`,
+                  expected: String(truth),
+                  actual: part.expectedAnswer,
+                });
+              }
             }
           }
         }
+      }
+
+      const structuredTargetMode = candidate.targetMode ?? "quantitative";
+      if (
+        structuredTargetMode === "quantitative" &&
+        solverCheckedQuantitativeParts === 0
+      ) {
+        issues.push({
+          code: "ground-truth-mismatch",
+          stage: "ground-truth",
+          message: `Quantitative structured question "${candidate.id}" must have at least one subpart with a solver-verified numeric targetQuantityKey`,
+          repairHint:
+            "Attach a valid numeric targetQuantityKey from verifiedQuantities to at least one quantitative subpart",
+        });
+      } else if (
+        structuredTargetMode === "qualitative" &&
+        solverCheckedQualitativeParts === 0
+      ) {
+        issues.push({
+          code: "ground-truth-mismatch",
+          stage: "ground-truth",
+          message: `Qualitative structured question "${candidate.id}" must have at least one subpart verified against a solver classification targetQuantityKey`,
+          repairHint:
+            "Attach a solver classification targetQuantityKey to at least one subpart",
+        });
       }
 
       if (partMarkSum !== candidate.totalMarks) {

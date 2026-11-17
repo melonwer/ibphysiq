@@ -45,6 +45,8 @@ export type PhysicsDomainId = (typeof PHYSICS_DOMAIN_IDS)[number];
 export const MCQ_OPTION_LABELS = ["A", "B", "C", "D"] as const;
 export type McqOptionLabel = (typeof MCQ_OPTION_LABELS)[number];
 
+export type QuestionTargetMode = "quantitative" | "qualitative";
+
 export type VerifiedScalar = number | string | boolean;
 export type VerifiedQuantityMap = Record<string, VerifiedScalar>;
 
@@ -67,6 +69,7 @@ export interface StructuredQuestionPart {
   prompt: string;
   marks: number;
   dependsOnPartIds?: string[];
+  targetMode?: QuestionTargetMode;
   targetQuantityKey?: string;
   expectedAnswer: string;
   workingSteps: string[];
@@ -227,6 +230,7 @@ export interface CandidateQuestionInput {
   questionPlan?: CandidateQuestionPlan;
   stem: string;
   options?: McqOptionItem[];
+  targetMode?: QuestionTargetMode;
   targetQuantityKey?: string;
   parts?: StructuredQuestionPart[];
   workedSolution: string;
