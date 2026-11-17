@@ -37,20 +37,70 @@ import {
   wienPeakWavelength,
 } from "../thermal";
 
+const GEOMETRIC_OR_STYLE_ATTRS: ReadonlySet<string> = new Set([
+  "xmlns",
+  "role",
+  "width",
+  "height",
+  "viewBox",
+  "x",
+  "y",
+  "x1",
+  "y1",
+  "x2",
+  "y2",
+  "cx",
+  "cy",
+  "r",
+  "rx",
+  "ry",
+  "d",
+  "points",
+  "transform",
+  "fill",
+  "fill-opacity",
+  "stroke",
+  "stroke-width",
+  "stroke-dasharray",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "font-size",
+  "font-weight",
+  "font-family",
+  "text-anchor",
+]);
+
 /**
- * Extract all student-readable text nodes, <title>, <desc>, and aria-label
- * attributes from an SVG string for strict non-leakage verification.
+ * Extract all student-readable text nodes (<text>, <tspan>), <title>, <desc>,
+ * aria-label, and all non-geometric/non-style attributes from an SVG string
+ * for strict non-leakage verification.
  */
 function extractStudentVisibleText(svg: string): string {
   const chunks: string[] = [];
-  const ariaMatches = svg.matchAll(/aria-label="([^"]*)"/g);
-  for (const m of ariaMatches) chunks.push(m[1]);
   const titleMatches = svg.matchAll(/<title>([\s\S]*?)<\/title>/g);
   for (const m of titleMatches) chunks.push(m[1]);
   const descMatches = svg.matchAll(/<desc>([\s\S]*?)<\/desc>/g);
   for (const m of descMatches) chunks.push(m[1]);
   const textMatches = svg.matchAll(/<text\b[^>]*>([\s\S]*?)<\/text>/g);
-  for (const m of textMatches) chunks.push(m[1]);
+  for (const m of textMatches) {
+    chunks.push(m[1].replace(/<\/?tspan\b[^>]*>/g, " "));
+  }
+  const tspanMatches = svg.matchAll(/<tspan\b[^>]*>([\s\S]*?)<\/tspan>/g);
+  for (const m of tspanMatches) chunks.push(m[1]);
+
+  // Also scan every non-geometric attribute (aria-label, id, clip-path, data-*, etc.)
+  const tagMatches = svg.matchAll(/<[a-zA-Z][a-zA-Z0-9:-]*(\s[^<>]*?)?\/?>/g);
+  for (const tag of tagMatches) {
+    const attrSegment = tag[1] ?? "";
+    const attrMatches = attrSegment.matchAll(
+      /([a-zA-Z_:][a-zA-Z0-9_.:-]*)="([^"]*)"/g,
+    );
+    for (const attr of attrMatches) {
+      if (!GEOMETRIC_OR_STYLE_ATTRS.has(attr[1])) {
+        chunks.push(attr[2]);
+      }
+    }
+  }
   return chunks.join(" | ");
 }
 
@@ -823,6 +873,16 @@ describe("lib/visuals/thermal — deterministic physics solver & SVG renderer", 
           initialState: { pressurePa: 1e5, volumeM3: 1e-3 },
           steps: [{ process: "isobaric", targetPressurePa: 2e5 }],
         },
+        // Duplicate stateId in thermodynamic path
+        {
+          kind: "thermodynamic-process",
+          moles: 1,
+          initialState: { stateId: "A", pressurePa: 1e5, volumeM3: 1e-3 },
+          steps: [
+            { process: "isobaric", toStateId: "B", targetVolumeM3: 2e-3 },
+            { process: "isochoric", toStateId: "A", targetPressurePa: 3e5 },
+          ],
+        },
       ];
 
       for (const badSpec of invalidCases) {
@@ -1022,6 +1082,374 @@ describe("lib/visuals/thermal — deterministic physics solver & SVG renderer", 
       )?.[1];
       expect(studentPrimaryCurve).toBeDefined();
       expect(studentPrimaryCurve).toBe(teacherPrimaryCurve);
+    });
+
+    it("suppresses coincident state/axis/companion values and supports options.hiddenQuantities while preserving exact SVG geometry", () => {
+      // 1. Isothermal step (T_A = T_B = 420 K, Delta U = 0, Q = W) across PV, PT, VT
+      for (const plane of ["PV", "PT", "VT"] as const) {
+        const isoBase: ThermalScenarioSpec = {
+          kind: "thermodynamic-process",
+          moles: 0.8,
+          initialState: { temperatureK: 420, volumeM3: 2.0e-3 },
+          steps: [{ process: "isothermal", targetVolumeM3: 6.0e-3 }],
+          diagramPlane: plane,
+          showIsotherms: true,
+          showIsothermLabels: true,
+        };
+        const unhiddenSvg = renderThermalSvg(isoBase);
+        const hiddenTempByOptsSvg = renderThermalSvg(isoBase, {
+          hiddenQuantities: ["T_B"],
+        });
+        expect(extractStudentVisibleText(hiddenTempByOptsSvg)).not.toContain(
+          "420",
+        );
+
+        const hiddenDeltaUSvg = renderThermalSvg(isoBase, {
+          hiddenQuantities: ["deltaUJ"],
+        });
+        const deltaUTokens = new Set(
+          [
+            ...extractStudentVisibleText(hiddenDeltaUSvg)
+              .replace(/×\s*10[⁻⁰¹²³⁴⁵⁶⁷⁸⁹]+/g, " ")
+              .matchAll(/[0-9]+(?:\.[0-9]+)?/g),
+          ].map((m) => m[0]),
+        );
+        expect(deltaUTokens.has("0")).toBe(false);
+
+        // Exact curve & state marker geometry invariance
+        const extractPrimaryGeo = (s: string) => [
+          ...[
+            ...s.matchAll(/<path d="([^"]+)" fill="none" stroke="#15191d"/g),
+          ].map((m) => m[1]),
+          ...[...s.matchAll(/<circle cx="([^"]+)" cy="([^"]+)"/g)].map(
+            (m) => `${m[1]},${m[2]}`,
+          ),
+        ];
+        expect(extractPrimaryGeo(hiddenTempByOptsSvg)).toEqual(
+          extractPrimaryGeo(unhiddenSvg),
+        );
+        expect(extractPrimaryGeo(hiddenDeltaUSvg)).toEqual(
+          extractPrimaryGeo(unhiddenSvg),
+        );
+      }
+
+      // 2. Isochoric step (V_A = V_B = 2.4e-3 m^3, W = 0, Q = Delta U) across PV and VT
+      for (const plane of ["PV", "VT"] as const) {
+        const isochoricSpec: ThermalScenarioSpec = {
+          kind: "thermodynamic-process",
+          moles: 0.5,
+          initialState: { pressurePa: 1.5e5, volumeM3: 2.4e-3 },
+          steps: [{ process: "isochoric", targetPressurePa: 4.5e5 }],
+          diagramPlane: plane,
+        };
+        const hiddenV = extractStudentVisibleText(
+          renderThermalSvg(isochoricSpec, { hiddenQuantities: ["V_B"] }),
+        );
+        expect(hiddenV).not.toContain("2.4");
+      }
+
+      // 3. Closed Carnot cycle: W_net == Q_net and eta == eta_Carnot companions
+      const carnotBase: ThermalScenarioSpec = {
+        kind: "carnot-cycle",
+        moles: 0.75,
+        hotTemperatureK: 720,
+        coldTemperatureK: 288, // eta = 1 - 288/720 = 0.60 (60%)
+        initialVolumeM3: 1.5e-3,
+        isothermalExpansionVolumeM3: 4.5e-3,
+      };
+      const carnotSol = solveCarnotCycle(carnotBase);
+      const hideNetHeatWithAllowlist = renderThermalSvg({
+        ...carnotBase,
+        visibleQuantities: ["netWorkJ", "thermalEfficiency"],
+        hiddenQuantities: ["netHeatJ", "carnotEfficiency"],
+      });
+      const allowWithCompanionHidden = extractStudentVisibleText(
+        hideNetHeatWithAllowlist,
+      );
+      expect(allowWithCompanionHidden).not.toContain(
+        formatSignificant(carnotSol.netWorkJ),
+      );
+      expect(allowWithCompanionHidden).not.toContain("60");
+
+      // 4. Multi-component calorimetry with coincident mass, T_i, and c across components + Celsius unit mode
+      const sharedMixSpec: ThermalScenarioSpec = {
+        kind: "calorimetry-mixing",
+        temperatureDisplayUnit: "C",
+        components: [
+          {
+            id: "block",
+            label: "Copper block",
+            massKg: 0.25,
+            initialTemperatureK: 393.15, // 120 °C
+            specificHeatJPerKgK: 385,
+          },
+          {
+            id: "water",
+            label: "Water",
+            massKg: 0.25,
+            initialTemperatureK: 293.15, // 20 °C
+            specificHeatJPerKgK: 4180,
+          },
+          {
+            id: "cup",
+            label: "Copper cup",
+            massKg: 0.12,
+            initialTemperatureK: 293.15, // 20 °C
+            specificHeatJPerKgK: 385,
+          },
+        ],
+      };
+      const hiddenSharedC = extractStudentVisibleText(
+        renderThermalSvg(sharedMixSpec, {
+          hiddenQuantities: ["component:0:specificHeatJPerKgK"],
+        }),
+      );
+      expect(hiddenSharedC).not.toContain("385");
+
+      const hiddenSharedTemp = extractStudentVisibleText(
+        renderThermalSvg(sharedMixSpec, {
+          hiddenQuantities: ["component:water:initialTemperatureK"],
+        }),
+      );
+      expect(hiddenSharedTemp).not.toMatch(/(?<![\d.])20(?![\d.])/);
+      expect(hiddenSharedTemp).not.toContain("293");
+
+      const hiddenSharedMass = extractStudentVisibleText(
+        renderThermalSvg(sharedMixSpec, {
+          hiddenQuantities: ["component:0:massKg"],
+        }),
+      );
+      expect(hiddenSharedMass).not.toContain("0.25");
+
+      // 5. Kinetic theory with "Helium-4 (He)" hiding molarMassKgPerMol = 4.0e-3 (4 g/mol)
+      const heliumKt: ThermalScenarioSpec = {
+        kind: "kinetic-theory",
+        gasLabel: "Helium-4 (He)",
+        temperatureK: 310,
+        molarMassKgPerMol: 4.0e-3,
+      };
+      const heliumHiddenM = extractStudentVisibleText(
+        renderThermalSvg(heliumKt, { hiddenQuantities: ["molarMassKgPerMol"] }),
+      );
+      expect(heliumHiddenM).not.toContain("Helium-4");
+      expect(heliumHiddenM).not.toContain("0.004");
+
+      // 6. Thermal radiation equal-emissivity comparison & power-of-10 unit collision (n = 10 mol)
+      const radEqualE: ThermalScenarioSpec = {
+        kind: "thermal-radiation",
+        temperatureK: 2800,
+        emissivity: 0.78,
+        surfaceAreaM2: 1.2e-4,
+        comparisonTemperatureK: 2200,
+        comparisonEmissivity: 0.78,
+      };
+      const radHiddenCompE = extractStudentVisibleText(
+        renderThermalSvg(radEqualE, {
+          hiddenQuantities: ["comparisonEmissivity"],
+        }),
+      );
+      expect(radHiddenCompE).not.toContain("0.78");
+      expect(radHiddenCompE).not.toContain("78");
+
+      const tenMolesSpec: ThermalScenarioSpec = {
+        kind: "thermodynamic-process",
+        moles: 10,
+        initialState: { pressurePa: 2.0e5, volumeM3: 1.5e-2 },
+        steps: [{ process: "isobaric", targetVolumeM3: 3.0e-2 }],
+        hiddenQuantities: ["moles"],
+      };
+      const tenMolesText = extractStudentVisibleText(
+        renderThermalSvg(tenMolesSpec),
+      );
+      const tenMolesTokens = new Set(
+        [
+          ...tenMolesText
+            .replace(/×\s*10[⁻⁰¹²³⁴⁵⁶⁷⁸⁹]+/g, " ")
+            .matchAll(/[0-9]+(?:\.[0-9]+)?/g),
+        ].map((m) => m[0]),
+      );
+      expect(tenMolesTokens.has("10")).toBe(false);
+    });
+
+    it("passes exhaustive per-quantity zero-leakage fuzz sweep across all 6 scenario families, planes, and render modes", () => {
+      const water = THERMAL_SUBSTANCE_PRESETS.water;
+      const fuzzScenarios: ThermalScenarioSpec[] = [
+        // All 7 thermodynamic archetypes across PV, PT, VT with isotherm labels active
+        ...([
+          "rectangular-cycle",
+          "isothermal-isobaric-isochoric-cycle",
+          "adiabatic-isobaric-isochoric-cycle",
+          "otto-cycle",
+          "single-isothermal",
+          "single-adiabatic",
+          "two-step-open",
+        ] as const).map((archetype, idx) => ({
+          ...generateThermodynamicProcessScenario(100 + idx, {
+            archetype,
+            diagramPlane: (["PV", "PT", "VT"] as const)[idx % 3],
+          }),
+          showIsotherms: true,
+          showIsothermLabels: true,
+        })),
+        // Carnot heat-engine and refrigerator across PV, PT, VT
+        generateCarnotCycleScenario(201, {
+          diagramPlane: "PV",
+          cycleDirection: "heat-engine",
+        }),
+        generateCarnotCycleScenario(202, {
+          diagramPlane: "PT",
+          cycleDirection: "heat-engine",
+        }),
+        generateCarnotCycleScenario(203, {
+          diagramPlane: "VT",
+          cycleDirection: "refrigerator",
+        }),
+        // Degenerate m = 1 kg phase-change curves (energy & time, K & C)
+        {
+          kind: "phase-change-curve",
+          material: {
+            name: "Water",
+            massKg: 1.0,
+            meltingPointK: water.meltingPointK,
+            boilingPointK: water.boilingPointK,
+            specificHeatSolidJPerKgK: water.specificHeatSolidJPerKgK,
+            specificHeatLiquidJPerKgK: water.specificHeatLiquidJPerKgK,
+            specificHeatGasJPerKgK: water.specificHeatGasJPerKgK,
+            latentHeatFusionJPerKg: water.latentHeatFusionJPerKg,
+            latentHeatVaporizationJPerKg: water.latentHeatVaporizationJPerKg,
+          },
+          initialTemperatureK: 253.15,
+          finalTemperatureK: 393.15,
+          heaterPowerW: 1000,
+          heaterEfficiency: 0.8,
+          xAxisMode: "energy",
+          temperatureDisplayUnit: "C",
+        },
+        {
+          kind: "phase-change-curve",
+          material: {
+            name: "Water",
+            massKg: 0.4,
+            meltingPointK: water.meltingPointK,
+            boilingPointK: water.boilingPointK,
+            specificHeatSolidJPerKgK: water.specificHeatSolidJPerKgK,
+            specificHeatLiquidJPerKgK: water.specificHeatLiquidJPerKgK,
+            specificHeatGasJPerKgK: water.specificHeatGasJPerKgK,
+            latentHeatFusionJPerKg: water.latentHeatFusionJPerKg,
+            latentHeatVaporizationJPerKg: water.latentHeatVaporizationJPerKg,
+          },
+          initialTemperatureK: 393.15,
+          finalTemperatureK: 253.15,
+          heaterPowerW: 800,
+          xAxisMode: "time",
+          temperatureDisplayUnit: "K",
+        },
+        // Calorimetry mixing across schematic & convergence-graph, K & C, and 0 °C coexistence
+        {
+          ...generateCalorimetryMixingScenario(301, {
+            archetype: "metal-in-water",
+            diagramVariant: "calorimeter-schematic",
+          }),
+          temperatureDisplayUnit: "C",
+        },
+        generateCalorimetryMixingScenario(302, {
+          archetype: "ice-in-water-melt",
+          diagramVariant: "convergence-graph",
+        }),
+        {
+          ...generateCalorimetryMixingScenario(303, {
+            archetype: "ice-water-coexistence",
+            diagramVariant: "calorimeter-schematic",
+          }),
+          temperatureDisplayUnit: "C",
+        },
+        generateCalorimetryMixingScenario(304, {
+          archetype: "ice-water-coexistence",
+          diagramVariant: "convergence-graph",
+        }),
+        // Kinetic theory with preset label + container + comparison
+        generateKineticTheoryScenario(401, { withComparison: true }),
+        generateKineticTheoryScenario(402, { withComparison: false }),
+        // Thermal radiation across greybody comparison & ambient equilibrium (P_net = 0)
+        generateThermalRadiationScenario(501, { withComparison: true }),
+        {
+          kind: "thermal-radiation",
+          bodyLabel: "Plate",
+          temperatureK: 315,
+          emissivity: 0.82,
+          surfaceAreaM2: 0.6,
+          ambientTemperatureK: 315,
+          observerDistanceM: 2.5,
+          comparisonTemperatureK: 420,
+          comparisonEmissivity: 0.82,
+        },
+      ];
+
+      let checkedAssertions = 0;
+
+      for (const rawSpec of fuzzScenarios) {
+        const baseSpec: ThermalScenarioSpec = {
+          ...rawSpec,
+          hiddenQuantities: undefined,
+          visibleQuantities: undefined,
+        };
+        const sol = solveThermalScenario(baseSpec);
+        const baselineTeacherSvg = renderThermalSvg(baseSpec, {
+          mode: "teacher-complete",
+        });
+        const extractCurvePaths = (s: string) =>
+          [
+            ...s.matchAll(
+              /<path d="([^"]+)" fill="none" stroke="#15191d" stroke-width="2\.[234]"/g,
+            ),
+          ].map((m) => m[1]);
+        const baselinePaths = extractCurvePaths(baselineTeacherSvg);
+
+        for (const [qKey, qVal] of Object.entries(sol.quantities)) {
+          const renderedVariants = [
+            renderThermalSvg({ ...baseSpec, hiddenQuantities: [qKey] }),
+            renderThermalSvg(baseSpec, { hiddenQuantities: [qKey] }),
+            renderThermalSvg(baseSpec, {
+              mode: "teacher-complete",
+              hiddenQuantities: [qKey],
+            }),
+          ];
+
+          for (const svg of renderedVariants) {
+            checkedAssertions++;
+            assertWellFormedSvgXml(svg);
+            expect(svg).not.toContain(qKey);
+            expect(extractCurvePaths(svg)).toEqual(baselinePaths);
+
+            const visible = extractStudentVisibleText(svg);
+            const withoutPowersOfTen = visible.replace(
+              /×\s*10[⁻⁰¹²³⁴⁵⁶⁷⁸⁹]+/g,
+              " ",
+            );
+            const visibleTokens = new Set(
+              [
+                ...withoutPowersOfTen.matchAll(
+                  /[0-9]+(?:\.[0-9]+)?(?:e[+-]?[0-9]+)?/gi,
+                ),
+              ].map((m) => m[0]),
+            );
+
+            const absVal = Math.abs(qVal);
+            if (absVal < 1e-11) {
+              expect(visibleTokens.has("0")).toBe(false);
+            } else {
+              const fmt3 = formatSignificant(absVal, 3);
+              if (fmt3.includes("×")) {
+                expect(visible).not.toContain(fmt3);
+              } else {
+                expect(visibleTokens.has(fmt3)).toBe(false);
+              }
+            }
+          }
+        }
+      }
+
+      expect(checkedAssertions).toBeGreaterThan(900);
     });
   });
 

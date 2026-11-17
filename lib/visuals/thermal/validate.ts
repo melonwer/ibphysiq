@@ -298,10 +298,48 @@ function validateThermodynamicProcessSpec(
   let curV = v0!;
   let curT = t0!;
   const gamma = MONATOMIC_ADIABATIC_GAMMA;
+  const initialStateId = init.stateId ?? "A";
+  if (!initialStateId.trim()) {
+    pushIssue(
+      issues,
+      "EMPTY_STATE_ID",
+      "initialState.stateId",
+      "Initial stateId must be non-empty.",
+    );
+    return;
+  }
+  const seenStateIds = new Set<string>([initialStateId]);
 
   for (let i = 0; i < spec.steps.length; i++) {
     const step = spec.steps[i];
     const stepPath = `steps[${i}]`;
+    const isClosingFinalStep =
+      i === spec.steps.length - 1 &&
+      spec.steps.length >= 2 &&
+      (Boolean(step.closeToInitial) || spec.isClosedCycle === true);
+    if (!isClosingFinalStep) {
+      const defaultId = i + 1 < 26 ? String.fromCharCode(66 + i) : `S${i + 2}`;
+      const toId = step.toStateId ?? defaultId;
+      if (!toId.trim()) {
+        pushIssue(
+          issues,
+          "EMPTY_STATE_ID",
+          `${stepPath}.toStateId`,
+          "Step toStateId must be non-empty.",
+        );
+        return;
+      }
+      if (seenStateIds.has(toId)) {
+        pushIssue(
+          issues,
+          "DUPLICATE_STATE_ID",
+          `${stepPath}.toStateId`,
+          `Duplicate state identifier "${toId}" in thermodynamic path.`,
+        );
+        return;
+      }
+      seenStateIds.add(toId);
+    }
     if (!VALID_PROCESSES.includes(step.process)) {
       pushIssue(
         issues,

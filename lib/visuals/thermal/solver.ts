@@ -473,9 +473,14 @@ function buildCycleMetrics(
   }
   for (const leg of legs) {
     quantities[`leg:${leg.legIndex}:workJ`] = leg.workJ;
+    quantities[`leg:${leg.legIndex}:workOnGasJ`] = leg.workOnGasJ;
     quantities[`leg:${leg.legIndex}:heatJ`] = leg.heatJ;
     quantities[`leg:${leg.legIndex}:deltaUJ`] = leg.deltaUJ;
     quantities[`leg:${leg.legIndex}:entropyChangeJK`] = leg.entropyChangeJK;
+    if (leg.isothermalEntropyChangeJK !== null) {
+      quantities[`leg:${leg.legIndex}:isothermalEntropyChangeJK`] =
+        leg.isothermalEntropyChangeJK;
+    }
   }
 
   return {
@@ -640,6 +645,8 @@ export function solveCarnotCycle(
   );
   metrics.quantities.hotTemperatureK = tH;
   metrics.quantities.coldTemperatureK = tC;
+  metrics.quantities.initialVolumeM3 = v1;
+  metrics.quantities.isothermalExpansionVolumeM3 = v2;
 
   return {
     kind: "carnot-cycle",
@@ -921,8 +928,32 @@ export function solvePhaseChangeCurve(
   if (effectivePowerW !== null) {
     quantities.effectivePowerW = effectivePowerW;
   }
+  if (spec.heaterPowerW !== undefined) {
+    quantities.heaterPowerW = spec.heaterPowerW;
+  }
+  if (spec.heaterEfficiency !== undefined) {
+    quantities.heaterEfficiency = spec.heaterEfficiency;
+  }
+  if (mat.specificHeatSolidJPerKgK !== undefined) {
+    quantities.specificHeatSolidJPerKgK = mat.specificHeatSolidJPerKgK;
+  }
+  if (mat.specificHeatLiquidJPerKgK !== undefined) {
+    quantities.specificHeatLiquidJPerKgK = mat.specificHeatLiquidJPerKgK;
+  }
+  if (mat.specificHeatGasJPerKgK !== undefined) {
+    quantities.specificHeatGasJPerKgK = mat.specificHeatGasJPerKgK;
+  }
+  if (mat.latentHeatFusionJPerKg !== undefined) {
+    quantities.latentHeatFusionJPerKg = mat.latentHeatFusionJPerKg;
+  }
+  if (mat.latentHeatVaporizationJPerKg !== undefined) {
+    quantities.latentHeatVaporizationJPerKg = mat.latentHeatVaporizationJPerKg;
+  }
   for (const stage of stages) {
     quantities[`stage:${stage.stageIndex}:energyJ`] = stage.energyJ;
+    if (stage.durationS !== null) {
+      quantities[`stage:${stage.stageIndex}:durationS`] = stage.durationS;
+    }
     if (stage.stageKind === "melting" || stage.stageKind === "freezing") {
       quantities.meltingEnergyJ = stage.energyJ;
       if (stage.durationS !== null) quantities.meltingDurationS = stage.durationS;
@@ -1235,13 +1266,34 @@ export function solveCalorimetryMixing(
     energyBalanceResidualJ,
   };
   solvedComponents.forEach((sc, idx) => {
+    const specComp = spec.components[idx];
     quantities[`component:${idx}:massKg`] = sc.massKg;
+    quantities[`component:${sc.id}:massKg`] = sc.massKg;
     quantities[`component:${idx}:initialTemperatureK`] = sc.initialTemperatureK;
+    quantities[`component:${sc.id}:initialTemperatureK`] =
+      sc.initialTemperatureK;
+    quantities[`component:${idx}:initialTemperatureC`] = sc.initialTemperatureC;
+    quantities[`component:${sc.id}:initialTemperatureC`] =
+      sc.initialTemperatureC;
+    if (specComp.specificHeatJPerKgK !== undefined) {
+      quantities[`component:${idx}:specificHeatJPerKgK`] =
+        specComp.specificHeatJPerKgK;
+      quantities[`component:${sc.id}:specificHeatJPerKgK`] =
+        specComp.specificHeatJPerKgK;
+    }
     quantities[`component:${idx}:signedHeatJ`] = sc.signedHeatJ;
     quantities[`component:${sc.id}:signedHeatJ`] = sc.signedHeatJ;
+    quantities[`component:${idx}:sensibleHeatJ`] = sc.sensibleHeatJ;
+    quantities[`component:${idx}:latentHeatJ`] = sc.latentHeatJ;
     if (sc.transitionFraction !== null) {
-      quantities.meltedFraction = sc.transitionFraction;
-      quantities.meltedMassKg = sc.transitionFraction * sc.massKg;
+      quantities[`component:${idx}:transitionFraction`] = sc.transitionFraction;
+      if (sc.finalPhase === "solid-liquid" || sc.initialPhase === "solid") {
+        quantities.meltedFraction = sc.transitionFraction;
+        quantities.meltedMassKg = sc.transitionFraction * sc.massKg;
+      } else if (sc.finalPhase === "liquid-gas") {
+        quantities.vaporizedFraction = sc.transitionFraction;
+        quantities.vaporizedMassKg = sc.transitionFraction * sc.massKg;
+      }
     }
   });
 
@@ -1328,10 +1380,25 @@ export function solveKineticTheory(
     averageKineticEnergyEv,
     molarInternalEnergyJPerMol,
   };
+  if (spec.moles !== undefined) quantities.moles = spec.moles;
+  if (spec.volumeM3 !== undefined) quantities.volumeM3 = spec.volumeM3;
   if (pressurePa !== null) quantities.pressurePa = pressurePa;
   if (densityKgPerM3 !== null) quantities.densityKgPerM3 = densityKgPerM3;
+  if (comparisonTemperatureK !== null) {
+    quantities.comparisonTemperatureK = comparisonTemperatureK;
+  }
   if (comparisonRmsSpeedMs !== null) {
     quantities.comparisonRmsSpeedMs = comparisonRmsSpeedMs;
+  }
+  if (comparisonMeanSpeedMs !== null) {
+    quantities.comparisonMeanSpeedMs = comparisonMeanSpeedMs;
+  }
+  if (comparisonMostProbableSpeedMs !== null) {
+    quantities.comparisonMostProbableSpeedMs = comparisonMostProbableSpeedMs;
+  }
+  if (comparisonAverageKineticEnergyJ !== null) {
+    quantities.comparisonAverageKineticEnergyJ =
+      comparisonAverageKineticEnergyJ;
   }
 
   return {
@@ -1415,11 +1482,24 @@ export function solveThermalRadiation(
     radiatedIntensityWm2,
     netRadiatedPowerW,
   };
+  if (ambientTemperatureK !== null) {
+    quantities.ambientTemperatureK = ambientTemperatureK;
+  }
+  if (observerDistanceM !== null) {
+    quantities.observerDistanceM = observerDistanceM;
+  }
   if (intensityAtDistanceWm2 !== null) {
     quantities.intensityAtDistanceWm2 = intensityAtDistanceWm2;
   }
+  if (comparisonTemperatureK !== null) {
+    quantities.comparisonTemperatureK = comparisonTemperatureK;
+  }
+  if (comparisonEmissivity !== null) {
+    quantities.comparisonEmissivity = comparisonEmissivity;
+  }
   if (comparisonPeakWavelengthM !== null) {
     quantities.comparisonPeakWavelengthM = comparisonPeakWavelengthM;
+    quantities.comparisonPeakWavelengthNm = comparisonPeakWavelengthM * 1e9;
   }
   if (comparisonRadiatedPowerW !== null) {
     quantities.comparisonRadiatedPowerW = comparisonRadiatedPowerW;

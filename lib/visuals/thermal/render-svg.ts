@@ -11,13 +11,17 @@ import {
 } from "./solver";
 import {
   CalorimetryMixingScenarioSpec,
+  CalorimetryMixingSolution,
   CarnotCycleScenarioSpec,
   KineticTheoryScenarioSpec,
+  KineticTheorySolution,
   PhaseChangeScenarioSpec,
+  PhaseChangeSolution,
   SolvedGasState,
   SolvedProcessLeg,
   ThermalDiagramPlane,
   ThermalRadiationScenarioSpec,
+  ThermalRadiationSolution,
   ThermalRenderOptions,
   ThermalScenarioSpec,
   ThermodynamicCycleMetrics,
@@ -31,6 +35,7 @@ import {
   formatCleanNumber,
   formatSignificant,
   selectQuantityScale,
+  toSubscript,
   VisibilityController,
 } from "./visibility";
 
@@ -46,6 +51,51 @@ interface PlotFrame {
 interface Point2D {
   readonly x: number;
   readonly y: number;
+}
+
+/**
+ * Deterministic lowercase-alpha clipPath identifier (zero ASCII digits 0-9 so
+ * clipPath attributes can never collide with hidden numeric quantities).
+ */
+function makeAlphaClipId(prefix: string, rawId: string | undefined): string {
+  const source = `${prefix}::${rawId ?? "default"}`;
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ (ch + i), 0x85ebca6b) >>> 0;
+  }
+  let letters = "";
+  let n1 = h1;
+  let n2 = h2;
+  for (let k = 0; k < 4; k++) {
+    letters += String.fromCharCode(97 + (n1 % 26));
+    n1 = Math.floor(n1 / 26);
+  }
+  for (let k = 0; k < 4; k++) {
+    letters += String.fromCharCode(97 + (n2 % 26));
+    n2 = Math.floor(n2 / 26);
+  }
+  return `${prefix}-${letters}`;
+}
+
+/**
+ * Substitute scale-equivalent digit-free SI unit names if a power-of-ten unit
+ * prefix ("10⁵ Pa", "10⁻³ m³", etc.) collides with a hidden quantity equal to 10.
+ */
+function safeScaleUnitLabel(
+  unitLabel: string,
+  vis: VisibilityController,
+): string {
+  if (!vis.leaksHiddenText(unitLabel)) return unitLabel;
+  const fallbackMap: Readonly<Record<string, string>> = {
+    "10⁵ Pa": "bar",
+    "10⁻³ m³": "dm³",
+    "10⁻⁶ m³": "cm³",
+    "10⁻³ m⁻¹ s": "km⁻¹ s",
+  };
+  return fallbackMap[unitLabel] ?? unitLabel;
 }
 
 function resolveDimensions(options: ThermalRenderOptions): {
@@ -155,6 +205,7 @@ function renderBaseGridAndAxes(params: {
   showNumericYTicks: boolean;
   xAxisTitle: string;
   yAxisTitle: string;
+  vis: VisibilityController;
 }): string[] {
   const {
     frame,
@@ -170,6 +221,7 @@ function renderBaseGridAndAxes(params: {
     showNumericYTicks,
     xAxisTitle,
     yAxisTitle,
+    vis,
   } = params;
 
   const projectX = (val: number) =>
@@ -229,8 +281,12 @@ function renderBaseGridAndAxes(params: {
       prevRight = px + halfWidth;
       out.push(
         `<line x1="${coord(px)}" y1="${coord(frame.bottom - 4)}" x2="${coord(px)}" y2="${coord(frame.bottom + 5)}" stroke="#202429" stroke-width="1.4"/>`,
-        `<text x="${coord(px)}" y="${coord(frame.bottom + 22)}" text-anchor="middle" font-size="14" font-family="Arial, sans-serif" fill="#202429">${escapeXml(label)}</text>`,
       );
+      if (!vis.leaksHiddenText(label)) {
+        out.push(
+          `<text x="${coord(px)}" y="${coord(frame.bottom + 22)}" text-anchor="middle" font-size="14" font-family="Arial, sans-serif" fill="#202429">${escapeXml(label)}</text>`,
+        );
+      }
     }
   }
 
@@ -240,8 +296,12 @@ function renderBaseGridAndAxes(params: {
       const label = formatCleanNumber(v, 4);
       out.push(
         `<line x1="${coord(frame.left - 5)}" y1="${coord(py)}" x2="${coord(frame.left + 4)}" y2="${coord(py)}" stroke="#202429" stroke-width="1.4"/>`,
-        `<text x="${coord(frame.left - 10)}" y="${coord(py + 5)}" text-anchor="end" font-size="14" font-family="Arial, sans-serif" fill="#202429">${escapeXml(label)}</text>`,
       );
+      if (!vis.leaksHiddenText(label)) {
+        out.push(
+          `<text x="${coord(frame.left - 10)}" y="${coord(py + 5)}" text-anchor="end" font-size="14" font-family="Arial, sans-serif" fill="#202429">${escapeXml(label)}</text>`,
+        );
+      }
     }
   }
 
@@ -321,6 +381,16 @@ function sampleLegCurve(
   return pts;
 }
 
+function safeStateSymbol(
+  state: SolvedGasState,
+  vis: VisibilityController,
+): string {
+  if (!vis.leaksHiddenText(state.label)) return state.label;
+  return state.stateIndex < 26
+    ? String.fromCharCode(65 + state.stateIndex)
+    : `S${toSubscript(state.stateIndex + 1)}`;
+}
+
 function renderThermodynamicDiagram(
   spec: ThermodynamicProcessScenarioSpec | CarnotCycleScenarioSpec,
   metrics: ThermodynamicCycleMetrics,
@@ -333,7 +403,7 @@ function renderThermodynamicDiagram(
   const showIsotherms = spec.showIsotherms ?? plane === "PV";
   const showShadedWork = spec.showShadedWork ?? plane === "PV";
   const frame = createFrame(width, height);
-  const clipId = `therm-clip-${(spec.id ?? " gas").replace(/[^a-zA-Z0-9_-]/g, "") || "0"}`;
+  const clipId = makeAlphaClipId("thermclip", spec.id);
 
   const stateById = new Map(metrics.states.map((s) => [s.stateId, s]));
   const sampledLegs = metrics.legs.map((leg) => {
@@ -414,17 +484,30 @@ function renderThermodynamicDiagram(
     "T",
     "hotTemperatureK",
     "coldTemperatureK",
+    "minTemperatureK",
+    "maxTemperatureK",
     ...stateTempAliases,
   );
 
-  const hideXNumbers = plane === "PV" ? anyVolumeHidden : anyTempHidden;
-  const hideYNumbers = plane === "VT" ? anyVolumeHidden : anyPressureHidden;
+  const anyXTickCollides = xTickLayout.majorTicks.some((v) =>
+    vis.leaksHiddenText(formatCleanNumber(v, 4)),
+  );
+  const anyYTickCollides = yTickLayout.majorTicks.some((v) =>
+    vis.leaksHiddenText(formatCleanNumber(v, 4)),
+  );
+  const hideXNumbers =
+    (plane === "PV" ? anyVolumeHidden : anyTempHidden) || anyXTickCollides;
+  const hideYNumbers =
+    (plane === "VT" ? anyVolumeHidden : anyPressureHidden) || anyYTickCollides;
+
+  const safeVUnit = safeScaleUnitLabel(vScale.unitLabel, vis);
+  const safePUnit = safeScaleUnitLabel(pScale.unitLabel, vis);
 
   const xAxisTitle =
     plane === "PV"
       ? hideXNumbers
         ? "volume V"
-        : `volume V / ${vScale.unitLabel}`
+        : `volume V / ${safeVUnit}`
       : hideXNumbers
         ? "temperature T"
         : "temperature T / K";
@@ -432,10 +515,10 @@ function renderThermodynamicDiagram(
     plane === "VT"
       ? hideYNumbers
         ? "volume V"
-        : `volume V / ${vScale.unitLabel}`
+        : `volume V / ${safeVUnit}`
       : hideYNumbers
         ? "pressure P"
-        : `pressure P / ${pScale.unitLabel}`;
+        : `pressure P / ${safePUnit}`;
 
   const projectX = (val: number) =>
     frame.left +
@@ -458,6 +541,7 @@ function renderThermodynamicDiagram(
   const elements: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(ariaLabel)}">`,
     `<title>${escapeXml(ariaLabel)}</title>`,
+    `<desc>${escapeXml(ariaLabel)}</desc>`,
     `<rect width="${width}" height="${height}" fill="white"/>`,
     `<defs><clipPath id="${clipId}"><rect x="${coord(frame.left)}" y="${coord(frame.top)}" width="${coord(frame.width)}" height="${coord(frame.height)}"/></clipPath></defs>`,
   ];
@@ -474,7 +558,9 @@ function renderThermodynamicDiagram(
       if (loopPixels.length >= 3) {
         const d =
           loopPixels
-            .map((p, idx) => `${idx === 0 ? "M" : "L"}${coord(p.x)} ${coord(p.y)}`)
+            .map(
+              (p, idx) => `${idx === 0 ? "M" : "L"}${coord(p.x)} ${coord(p.y)}`,
+            )
             .join(" ") + " Z";
         elements.push(
           `<path d="${d}" fill="#dfe8f3" fill-opacity="0.65" stroke="none" clip-path="url(#${clipId})"/>`,
@@ -515,6 +601,7 @@ function renderThermodynamicDiagram(
       showNumericYTicks: !hideYNumbers,
       xAxisTitle,
       yAxisTitle,
+      vis,
     }),
   );
 
@@ -528,9 +615,10 @@ function renderThermodynamicDiagram(
       if (seenX.some((prev) => Math.abs(prev - px) < 22)) continue;
       seenX.push(px);
       const py = projectY(getRawY(s));
+      const sSym = safeStateSymbol(s, vis);
       elements.push(
         `<line x1="${coord(px)}" y1="${coord(py)}" x2="${coord(px)}" y2="${coord(frame.bottom)}" stroke="#7b8590" stroke-width="1.1" stroke-dasharray="4 4"/>`,
-        `<text x="${coord(px)}" y="${coord(frame.bottom + 21)}" text-anchor="middle" font-size="14" font-family="Arial, sans-serif" fill="#202429">${escapeXml(`${symPrefix}_${s.label}`)}</text>`,
+        `<text x="${coord(px)}" y="${coord(frame.bottom + 21)}" text-anchor="middle" font-size="14" font-family="Arial, sans-serif" fill="#202429">${escapeXml(`${symPrefix}_${sSym}`)}</text>`,
       );
     }
   }
@@ -544,9 +632,10 @@ function renderThermodynamicDiagram(
       if (seenY.some((prev) => Math.abs(prev - py) < 18)) continue;
       seenY.push(py);
       const px = projectX(getRawX(s));
+      const sSym = safeStateSymbol(s, vis);
       elements.push(
         `<line x1="${coord(frame.left)}" y1="${coord(py)}" x2="${coord(px)}" y2="${coord(py)}" stroke="#7b8590" stroke-width="1.1" stroke-dasharray="4 4"/>`,
-        `<text x="${coord(frame.left - 8)}" y="${coord(py + 5)}" text-anchor="end" font-size="14" font-family="Arial, sans-serif" fill="#202429">${escapeXml(`${symPrefix}_${s.label}`)}</text>`,
+        `<text x="${coord(frame.left - 8)}" y="${coord(py + 5)}" text-anchor="end" font-size="14" font-family="Arial, sans-serif" fill="#202429">${escapeXml(`${symPrefix}_${sSym}`)}</text>`,
       );
     }
   }
@@ -584,14 +673,17 @@ function renderThermodynamicDiagram(
         `<path d="${d}" fill="none" stroke="#7d8894" stroke-width="1.15" stroke-dasharray="5 4" clip-path="url(#${clipId})"/>`,
       );
       if (spec.showIsothermLabels && !anyTempHidden) {
-        const anchorV = maxDomainV * 0.88;
-        const anchorP = (metrics.thermalCapacityConstantJK * tempK) / anchorV;
-        const ax = projectX(anchorV * vScale.scaleFactor);
-        const ay = projectY(anchorP * pScale.scaleFactor);
-        if (ay >= frame.top + 14 && ay <= frame.bottom - 8) {
-          elements.push(
-            `<text x="${coord(ax - 4)}" y="${coord(ay - 6)}" text-anchor="end" font-size="12" font-family="Arial, sans-serif" fill="#5a6570">${escapeXml(`T = ${formatSignificant(tempK)} K`)}</text>`,
-          );
+        const isoText = `T = ${formatSignificant(tempK)} K`;
+        if (!vis.leaksHiddenText(isoText)) {
+          const anchorV = maxDomainV * 0.88;
+          const anchorP = (metrics.thermalCapacityConstantJK * tempK) / anchorV;
+          const ax = projectX(anchorV * vScale.scaleFactor);
+          const ay = projectY(anchorP * pScale.scaleFactor);
+          if (ay >= frame.top + 14 && ay <= frame.bottom - 8) {
+            elements.push(
+              `<text x="${coord(ax - 4)}" y="${coord(ay - 6)}" text-anchor="end" font-size="12" font-family="Arial, sans-serif" fill="#5a6570">${escapeXml(isoText)}</text>`,
+            );
+          }
         }
       }
     }
@@ -662,28 +754,49 @@ function renderThermodynamicDiagram(
       frame.bottom - 8,
       Math.max(frame.top + 14, item.py + dy * 16 + 5),
     );
+    const sSym = safeStateSymbol(item.state, vis);
     elements.push(
-      `<text x="${coord(lx)}" y="${coord(ly)}" text-anchor="middle" font-size="15" font-weight="bold" font-family="Arial, sans-serif" fill="#15191d">${escapeXml(item.state.label)}</text>`,
+      `<text x="${coord(lx)}" y="${coord(ly)}" text-anchor="middle" font-size="15" font-weight="bold" font-family="Arial, sans-serif" fill="#15191d">${escapeXml(sSym)}</text>`,
     );
   }
 
   // Optional summary badge ONLY if explicitly marked visible (or teacher-complete)
+  // On closed cycles W_net === Q_net, and on Carnot cycles eta === eta_Carnot!
   if (
     metrics.isClosedCycle &&
     vis.isExplicitlyVisible("netWorkJ", "thermalEfficiency")
   ) {
     const summaryParts: string[] = [];
-    if (vis.isExplicitlyVisible("netWorkJ")) {
-      summaryParts.push(`W_net = ${formatSignificant(metrics.netWorkJ)} J`);
-    }
+    const netHeatExplicitlyHidden = vis.isExplicitlyHidden(
+      "netHeatJ",
+      "totalHeatJ",
+      "heatJ",
+    );
+    const wText = `W_net = ${formatSignificant(metrics.netWorkJ)} J`;
     if (
-      metrics.thermalEfficiency !== null &&
-      vis.isExplicitlyVisible("thermalEfficiency")
+      vis.isExplicitlyVisible("netWorkJ") &&
+      !netHeatExplicitlyHidden &&
+      !vis.leaksHiddenText(wText)
     ) {
-      summaryParts.push(
-        `η = ${formatSignificant(metrics.thermalEfficiency * 100)}%`,
-      );
+      summaryParts.push(wText);
     }
+
+    if (metrics.thermalEfficiency !== null) {
+      const coincidesWithCarnot =
+        metrics.carnotEfficiency !== null &&
+        Math.abs(metrics.thermalEfficiency - metrics.carnotEfficiency) < 1e-6;
+      const carnotExplicitlyHidden =
+        coincidesWithCarnot && vis.isExplicitlyHidden("carnotEfficiency");
+      const etaText = `η = ${formatSignificant(metrics.thermalEfficiency * 100)}%`;
+      if (
+        vis.isExplicitlyVisible("thermalEfficiency") &&
+        !carnotExplicitlyHidden &&
+        !vis.leaksHiddenText(etaText)
+      ) {
+        summaryParts.push(etaText);
+      }
+    }
+
     if (summaryParts.length > 0) {
       elements.push(
         `<text x="${coord(frame.right - 8)}" y="${coord(frame.top + 18)}" text-anchor="end" font-size="13" font-family="Arial, sans-serif" fill="#343c44">${escapeXml(summaryParts.join("   "))}</text>`,
@@ -701,11 +814,11 @@ function renderThermodynamicDiagram(
 
 function renderPhaseChangeSvg(
   spec: PhaseChangeScenarioSpec,
+  sol: PhaseChangeSolution,
   vis: VisibilityController,
   width: number,
   height: number,
 ): string {
-  const sol = solvePhaseChangeCurve(spec);
   const frame = createFrame(width, height);
   const xMode = spec.xAxisMode ?? "energy";
   const tempUnit = spec.temperatureDisplayUnit ?? "K";
@@ -743,32 +856,54 @@ function renderPhaseChangeSvg(
     tempUnit === "K" && Math.min(...yValues) < 120,
   );
 
-  const hideXNumbers = vis.isHidden(
-    "totalEnergyJ",
-    "energyJ",
-    "latentHeatFusionJPerKg",
-    "latentHeatVaporizationJPerKg",
-    "meltingEnergyJ",
-    "boilingEnergyJ",
-    "totalDurationS",
-    "durationS",
-    "meltingDurationS",
-    "boilingDurationS",
-    "specificHeatSolidJPerKgK",
-    "specificHeatLiquidJPerKgK",
-    "specificHeatGasJPerKgK",
-  );
-  const hideYNumbers = vis.isHidden(
-    "temperatureK",
-    "T",
-    "meltingPointK",
-    "meltingPointC",
-    "boilingPointK",
-    "boilingPointC",
-    "initialTemperatureK",
-    "finalTemperatureK",
-  );
+  const stageEnergyAliases = sol.stages.flatMap((s) => [
+    `stage:${s.stageIndex}:energyJ`,
+    `stage:${s.stageIndex}:durationS`,
+  ]);
+  const hideXNumbers =
+    vis.isHidden(
+      "totalEnergyJ",
+      "signedTotalHeatJ",
+      "sensibleEnergyJ",
+      "latentEnergyJ",
+      "energyJ",
+      "latentHeatFusionJPerKg",
+      "latentHeatVaporizationJPerKg",
+      "meltingEnergyJ",
+      "boilingEnergyJ",
+      "totalDurationS",
+      "durationS",
+      "meltingDurationS",
+      "boilingDurationS",
+      "effectivePowerW",
+      "heaterPowerW",
+      "heaterEfficiency",
+      "specificHeatSolidJPerKgK",
+      "specificHeatLiquidJPerKgK",
+      "specificHeatGasJPerKgK",
+      ...stageEnergyAliases,
+    ) ||
+    xTickLayout.majorTicks.some((v) =>
+      vis.leaksHiddenText(formatCleanNumber(v, 4)),
+    );
+  const hideYNumbers =
+    vis.isHidden(
+      "temperatureK",
+      "T",
+      "meltingPointK",
+      "meltingPointC",
+      "boilingPointK",
+      "boilingPointC",
+      "initialTemperatureK",
+      "initialTemperatureC",
+      "finalTemperatureK",
+      "finalTemperatureC",
+    ) ||
+    yTickLayout.majorTicks.some((v) =>
+      vis.leaksHiddenText(formatCleanNumber(v, 4)),
+    );
 
+  const safeEUnit = safeScaleUnitLabel(eScale.unitLabel, vis);
   const xAxisTitle =
     xMode === "time"
       ? hideXNumbers
@@ -776,7 +911,7 @@ function renderPhaseChangeSvg(
         : "time t / s"
       : hideXNumbers
         ? "thermal energy transferred Q"
-        : `thermal energy transferred Q / ${eScale.unitLabel}`;
+        : `thermal energy transferred Q / ${safeEUnit}`;
   const yAxisTitle = hideYNumbers
     ? "temperature T"
     : `temperature T / ${tempUnit === "C" ? "°C" : "K"}`;
@@ -800,6 +935,7 @@ function renderPhaseChangeSvg(
   const elements: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(ariaLabel)}">`,
     `<title>${escapeXml(ariaLabel)}</title>`,
+    `<desc>${escapeXml(ariaLabel)}</desc>`,
     `<rect width="${width}" height="${height}" fill="white"/>`,
     ...renderBaseGridAndAxes({
       frame,
@@ -816,6 +952,7 @@ function renderPhaseChangeSvg(
       showNumericYTicks: !hideYNumbers,
       xAxisTitle,
       yAxisTitle,
+      vis,
     }),
   ];
 
@@ -850,7 +987,7 @@ function renderPhaseChangeSvg(
       prevPx = px;
       elements.push(
         `<line x1="${coord(px)}" y1="${coord(projectY(v.y))}" x2="${coord(px)}" y2="${coord(frame.bottom)}" stroke="#7b8590" stroke-width="1.05" stroke-dasharray="4 4"/>`,
-        `<text x="${coord(px)}" y="${coord(frame.bottom + 21)}" text-anchor="middle" font-size="13" font-family="Arial, sans-serif" fill="#202429">${escapeXml(`${prefix}_${idx + 1}`)}</text>`,
+        `<text x="${coord(px)}" y="${coord(frame.bottom + 21)}" text-anchor="middle" font-size="13" font-family="Arial, sans-serif" fill="#202429">${escapeXml(`${prefix}${toSubscript(idx + 1)}`)}</text>`,
       );
     });
   }
@@ -914,11 +1051,11 @@ function renderPhaseChangeSvg(
 
 function renderCalorimetrySchematicSvg(
   spec: CalorimetryMixingScenarioSpec,
+  sol: CalorimetryMixingSolution,
   vis: VisibilityController,
   width: number,
   height: number,
 ): string {
-  const sol = solveCalorimetryMixing(spec);
   const tempUnit = spec.temperatureDisplayUnit ?? "K";
   const fmtTemp = (k: number) =>
     tempUnit === "C"
@@ -929,6 +1066,7 @@ function renderCalorimetrySchematicSvg(
   const elements: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(ariaLabel)}">`,
     `<title>${escapeXml(ariaLabel)}</title>`,
+    `<desc>${escapeXml(ariaLabel)}</desc>`,
     `<rect width="${width}" height="${height}" fill="white"/>`,
   ];
 
@@ -982,56 +1120,77 @@ function renderCalorimetrySchematicSvg(
 
   sol.components.forEach((comp, idx) => {
     const specComp = spec.components[idx];
-    const hideMass = vis.isHidden(
-      "massKg",
-      `component:${idx}:massKg`,
-      `component:${comp.id}:massKg`,
-    );
-    const hideInitT = vis.isHidden(
-      "initialTemperatureK",
-      "temperatureK",
-      `component:${idx}:initialTemperatureK`,
-      `component:${comp.id}:initialTemperatureK`,
-    );
-    const hideC = vis.isHidden(
-      "specificHeatJPerKgK",
-      "specificHeatSolidJPerKgK",
-      "specificHeatLiquidJPerKgK",
-      `component:${idx}:specificHeatJPerKgK`,
-      `component:${comp.id}:specificHeatJPerKgK`,
-    );
+    const mFormatted = formatSignificant(comp.massKg);
+    const hideMass =
+      vis.isHidden(
+        "massKg",
+        `component:${idx}:massKg`,
+        `component:${comp.id}:massKg`,
+      ) ||
+      vis.leaksHiddenText(mFormatted) ||
+      vis.matchesHiddenValue(comp.massKg);
+
+    const eqCoincidesAndHidden =
+      Math.abs(comp.initialTemperatureK - sol.equilibriumTemperatureK) < 1e-6 &&
+      vis.isHidden(
+        "equilibriumTemperatureK",
+        "equilibriumTemperatureC",
+        "T_eq",
+      );
+    const tFormatted = fmtTemp(comp.initialTemperatureK);
+    const hideInitT =
+      eqCoincidesAndHidden ||
+      vis.isHidden(
+        "initialTemperatureK",
+        "temperatureK",
+        `component:${idx}:initialTemperatureK`,
+        `component:${comp.id}:initialTemperatureK`,
+      ) ||
+      vis.leaksHiddenText(tFormatted) ||
+      vis.matchesHiddenValue(comp.initialTemperatureK);
 
     const detailParts: string[] = [];
-    detailParts.push(
-      hideMass ? "m = ?" : `m = ${formatSignificant(comp.massKg)} kg`,
-    );
-    detailParts.push(
-      hideInitT ? "T_i = ?" : `T_i = ${fmtTemp(comp.initialTemperatureK)}`,
-    );
+    detailParts.push(hideMass ? "m = ?" : `m = ${mFormatted} kg`);
+    detailParts.push(hideInitT ? "T_i = ?" : `T_i = ${tFormatted}`);
     if (specComp.specificHeatJPerKgK !== undefined) {
-      detailParts.push(
-        hideC
-          ? "c = ?"
-          : `c = ${formatSignificant(specComp.specificHeatJPerKgK)} J kg⁻¹ K⁻¹`,
-      );
+      const cFormatted = formatSignificant(specComp.specificHeatJPerKgK);
+      const hideC =
+        vis.isHidden(
+          "specificHeatJPerKgK",
+          "specificHeatSolidJPerKgK",
+          "specificHeatLiquidJPerKgK",
+          `component:${idx}:specificHeatJPerKgK`,
+          `component:${comp.id}:specificHeatJPerKgK`,
+        ) ||
+        vis.leaksHiddenText(cFormatted) ||
+        vis.matchesHiddenValue(specComp.specificHeatJPerKgK);
+      detailParts.push(hideC ? "c = ?" : `c = ${cFormatted} J kg⁻¹ K⁻¹`);
     }
+
+    const safeCompLabel = vis.leaksHiddenText(comp.label)
+      ? `Component ${String.fromCharCode(65 + (idx % 26))}`
+      : comp.label;
 
     elements.push(
       `<rect x="${coord(cardLeft)}" y="${coord(cursorY)}" width="${coord(cardWidth)}" height="64" rx="6" fill="#f8fafc" stroke="#c5cdd5" stroke-width="1.3"/>`,
-      `<text x="${coord(cardLeft + 14)}" y="${coord(cursorY + 24)}" font-size="14.5" font-weight="bold" font-family="Arial, sans-serif" fill="#15191d">${escapeXml(comp.label)}</text>`,
+      `<text x="${coord(cardLeft + 14)}" y="${coord(cursorY + 24)}" font-size="14.5" font-weight="bold" font-family="Arial, sans-serif" fill="#15191d">${escapeXml(safeCompLabel)}</text>`,
       `<text x="${coord(cardLeft + 14)}" y="${coord(cursorY + 47)}" font-size="13" font-family="Arial, sans-serif" fill="#343c44">${escapeXml(detailParts.join("  |  "))}</text>`,
     );
     cursorY += 78;
   });
 
   // Equilibrium state box: NEVER show numeric equilibrium temperature unless explicitly visible
-  const showEqValue = vis.isExplicitlyVisible(
-    "equilibriumTemperatureK",
-    "equilibriumTemperatureC",
-    "T_eq",
-  );
+  const eqFormatted = fmtTemp(sol.equilibriumTemperatureK);
+  const showEqValue =
+    vis.isExplicitlyVisible(
+      "equilibriumTemperatureK",
+      "equilibriumTemperatureC",
+      "T_eq",
+    ) &&
+    !vis.leaksHiddenText(eqFormatted) &&
+    !vis.matchesHiddenValue(sol.equilibriumTemperatureK);
   const eqText = showEqValue
-    ? `Thermal equilibrium: T_eq = ${fmtTemp(sol.equilibriumTemperatureK)}`
+    ? `Thermal equilibrium: T_eq = ${eqFormatted}`
     : "Thermal equilibrium: T_eq";
 
   elements.push(
@@ -1045,11 +1204,11 @@ function renderCalorimetrySchematicSvg(
 
 function renderCalorimetryConvergenceSvg(
   spec: CalorimetryMixingScenarioSpec,
+  sol: CalorimetryMixingSolution,
   vis: VisibilityController,
   width: number,
   height: number,
 ): string {
-  const sol = solveCalorimetryMixing(spec);
   const frame = createFrame(width, height);
   const tempUnit = spec.temperatureDisplayUnit ?? "K";
   const showGrid = spec.showGrid ?? true;
@@ -1078,13 +1237,28 @@ function renderCalorimetryConvergenceSvg(
         "equilibriumTemperatureC",
         "T_eq",
       ));
-  const hideAnyInitT = vis.isHidden("initialTemperatureK", "temperatureK", "T");
-  const showNumericY = !hideEq && !hideAnyInitT;
+  const compInitTempAliases = sol.components.flatMap((c, idx) => [
+    `component:${idx}:initialTemperatureK`,
+    `component:${c.id}:initialTemperatureK`,
+  ]);
+  const hideAnyInitT = vis.isHidden(
+    "initialTemperatureK",
+    "temperatureK",
+    "T",
+    ...compInitTempAliases,
+  );
+  const showNumericY =
+    !hideEq &&
+    !hideAnyInitT &&
+    !yTickLayout.majorTicks.some((v) =>
+      vis.leaksHiddenText(formatCleanNumber(v, 4)),
+    );
 
   const ariaLabel = "Temperature against time thermal equilibrium graph";
   const elements: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(ariaLabel)}">`,
     `<title>${escapeXml(ariaLabel)}</title>`,
+    `<desc>${escapeXml(ariaLabel)}</desc>`,
     `<rect width="${width}" height="${height}" fill="white"/>`,
     ...renderBaseGridAndAxes({
       frame,
@@ -1103,6 +1277,7 @@ function renderCalorimetryConvergenceSvg(
       yAxisTitle: showNumericY
         ? `temperature T / ${tempUnit === "C" ? "°C" : "K"}`
         : "temperature T",
+      vis,
     }),
   ];
 
@@ -1136,9 +1311,12 @@ function renderCalorimetryConvergenceSvg(
       );
     }
     const dash = idx % 2 === 1 ? ' stroke-dasharray="8 4"' : "";
+    const safeCompLabel = vis.leaksHiddenText(comp.label)
+      ? `Component ${String.fromCharCode(65 + (idx % 26))}`
+      : comp.label;
     elements.push(
       `<path d="${pts.join(" ")}" fill="none" stroke="#15191d" stroke-width="2.2"${dash}/>`,
-      `<text x="${coord(projectX(1.6))}" y="${coord(projectY(endT + (startT - endT) * Math.exp(-1.6 / 2.2)) - 8)}" font-size="13" font-family="Arial, sans-serif" fill="#202429">${escapeXml(comp.label)}</text>`,
+      `<text x="${coord(projectX(1.6))}" y="${coord(projectY(endT + (startT - endT) * Math.exp(-1.6 / 2.2)) - 8)}" font-size="13" font-family="Arial, sans-serif" fill="#202429">${escapeXml(safeCompLabel)}</text>`,
     );
   });
 
@@ -1152,16 +1330,16 @@ function renderCalorimetryConvergenceSvg(
 
 function renderKineticTheorySvg(
   spec: KineticTheoryScenarioSpec,
+  sol: KineticTheorySolution,
   vis: VisibilityController,
   width: number,
   height: number,
 ): string {
-  const sol = solveKineticTheory(spec);
   const kB = spec.boltzmannConstant;
   const frame = createFrame(width, height);
   const showGrid = spec.showGrid ?? true;
   const showSpeeds = spec.showCharacteristicSpeeds ?? true;
-  const clipId = `mb-clip-${(spec.id ?? "0").replace(/[^a-zA-Z0-9_-]/g, "") || "0"}`;
+  const clipId = makeAlphaClipId("mbclip", spec.id);
 
   const maxRefRms = Math.max(sol.rmsSpeedMs, sol.comparisonRmsSpeedMs ?? 0);
   const maxSpeed = maxRefRms * 2.65;
@@ -1207,19 +1385,40 @@ function renderKineticTheorySvg(
     "meanSpeedMs",
     "mostProbableSpeedMs",
     "comparisonRmsSpeedMs",
+    "comparisonMeanSpeedMs",
+    "comparisonMostProbableSpeedMs",
   );
+  const hideKtXNumbers =
+    hideSpeedNumbers ||
+    xTickLayout.majorTicks.some((v) =>
+      vis.leaksHiddenText(formatCleanNumber(v, 4)),
+    );
+  const hideKtYNumbers =
+    hideSpeedNumbers ||
+    yTickLayout.majorTicks.some((v) =>
+      vis.leaksHiddenText(formatCleanNumber(v, 4)),
+    );
   const hideTemp = vis.isHidden(
     "temperatureK",
     "T",
     "comparisonTemperatureK",
     "averageKineticEnergyJ",
+    "comparisonAverageKineticEnergyJ",
     "molarInternalEnergyJPerMol",
   );
+  const hideMass = vis.isHidden(
+    "molarMassKgPerMol",
+    "particleMassKg",
+    "M",
+    "m",
+  );
 
+  const safeDensityUnit = safeScaleUnitLabel("10⁻³ m⁻¹ s", vis);
   const ariaLabel = "Maxwell-Boltzmann molecular speed distribution graph";
   const elements: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(ariaLabel)}">`,
     `<title>${escapeXml(ariaLabel)}</title>`,
+    `<desc>${escapeXml(ariaLabel)}</desc>`,
     `<rect width="${width}" height="${height}" fill="white"/>`,
     `<defs><clipPath id="${clipId}"><rect x="${coord(frame.left)}" y="${coord(frame.top)}" width="${coord(frame.width)}" height="${coord(frame.height)}"/></clipPath></defs>`,
     ...renderBaseGridAndAxes({
@@ -1233,14 +1432,15 @@ function renderKineticTheorySvg(
       yMajorTicks: yTickLayout.majorTicks,
       yMinorTicks: yTickLayout.minorTicks,
       showGrid,
-      showNumericXTicks: !hideSpeedNumbers,
-      showNumericYTicks: !hideSpeedNumbers,
-      xAxisTitle: hideSpeedNumbers
+      showNumericXTicks: !hideKtXNumbers,
+      showNumericYTicks: !hideKtYNumbers,
+      xAxisTitle: hideKtXNumbers
         ? "molecular speed v"
         : "molecular speed v / m s⁻¹",
-      yAxisTitle: hideSpeedNumbers
+      yAxisTitle: hideKtYNumbers
         ? "probability density f(v)"
-        : "probability density f(v) / 10⁻³ m⁻¹ s",
+        : `probability density f(v) / ${safeDensityUnit}`,
+      vis,
     }),
   ];
 
@@ -1301,18 +1501,25 @@ function renderKineticTheorySvg(
     });
   }
 
-  // Legend top-right
-  const gasTitle = spec.gasLabel ? `${spec.gasLabel}: ` : "";
-  const primLegend = hideTemp
-    ? `${gasTitle}T₁`
-    : `${gasTitle}T = ${formatSignificant(sol.temperatureK)} K`;
+  // Legend top-right (suppress gasLabel when mass is hidden so e.g. "Helium-4" never leaks M = 4 g/mol)
+  const gasTitle =
+    spec.gasLabel && !hideMass && !vis.leaksHiddenText(spec.gasLabel)
+      ? `${spec.gasLabel}: `
+      : "";
+  const candidatePrimLegend = `${gasTitle}T = ${formatSignificant(sol.temperatureK)} K`;
+  const primLegend =
+    hideTemp || vis.leaksHiddenText(candidatePrimLegend)
+      ? `${gasTitle}T₁`
+      : candidatePrimLegend;
   elements.push(
     `<text x="${coord(frame.right - 10)}" y="${coord(frame.top + 20)}" text-anchor="end" font-size="13.5" font-family="Arial, sans-serif" fill="#15191d">${escapeXml(primLegend)}</text>`,
   );
   if (sol.comparisonTemperatureK !== null) {
-    const compLegend = hideTemp
-      ? "T₂ (dashed)"
-      : `T₂ = ${formatSignificant(sol.comparisonTemperatureK)} K (dashed)`;
+    const candidateCompLegend = `T₂ = ${formatSignificant(sol.comparisonTemperatureK)} K (dashed)`;
+    const compLegend =
+      hideTemp || vis.leaksHiddenText(candidateCompLegend)
+        ? "T₂ (dashed)"
+        : candidateCompLegend;
     elements.push(
       `<text x="${coord(frame.right - 10)}" y="${coord(frame.top + 40)}" text-anchor="end" font-size="13" font-family="Arial, sans-serif" fill="#5a6570">${escapeXml(compLegend)}</text>`,
     );
@@ -1328,15 +1535,15 @@ function renderKineticTheorySvg(
 
 function renderThermalRadiationSvg(
   spec: ThermalRadiationScenarioSpec,
+  sol: ThermalRadiationSolution,
   vis: VisibilityController,
   width: number,
   height: number,
 ): string {
-  const sol = solveThermalRadiation(spec);
   const frame = createFrame(width, height);
   const showGrid = spec.showGrid ?? true;
   const showVisible = spec.showVisibleBand ?? true;
-  const clipId = `bb-clip-${(spec.id ?? "0").replace(/[^a-zA-Z0-9_-]/g, "") || "0"}`;
+  const clipId = makeAlphaClipId("bbclip", spec.id);
 
   const maxPeakWavelength = Math.max(
     sol.peakWavelengthM,
@@ -1401,29 +1608,46 @@ function renderThermalRadiationSvg(
     true,
   );
 
-  const hideWavelength = vis.isHidden(
-    "peakWavelengthM",
-    "peakWavelengthNm",
-    "lambdaMax",
-    "comparisonPeakWavelengthM",
-  );
-  const hidePowerOrIntensity = vis.isHidden(
-    "radiatedPowerW",
-    "P",
-    "radiatedIntensityWm2",
-    "netRadiatedPowerW",
-    "intensityAtDistanceWm2",
-    "emissivity",
-    "comparisonRadiatedPowerW",
-    "comparisonPowerRatio",
-  );
-  const hideTemp = vis.isHidden("temperatureK", "T", "comparisonTemperatureK");
+  const hideWavelength =
+    vis.isHidden(
+      "peakWavelengthM",
+      "peakWavelengthNm",
+      "lambdaMax",
+      "comparisonPeakWavelengthM",
+      "comparisonPeakWavelengthNm",
+    ) ||
+    xTickLayout.majorTicks.some((v) =>
+      vis.leaksHiddenText(formatCleanNumber(v, 4)),
+    );
+  const hidePowerOrIntensity =
+    vis.isHidden(
+      "radiatedPowerW",
+      "P",
+      "radiatedIntensityWm2",
+      "netRadiatedPowerW",
+      "intensityAtDistanceWm2",
+      "emissivity",
+      "comparisonEmissivity",
+      "comparisonRadiatedPowerW",
+      "comparisonPowerRatio",
+    ) ||
+    yTickLayout.majorTicks.some((v) =>
+      vis.leaksHiddenText(formatCleanNumber(v, 4)),
+    );
+  const ambientCoincidesPrimary =
+    sol.ambientTemperatureK !== null &&
+    Math.abs(sol.ambientTemperatureK - sol.temperatureK) < 1e-6;
+  const hideTemp =
+    vis.isHidden("temperatureK", "T", "comparisonTemperatureK") ||
+    (ambientCoincidesPrimary && vis.isHidden("ambientTemperatureK"));
 
+  const safeWUnit = safeScaleUnitLabel(wScale.unitLabel, vis);
   const ariaLabel =
     "Spectral radiance against wavelength thermal radiation graph";
   const elements: string[] = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeXml(ariaLabel)}">`,
     `<title>${escapeXml(ariaLabel)}</title>`,
+    `<desc>${escapeXml(ariaLabel)}</desc>`,
     `<rect width="${width}" height="${height}" fill="white"/>`,
     `<defs><clipPath id="${clipId}"><rect x="${coord(frame.left)}" y="${coord(frame.top)}" width="${coord(frame.width)}" height="${coord(frame.height)}"/></clipPath></defs>`,
   ];
@@ -1469,8 +1693,9 @@ function renderThermalRadiationSvg(
       showNumericYTicks: !hidePowerOrIntensity,
       xAxisTitle: hideWavelength
         ? "wavelength λ"
-        : `wavelength λ / ${wScale.unitLabel}`,
+        : `wavelength λ / ${safeWUnit}`,
       yAxisTitle: "spectral radiance (arb. units)",
+      vis,
     }),
   );
 
@@ -1517,23 +1742,36 @@ function renderThermalRadiationSvg(
   }
 
   // Curve callout / legend
-  const bodyPrefix = spec.bodyLabel ? `${spec.bodyLabel}: ` : "";
-  const emissivitySuffix =
-    sol.emissivity < 1 && !vis.isHidden("emissivity")
-      ? `, e = ${formatCleanNumber(sol.emissivity, 2)}`
+  const bodyPrefix =
+    spec.bodyLabel && !vis.leaksHiddenText(spec.bodyLabel)
+      ? `${spec.bodyLabel}: `
       : "";
-  const primLabel = hideTemp
-    ? `${bodyPrefix || "Curve 1"}${emissivitySuffix}`
-    : `${bodyPrefix}T = ${formatSignificant(sol.temperatureK)} K${emissivitySuffix}`;
+  const eFormatted = formatSignificant(sol.emissivity);
+  const emissivitySuffix =
+    sol.emissivity < 1 &&
+    !vis.isHidden("emissivity", "comparisonEmissivity") &&
+    !vis.leaksHiddenText(eFormatted)
+      ? `, e = ${eFormatted}`
+      : "";
+  const candidatePrimLabel = `${bodyPrefix}T = ${formatSignificant(sol.temperatureK)} K${emissivitySuffix}`;
+  const primLabel =
+    hideTemp || vis.leaksHiddenText(candidatePrimLabel)
+      ? `${bodyPrefix ? bodyPrefix.slice(0, -2) : "Body A"}${emissivitySuffix}`
+      : candidatePrimLabel;
   elements.push(
     `<text x="${coord(frame.right - 10)}" y="${coord(frame.top + 22)}" text-anchor="end" font-size="13.5" font-family="Arial, sans-serif" fill="#15191d">${escapeXml(primLabel)}</text>`,
   );
 
   if (sol.comparisonTemperatureK !== null) {
-    const compPrefix = spec.comparisonLabel ? `${spec.comparisonLabel}: ` : "";
-    const compLabel = hideTemp
-      ? `${compPrefix || "Curve 2"} (dashed)`
-      : `${compPrefix}T₂ = ${formatSignificant(sol.comparisonTemperatureK)} K (dashed)`;
+    const compPrefix =
+      spec.comparisonLabel && !vis.leaksHiddenText(spec.comparisonLabel)
+        ? `${spec.comparisonLabel}: `
+        : "";
+    const candidateCompLabel = `${compPrefix}T₂ = ${formatSignificant(sol.comparisonTemperatureK)} K (dashed)`;
+    const compLabel =
+      hideTemp || vis.leaksHiddenText(candidateCompLabel)
+        ? `${compPrefix ? compPrefix.slice(0, -2) : "Body B"} (dashed)`
+        : candidateCompLabel;
     elements.push(
       `<text x="${coord(frame.right - 10)}" y="${coord(frame.top + 42)}" text-anchor="end" font-size="13" font-family="Arial, sans-serif" fill="#5a6570">${escapeXml(compLabel)}</text>`,
     );
@@ -1556,27 +1794,40 @@ export function renderThermalSvg(
   options: ThermalRenderOptions = {},
 ): string {
   const { width, height } = resolveDimensions(options);
-  const vis = createVisibilityController(spec, options);
 
   switch (spec.kind) {
     case "thermodynamic-process": {
       const sol = solveThermodynamicProcess(spec);
+      const vis = createVisibilityController(spec, options, sol.quantities);
       return renderThermodynamicDiagram(spec, sol, vis, width, height);
     }
     case "carnot-cycle": {
       const sol = solveCarnotCycle(spec);
+      const vis = createVisibilityController(spec, options, sol.quantities);
       return renderThermodynamicDiagram(spec, sol, vis, width, height);
     }
-    case "phase-change-curve":
-      return renderPhaseChangeSvg(spec, vis, width, height);
-    case "calorimetry-mixing":
+    case "phase-change-curve": {
+      const sol = solvePhaseChangeCurve(spec);
+      const vis = createVisibilityController(spec, options, sol.quantities);
+      return renderPhaseChangeSvg(spec, sol, vis, width, height);
+    }
+    case "calorimetry-mixing": {
+      const sol = solveCalorimetryMixing(spec);
+      const vis = createVisibilityController(spec, options, sol.quantities);
       return spec.diagramVariant === "convergence-graph"
-        ? renderCalorimetryConvergenceSvg(spec, vis, width, height)
-        : renderCalorimetrySchematicSvg(spec, vis, width, height);
-    case "kinetic-theory":
-      return renderKineticTheorySvg(spec, vis, width, height);
-    case "thermal-radiation":
-      return renderThermalRadiationSvg(spec, vis, width, height);
+        ? renderCalorimetryConvergenceSvg(spec, sol, vis, width, height)
+        : renderCalorimetrySchematicSvg(spec, sol, vis, width, height);
+    }
+    case "kinetic-theory": {
+      const sol = solveKineticTheory(spec);
+      const vis = createVisibilityController(spec, options, sol.quantities);
+      return renderKineticTheorySvg(spec, sol, vis, width, height);
+    }
+    case "thermal-radiation": {
+      const sol = solveThermalRadiation(spec);
+      const vis = createVisibilityController(spec, options, sol.quantities);
+      return renderThermalRadiationSvg(spec, sol, vis, width, height);
+    }
     default: {
       const exhaustive: never = spec;
       throw new Error(

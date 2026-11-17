@@ -47,6 +47,16 @@ export interface ThermalRenderOptions {
   width?: number;
   height?: number;
   mode?: "student-safe" | "teacher-complete";
+  /**
+   * Additional quantity identifiers that MUST NEVER leak numerically in the
+   * rendered SVG (merged with `spec.hiddenQuantities`).
+   */
+  hiddenQuantities?: readonly string[];
+  /**
+   * Optional allowlist of quantity identifiers explicitly permitted to be
+   * shown as numeric callouts (merged with `spec.visibleQuantities`).
+   */
+  visibleQuantities?: readonly string[];
 }
 
 export interface ThermalVisibilityMixin {
