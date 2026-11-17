@@ -106,10 +106,94 @@ export function normalizePhysicsNumericText(input: string): string {
     "$1",
   );
 
-  // 4. Strip variable subscripts like R_1, q_2, V_{out}, t_{1/2} so subscript indices do not pollute extraction
-  text = text.replace(/\b([A-Za-z])_(?:\{[^}]+\}|\d+)\b/g, "$1");
+  // 4. Strip variable subscripts like R_1, KE_1, Ek_2, theta_1, V_{out}, t_{1/2} so subscript indices do not pollute extraction
+  text = text.replace(
+    /\b([A-Za-zΩμ]+)(?:_(?:\{[^}]+\}|[A-Za-z0-9+-]+))+/g,
+    "$1",
+  );
 
   return text;
+}
+
+const KNOWN_HYPHENATED_UNIT_TOKENS = new Set([
+  ...UNAMBIGUOUS_BASE_UNITS,
+  "kg",
+  "g",
+  "mg",
+  "ug",
+  "μg",
+  "cm",
+  "mm",
+  "km",
+  "nm",
+  "pm",
+  "fm",
+  "ms",
+  "us",
+  "μs",
+  "ns",
+  "ps",
+  "fs",
+  "min",
+  "hr",
+  "kV",
+  "mV",
+  "kW",
+  "MW",
+  "GW",
+  "mW",
+  "mA",
+  "uA",
+  "μA",
+  "nA",
+  "kJ",
+  "MJ",
+  "keV",
+  "MeV",
+  "GeV",
+  "kHz",
+  "MHz",
+  "GHz",
+  "kPa",
+  "MPa",
+  "GPa",
+  "kN",
+  "mN",
+  "uC",
+  "μC",
+  "nC",
+  "pC",
+  "uF",
+  "μF",
+  "nF",
+  "pF",
+  "mH",
+  "mT",
+  "uT",
+  "μT",
+  "kΩ",
+  "MΩ",
+]);
+
+function stripNonNumericIdentifierTokens(normalizedText: string): string {
+  return (
+    normalizedText
+      // 1. Strip hyphenated identifier slugs starting with a letter (e.g. "dc-4-terminal-sensing", "projectile-motion-2d", "unseen-post-freeze-4")
+      //    Negative lookbehind (?<![.\d]) ensures scientific notation like "1.01e-3" or "1e-9" is never touched.
+      .replace(/(?<![.\d])\b[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+\b/g, " ")
+      // 2. Strip leading-digit hyphenated prose qualifiers (e.g. "4-terminal", "2-body", "3-phase") while preserving "<num>-<unit>" like "12-V" or "10-kg"
+      .replace(
+        /(?<![.\d])\b(\d+)-([A-Za-z]{2,})(?:-[A-Za-z0-9]+)*\b/g,
+        (full, _digits: string, word: string) =>
+          KNOWN_HYPHENATED_UNIT_TOKENS.has(word) && !full.slice(_digits.length + 1 + word.length).startsWith("-")
+            ? `${_digits} ${word}`
+            : " ",
+      )
+      // 3. Strip unspaced English ordinals ("1st", "2nd", "3rd", "4th", "10th")
+      .replace(/(?<![.\d])\b\d+(?:st|nd|rd|th)\b/gi, " ")
+      // 4. Strip unspaced/hyphenated dimension labels ("1D", "2D", "3D", "2d", "2-D", "3-D") while preserving spaced "2 d"
+      .replace(/(?<![.\d])\b\d+-?[dD]\b/g, " ")
+  );
 }
 
 function resolveUnitConversions(
@@ -175,7 +259,9 @@ function resolveUnitConversions(
 export function extractNumbersFromPhysicsText(
   text: string,
 ): ExtractedNumericMention[] {
-  const normalized = normalizePhysicsNumericText(text);
+  const normalized = stripNonNumericIdentifierTokens(
+    normalizePhysicsNumericText(text),
+  );
   const pattern =
     /(?<![A-Za-z0-9_])([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(?:\s*(°C|[A-Za-zΩμ]+))?/g;
 

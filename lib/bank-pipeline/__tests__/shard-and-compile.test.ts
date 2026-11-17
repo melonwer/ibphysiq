@@ -473,5 +473,56 @@ describe("shard-store, distillation traces, work-order planner, and CLIs", () =>
     const leakCheck = validateQwenDistillationTrace(leakedTrace);
     expect(leakCheck.valid).toBe(false);
     expect(leakCheck.issues.join(" ")).toMatch(/Step 1 propose_scenario/);
+
+    // Verify digits inside pre-solve identifiers (e.g. "dc-4-terminal-sensing" when parallelOhm = 4,
+    // or "projectile-motion-2d" when a hidden quantity = 2) NEVER trigger false-positive Step 1 leak rejection!
+    const fourTerminalClone = {
+      ...samples[2], // sp-circuits-mcq-003 has parallelOhm = 4, totalOhm = 7
+      id: "sp-circuits-4terminal-ok",
+      conceptId: "dc-4-terminal-sensing",
+      templateArchetype: "unseen-post-freeze-4",
+      stem: "A 21 V source drives a 3 Ω series resistor connected to parallel 12 Ω and 6 Ω sensing branches. Find the power dissipated in the 6 Ω branch.",
+    };
+    const twoDimClone = {
+      ...samples[3], // sp-circuits-struct-004 has totalCurrentA = 2
+      id: "sp-circuits-2d-slug-ok",
+      conceptId: "projectile-motion-2d",
+      templateArchetype: "mesh-2-loop-network",
+      stem: "A cell of emf 18 V and internal resistance 1 Ω feeds a 4 Ω resistor in series with parallel 12 Ω and 6 Ω resistors for 10 s.",
+    };
+    const identifierSlugIngest = ingestCandidatesIntoShard({
+      shardId: "identifier-slug-shard",
+      shardsDir,
+      candidates: [fourTerminalClone, twoDimClone],
+    });
+    expect({
+      ingestedCount: identifierSlugIngest.ingestedCount,
+      rejectedCount: identifierSlugIngest.rejectedCount,
+      issues: identifierSlugIngest.results.flatMap((r) => r.issues),
+    }).toEqual({
+      ingestedCount: 2,
+      rejectedCount: 0,
+      issues: [],
+    });
+
+    // Meanwhile a genuine solved numeric leak ("compute slope 2.00 A") on that same item IS still rejected!
+    const genuineSlugLeak = ingestCandidatesIntoShard({
+      shardId: "identifier-slug-shard",
+      shardsDir,
+      candidates: [
+        {
+          ...twoDimClone,
+          id: "sp-circuits-2d-genuine-leak",
+          stem: "An 18 V battery with 1 Ω internal resistance supplies a 4 Ω series resistor and parallel 12 Ω and 6 Ω branches over 10 s.",
+          questionPlan: {
+            targetSummary: "Compute total battery current 2.00 A",
+          },
+        },
+      ],
+    });
+    expect(genuineSlugLeak.rejectedCount).toBe(1);
+    expect(genuineSlugLeak.results[0].issues[0].message).toMatch(
+      /Step 1 propose_scenario questionPlan leaks post-solve hidden quantity/,
+    );
   });
 });

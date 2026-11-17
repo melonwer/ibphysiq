@@ -2,6 +2,7 @@ import {
   registerVisualModule,
   resetDomainRegistryToDefaults,
 } from "@/lib/bank-pipeline/domain-registry";
+import { extractNumbersFromPhysicsText } from "@/lib/bank-pipeline/numeric-checker";
 import { verifyCandidateWithGate } from "@/lib/bank-pipeline/package-gate";
 import { buildSampleCandidates } from "@/lib/bank-pipeline/sample-candidates";
 import { CandidateQuestionInput } from "@/lib/bank-pipeline/types";
@@ -525,5 +526,138 @@ describe("package-gate", () => {
       ],
     };
     expect(verifyCandidateWithGate(mixedStructured).evaluation.valid).toBe(true);
+  });
+
+  it("Numeric extraction & qualitative prose regression: ignores kebab-case slugs, ordinals, dimensions, and multi-letter subscripts while preserving real numbers and spaced '2 d'", () => {
+    expect(extractNumbersFromPhysicsText("projectile-motion-2d")).toEqual([]);
+    expect(extractNumbersFromPhysicsText("dc-4-terminal-sensing")).toEqual([]);
+    expect(extractNumbersFromPhysicsText("unseen-post-freeze-4")).toEqual([]);
+    expect(extractNumbersFromPhysicsText("4-terminal bridge")).toEqual([]);
+    expect(
+      extractNumbersFromPhysicsText(
+        "According to Newton's 2nd law in 3D (and 2D) motion, KE_1 equals KE_2 and Ek_2 = theta_1",
+      ),
+    ).toEqual([]);
+
+    // Preserves spaced "2 d", signed decimals "-4.5 m s^-1", SI units "4.00 Ω", and scientific notation "1.01e-3"
+    const spacedD = extractNumbersFromPhysicsText("2 d");
+    expect(spacedD).toHaveLength(1);
+    expect(spacedD[0]).toMatchObject({ rawValue: 2, unitToken: "d" });
+
+    const signedVel = extractNumbersFromPhysicsText("-4.5 m s^-1 and 4.00 Ω and 1.01e-3 T");
+    expect(signedVel.map((m) => m.rawValue)).toEqual([-4.5, 4, 1.01e-3]);
+
+    // Qualitative MCQ and qualitative structured subpart with "Newton's 2nd law in 2D motion, KE_1 equals KE_2" pass cleanly
+    registerVisualModule("mechanics", {
+      validate: () => ({ valid: true, issues: [] }),
+      solve: () => ({
+        collisionType: "kinetic energy conserved",
+        finalSpeedMs: 6.0,
+      }),
+      render: () =>
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 180"><line x1="10" y1="90" x2="290" y2="90"/></svg>',
+    });
+
+    const qualMcqWithOrdinalsAndSubscripts: CandidateQuestionInput = {
+      id: "sp-mech-qual-2nd-law-2d",
+      conceptId: "elastic-2d-scattering",
+      templateArchetype: "equal-mass-2d-glancing",
+      seed: 915,
+      syllabi: [{ syllabus: "alevel", level: "Y12", topicId: "3.4.1" }],
+      format: "mcq",
+      targetMode: "qualitative",
+      targetQuantityKey: "collisionType",
+      difficulty: "standard",
+      domain: "mechanics",
+      scenarioSpec: { kind: "elastic-2d" },
+      hiddenQuantities: ["collisionType"],
+      requiredGivens: [],
+      stem: "In an isolated elastic collision in 2D space, how does total kinetic energy before impact compare with after impact?",
+      options: [
+        {
+          label: "A",
+          text: "According to Newton's 2nd law in 2D motion, KE_1 equals KE_2 (kinetic energy conserved)",
+          isCorrect: true,
+        },
+        {
+          label: "B",
+          text: "KE_1 is greater than KE_2 in 2D collisions",
+          isCorrect: false,
+          distractorRationale: "Confuses elastic 2D collisions with inelastic impacts.",
+        },
+        {
+          label: "C",
+          text: "KE_1 is less than KE_2",
+          isCorrect: false,
+          distractorRationale: "Violates conservation of energy.",
+        },
+        {
+          label: "D",
+          text: "Only 1st-order momentum components are conserved",
+          isCorrect: false,
+          distractorRationale: "Ignores kinetic energy conservation in elastic collisions.",
+        },
+      ],
+      workedSolution:
+        "In an elastic 2D collision, total kinetic energy conserved means KE_1 equals KE_2.",
+      markScheme: [
+        {
+          code: "A1",
+          criterion: "States kinetic energy conserved so KE_1 equals KE_2 (A).",
+          marks: 1,
+        },
+      ],
+      totalMarks: 1,
+    };
+    const qualMcqResult = verifyCandidateWithGate(qualMcqWithOrdinalsAndSubscripts);
+    expect({
+      valid: qualMcqResult.evaluation.valid,
+      issues: qualMcqResult.evaluation.issues,
+    }).toEqual({ valid: true, issues: [] });
+
+    // Structured question with a qualitative subpart referencing Newton's 2nd law, 2D, and KE_1 / KE_2 + quantitative subpart
+    const structWithQualSubpart: CandidateQuestionInput = {
+      id: "sp-mech-struct-2nd-law-2d",
+      conceptId: "elastic-2d-scattering",
+      templateArchetype: "glider-2d-speed",
+      seed: 916,
+      syllabi: [{ syllabus: "ib", level: "SL", topicId: "A.2" }],
+      format: "structured",
+      difficulty: "standard",
+      domain: "mechanics",
+      scenarioSpec: { kind: "elastic-2d" },
+      hiddenQuantities: ["finalSpeedMs"],
+      requiredGivens: [],
+      stem: "Two gliders interact elastically on a frictionless 2D air table.",
+      parts: [
+        {
+          partId: "a",
+          prompt: "State the kinetic energy condition for an elastic 2D collision.",
+          marks: 1,
+          targetMode: "qualitative",
+          expectedAnswer:
+            "By Newton's 2nd and 3rd laws in 2D elastic motion, total KE_1 equals total KE_2.",
+          workingSteps: ["In a 2D elastic collision, Ek_1 and Ek_2 are equal."],
+        },
+        {
+          partId: "b",
+          prompt: "State the final speed of glider X.",
+          marks: 1,
+          targetQuantityKey: "finalSpeedMs",
+          expectedAnswer: "6.00 m s⁻¹",
+          workingSteps: ["Final speed = 6.00 m s⁻¹."],
+        },
+      ],
+      workedSolution:
+        "(a) Total KE_1 equals KE_2 in an elastic 2D collision. (b) Final speed is 6.00 m s⁻¹.",
+      markScheme: [
+        { code: "B1", partId: "a", criterion: "KE_1 equals KE_2.", marks: 1 },
+        { code: "A1", partId: "b", criterion: "6.00 m s⁻¹.", marks: 1 },
+      ],
+      totalMarks: 2,
+    };
+    expect(verifyCandidateWithGate(structWithQualSubpart).evaluation.valid).toBe(
+      true,
+    );
   });
 });

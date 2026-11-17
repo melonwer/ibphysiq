@@ -113,6 +113,44 @@ function buildPreSolveQuestionPlan(
   };
 }
 
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function maskPreSolveIdentifiersInPlan(
+  planText: string,
+  identifiers: Iterable<string | undefined>,
+  partIds: Iterable<string | undefined>,
+): string {
+  let masked = planText;
+  const uniqueTokens = [
+    ...new Set(
+      [...identifiers]
+        .filter((t): t is string => typeof t === "string" && t.trim().length >= 2)
+        .map((t) => t.trim()),
+    ),
+  ].sort((a, b) => b.length - a.length);
+
+  for (const token of uniqueTokens) {
+    masked = masked.replace(new RegExp(escapeRegExp(token), "gi"), " ");
+  }
+
+  for (const rawPartId of partIds) {
+    const pid = rawPartId?.trim();
+    if (!pid) continue;
+    masked = masked.replace(
+      new RegExp(`\\bpart\\s*\\(\\s*${escapeRegExp(pid)}\\s*\\)`, "gi"),
+      "part",
+    );
+    masked = masked.replace(
+      new RegExp(`\\(\\s*${escapeRegExp(pid)}\\s*\\)`, "gi"),
+      " ",
+    );
+  }
+
+  return masked;
+}
+
 function collectPublicNumbersFromSpec(value: unknown, hiddenSet: ReadonlySet<string>): number[] {
   const out: number[] = [];
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -387,7 +425,46 @@ export function validateQwenDistillationTrace(
         typeof receiptObj.verifiedQuantities === "object"
           ? (receiptObj.verifiedQuantities as Record<string, unknown>)
           : {};
-      const planText = JSON.stringify(questionPlan);
+      const userObj = parsedMessages[1];
+      const step2Parts = Array.isArray(step2Obj.parts)
+        ? (step2Obj.parts as Array<{
+            partId?: string;
+            targetQuantityKey?: string;
+          }>)
+        : [];
+      const specRecord =
+        step1Obj.scenarioSpec !== null &&
+        typeof step1Obj.scenarioSpec === "object" &&
+        !Array.isArray(step1Obj.scenarioSpec)
+          ? (step1Obj.scenarioSpec as Record<string, unknown>)
+          : {};
+
+      const preSolveIdentifiers: Array<string | undefined> = [
+        trace.familyGroupKey,
+        ...trace.familyGroupKey.split("::"),
+        trace.metadata?.conceptId,
+        trace.metadata?.templateArchetype,
+        trace.metadata?.sourceParentId,
+        typeof userObj?.conceptId === "string" ? userObj.conceptId : undefined,
+        typeof userObj?.templateArchetype === "string"
+          ? userObj.templateArchetype
+          : undefined,
+        typeof specRecord.kind === "string" ? specRecord.kind : undefined,
+        ...Object.keys(specRecord),
+        ...hiddenKeys,
+        ...step2Parts.map((p) => p.targetQuantityKey),
+        ...(trace.metadata?.syllabi ?? []).flatMap((s) => [
+          s.topicId,
+          s.subtopicId,
+          s.level,
+        ]),
+      ];
+
+      const maskedPlanText = maskPreSolveIdentifiersInPlan(
+        JSON.stringify(questionPlan),
+        preSolveIdentifiers,
+        step2Parts.map((p) => p.partId),
+      );
 
       for (const hiddenKey of hiddenKeys) {
         const val = verifiedQuantities[hiddenKey];
@@ -404,7 +481,7 @@ export function validateQwenDistillationTrace(
           );
           if (
             !coincidesWithGiven &&
-            textContainsNumericValue(planText, val, {
+            textContainsNumericValue(maskedPlanText, val, {
               significantFigures: 3,
               relativeTolerance: 0.005,
             })
