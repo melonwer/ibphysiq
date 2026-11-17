@@ -39,7 +39,7 @@ function printUsage(): void {
     "  --dry-run                  Validate and solve without writing shard files",
     "  --allow-partial            Exit 0 even when one or more candidates are rejected",
     "  --solve-only               Solve scenarioSpecs and print verified quantities before prose authoring",
-    "  --emit-sample <path>       Write solver-verified sample candidates across fa50e43 domains",
+    "  --emit-sample <path>       Write solver-verified sample candidates across all 10 visual domains + pure-calculation",
     "  --help                     Show this usage message",
   ].join("\n");
   console.log(usage);

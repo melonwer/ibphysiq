@@ -52,28 +52,23 @@ Implemented in [package-gate.ts](../lib/bank-pipeline/package-gate.ts), [numeric
 
 ---
 
-## 4. Domain Registry & 1-Line Visual Module Registration
+## 4. Domain Registry (All 10 Visual Domains + `pure-calculation` Out of the Box)
 
-[domain-registry.ts](../lib/bank-pipeline/domain-registry.ts) ships with 5 ready-to-run adapters wrapping `fa50e43` solvers and renderers:
+[domain-registry.ts](../lib/bank-pipeline/domain-registry.ts) registers all 10 deterministic physics/SVG domains plus figureless `pure-calculation` out of the box with zero runtime setup:
 
 - `graphs` (`cartesian_plot`): `rover-distance`, `cart-work`, `shuttle-motion`, `lift-acceleration`, `glider-momentum`, plus general `piecewise-linear-graph`
 - `circuits` (`circuit_network`): `branch-heater`, `sensor-current`, `battery-energy`, `resistor-network`, `light-alarm`, `CircuitQuestionPackage` kinds, plus general `dc-series-parallel`
 - `fields` (`field_map`): `charge-field`, `field-work`, `null-potential`, `negative-probe`, `guided-bead`, `FieldQuestionPackage` kinds, plus `parallel-plates-particle`
 - `mechanics` (`mechanics_scene`): `collision-loss`, `circle-limit`, `ramp-heating`, `short-ramp`, `pendulum-loss`, `MechanicsScenario` kinds, plus `projectile-kinematics`
+- `waves` (`waves`): [lib/visuals/waves/](../lib/visuals/waves/) (`progressive-wave`, `standing-wave`, `double-slit`, `diffraction-grating`, `single-slit`, `doppler-effect`, `malus-polarization`)
+- `optics-shm` (`optics-shm`): [lib/visuals/optics-shm/](../lib/visuals/optics-shm/) (`planar-refraction`, `multi-layer-slab`, `optical-fiber`, `thin-lens`, `mass-spring-shm`, `simple-pendulum-shm`, `kinematic-shm`)
+- `thermal` (`thermal`): [lib/visuals/thermal/](../lib/visuals/thermal/) (`thermodynamic-process`, `carnot-cycle`, `phase-change-curve`, `calorimetry-mixing`, `kinetic-theory`, `thermal-radiation`)
+- `grav-astro` (`grav-astro`): [lib/visuals/grav-astro/](../lib/visuals/grav-astro/) (`conical-pendulum`, `flat-curve`, `banked-curve`, `vertical-circle`, `planetary-field-potential`, `circular-orbit-energy`, `two-body-null-point`, `stellar-radiation`, `hr-diagram`, `stellar-parallax`, `cosmological-redshift`)
+- `em-induction` (`em-induction`): [lib/visuals/em-induction/](../lib/visuals/em-induction/) (`parallel-plate-capacitor`, `capacitor-network`, `rc-transient`, `flux-faraday`, `motional-emf-rails`, `ac-generator`, `transformer`, `electric-deflection`, `magnetic-cyclotron`, `velocity-selector`, `bainbridge-mass-spectrometer`)
+- `quantum-nuclear` (`quantum-nuclear`): [lib/visuals/quantum-nuclear/](../lib/visuals/quantum-nuclear/) (`energy-levels`, `photoelectric-effect`, `matter-waves`, `radioactive-decay`, `nuclear-decay-chain`, `nuclear-binding`, `rutherford-scattering`, `special-relativity`)
 - `pure-calculation` (`none`): `suvat-motion`, `power-efficiency`, `uncertainty-power-product`, `momentum-impulse`
 
-### Plugging in the 6 Wave 1 Visual Modules
-
-Once the 6 sibling `lib/visuals/*` branches merge, register each in [domain-registry.ts](../lib/bank-pipeline/domain-registry.ts) with 1 line (`registerVisualModule` normalizes flat/`{ quantities }`/`QuantityValue`/nested solver returns, `{ valid, issues, errors }` validation results, and merges `spec.hiddenQuantities` + `spec.visibility.hiddenQuantities` + candidate `hiddenQuantities` into both `mergedSpec` and the 2nd `{ hiddenQuantities }` render options argument):
-
-```ts
-registerVisualModule("waves", { validate: validateWavesScenario, solve: solveWavesScenario, render: renderWavesSvg });
-registerVisualModule("optics-shm", { validate: validateOpticsShmScenario, solve: solveOpticsShmScenario, render: renderOpticsShmSvg });
-registerVisualModule("thermal", { validate: validateThermalScenario, solve: solveThermalScenario, render: renderThermalSvg });
-registerVisualModule("grav-astro", { validate: validateGravAstroScenario, solve: solveGravAstroScenario, render: renderGravAstroSvg });
-registerVisualModule("em-induction", { validate: validateEmInductionScenario, solve: solveEmInductionScenario, render: renderEmInductionSvg });
-registerVisualModule("quantum-nuclear", { validate: validateQuantumNuclearScenario, solve: solveQuantumNuclearScenario, render: renderQuantumNuclearSvg });
-```
+`registerVisualModule` normalizes flat/`{ quantities }`/`QuantityValue`/nested solver returns, `{ valid, issues, errors }` validation results, and merges `spec.hiddenQuantities` + `spec.visibility.hiddenQuantities` + candidate `hiddenQuantities` into both `mergedSpec` and the 2nd `{ hiddenQuantities }` render options argument.
 
 ---
 
@@ -81,7 +76,7 @@ registerVisualModule("quantum-nuclear", { validate: validateQuantumNuclearScenar
 
 ### A. Plan Non-Overlapping Work Orders
 
-Generate disjoint `(shardId, syllabus, level, conceptId, visualFamily, format, targetCount, seedRange)` slices so 100+ concurrent workers never collide in file paths or RNG seeds:
+[work-order-planner.ts](../lib/bank-pipeline/work-order-planner.ts) connects directly to [lib/constants/syllabi/](../lib/constants/syllabi/) (`SYLLABUS_CROSSWALK` + `getGeneratableSlices`) to plan 539 spec-accurate slices (`532` core slices with `--exclude-options`) across `ib` (`SL`/`HL`), `alevel` (`Y12`/`Y13`), and `ncuk` (`IFY`/`IFY-S1`/`IFY-S2`) across all 10 visual domains without ever assigning excluded topics (e.g. thin lenses or capacitors to IB 2025):
 
 ```bash
 npx tsx scripts/bank-generation/plan-work-orders.ts \
@@ -91,7 +86,7 @@ npx tsx scripts/bank-generation/plan-work-orders.ts \
   --output dataset/sixthphysics-bank/work-orders.json
 ```
 
-Use `--registered-only` to restrict planning to currently registered adapters, or `--syllabi ib,alevel,ncuk --domains graphs,circuits,fields,mechanics` to target specific slices.
+Use `--syllabi ib,alevel,ncuk`, `--levels SL,HL,Y12,Y13,IFY,IFY-S1,IFY-S2`, `--domains waves,optics-shm,thermal`, `--exclude-options`, or `--include-pure-calculation` to target specific slices.
 
 ### B. Verify & Ingest a Worker Shard (Lock-Free)
 
@@ -106,13 +101,13 @@ Recommended two-step worker loop matching the neuro-symbolic harness:
 2. **Verify and ingest authored candidates** into your dedicated shard (`dataset/sixthphysics-bank/shards/<shard-id>.jsonl`):
    ```bash
    npx tsx scripts/bank-generation/verify-and-ingest-shard.ts \
-     --shard wo-0001-ib-sl-graphs-kinematics-motion-graphs-mcq \
+     --shard wo-0001-ib-sl-graphs-si-units-dimensional-analysis-mcq \
      --input /tmp/worker-candidates.json
    ```
    - Passing items are appended immediately to `<shard-id>.jsonl` (if an interrupted process left a trailing incomplete/unterminated JSON fragment, shard ingestion atomically truncates/repairs up to the last valid newline-terminated record before appending).
    - If any item is rejected, inspect `results[].issues` (`code`, `expected`, `actual`, `repairHint`), repair the rejected entries in `/tmp/worker-candidates.json`, and re-run the exact same command: already-ingested item IDs are skipped idempotently (`status: "already-present"`).
 
-To emit a reference batch of 9 verified candidates across `graphs`, `circuits`, `fields`, `mechanics`, and `pure-calculation`:
+To emit a reference batch of 15 verified candidates across all 10 visual domains (`graphs`, `circuits`, `fields`, `mechanics`, `waves`, `optics-shm`, `thermal`, `grav-astro`, `em-induction`, `quantum-nuclear`) and `pure-calculation`:
 
 ```bash
 npx tsx scripts/bank-generation/verify-and-ingest-shard.ts --emit-sample /tmp/sample-candidates.json

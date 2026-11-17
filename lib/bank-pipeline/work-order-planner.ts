@@ -1,4 +1,17 @@
-import { listRegisteredDomains } from "./domain-registry";
+import {
+  GeneratableSlice,
+  getGeneratableSlices,
+  getSubtopicById,
+  getTopicById,
+  SYLLABUS_CROSSWALK,
+  VisualFamilyHint,
+} from "@/lib/constants/syllabi";
+
+import {
+  getDomainAdapter,
+  hasDomainAdapter,
+  listRegisteredDomains,
+} from "./domain-registry";
 import {
   PhysicsDomainId,
   QuestionDifficulty,
@@ -9,229 +22,180 @@ import {
   WorkOrderSlice,
 } from "./types";
 
+export interface ConceptSyllabusSliceEntry {
+  syllabus: SyllabusId;
+  level: string;
+  topicId: string;
+  subtopicId?: string;
+  formats?: readonly QuestionFormat[];
+  isOption?: boolean;
+  assumptionNotes?: string;
+}
+
 export interface ConceptSliceSpec {
   conceptId: string;
+  conceptTitle?: string;
   domain: PhysicsDomainId;
   visualFamily: string;
-  syllabi: Array<{
-    syllabus: SyllabusId;
-    level: string;
-    topicId: string;
-    subtopicId?: string;
-  }>;
+  syllabi: ConceptSyllabusSliceEntry[];
   formats?: readonly QuestionFormat[];
 }
 
+const VISUAL_DOMAIN_DEFAULT_FAMILY_FALLBACK: Readonly<
+  Record<VisualFamilyHint, string>
+> = {
+  graphs: "cartesian_plot",
+  circuits: "circuit_network",
+  fields: "field_map",
+  mechanics: "mechanics_scene",
+  waves: "waves",
+  "optics-shm": "optics-shm",
+  thermal: "thermal",
+  "grav-astro": "grav-astro",
+  "em-induction": "em-induction",
+  "quantum-nuclear": "quantum-nuclear",
+};
+
+function resolveVisualFamilyForDomain(domain: PhysicsDomainId): string {
+  if (hasDomainAdapter(domain)) {
+    return getDomainAdapter(domain).defaultVisualFamily;
+  }
+  if (domain in VISUAL_DOMAIN_DEFAULT_FAMILY_FALLBACK) {
+    return VISUAL_DOMAIN_DEFAULT_FAMILY_FALLBACK[domain as VisualFamilyHint];
+  }
+  return "none";
+}
+
+function groupGeneratableSlicesIntoConceptEntries(
+  rawSlices: readonly GeneratableSlice[],
+  overrideDomain?: PhysicsDomainId,
+): ConceptSliceSpec[] {
+  const byConcept = new Map<string, GeneratableSlice[]>();
+  for (const slice of rawSlices) {
+    const existing = byConcept.get(slice.conceptId);
+    if (existing) {
+      existing.push(slice);
+    } else {
+      byConcept.set(slice.conceptId, [slice]);
+    }
+  }
+
+  const specs: ConceptSliceSpec[] = [];
+
+  for (const entry of SYLLABUS_CROSSWALK) {
+    const conceptSlices = byConcept.get(entry.conceptId);
+    if (!conceptSlices || conceptSlices.length === 0) {
+      continue;
+    }
+
+    const domain: PhysicsDomainId =
+      overrideDomain ?? (entry.primaryVisualFamily as PhysicsDomainId);
+    const visualFamily =
+      overrideDomain === "pure-calculation"
+        ? "none"
+        : resolveVisualFamilyForDomain(domain);
+
+    const groupedSyllabi = new Map<
+      string,
+      {
+        syllabus: SyllabusId;
+        level: string;
+        topicId: string;
+        subtopicId: string;
+        formats: QuestionFormat[];
+        isOption: boolean;
+        assumptionNotes: string;
+      }
+    >();
+
+    for (const s of conceptSlices) {
+      const groupKey = `${s.syllabus}::${s.level}::${s.topicId}::${s.subtopicId}`;
+      const existing = groupedSyllabi.get(groupKey);
+      if (existing) {
+        if (!existing.formats.includes(s.format)) {
+          existing.formats.push(s.format);
+        }
+      } else {
+        const topicSpec = getTopicById(s.topicId);
+        const subtopicSpec = getSubtopicById(s.subtopicId);
+        const isOption = Boolean(
+          topicSpec?.isOption || subtopicSpec?.isOption,
+        );
+        groupedSyllabi.set(groupKey, {
+          syllabus: s.syllabus,
+          level: s.level,
+          topicId: s.topicId,
+          subtopicId: s.subtopicId,
+          formats: [s.format],
+          isOption,
+          assumptionNotes: s.assumptionNotes,
+        });
+      }
+    }
+
+    specs.push({
+      conceptId: entry.conceptId,
+      conceptTitle: entry.title,
+      domain,
+      visualFamily,
+      formats: [...entry.questionFormats],
+      syllabi: [...groupedSyllabi.values()].map((g) => ({
+        syllabus: g.syllabus,
+        level: g.level,
+        topicId: g.topicId,
+        subtopicId: g.subtopicId,
+        formats: g.formats,
+        ...(g.isOption ? { isOption: true } : {}),
+        ...(g.assumptionNotes ? { assumptionNotes: g.assumptionNotes } : {}),
+      })),
+    });
+  }
+
+  return specs;
+}
+
+/**
+ * Canonical 3-syllabus work-order catalogue derived directly from
+ * `lib/constants/syllabi` (`SYLLABUS_CROSSWALK` + `getGeneratableSlices`),
+ * spanning all 56 physics concepts across all 10 visual domains (`graphs`,
+ * `circuits`, `fields`, `mechanics`, `waves`, `optics-shm`, `thermal`,
+ * `grav-astro`, `em-induction`, `quantum-nuclear`) and strictly respecting
+ * syllabus/level/format exclusions (e.g., never assigning thin lenses or
+ * capacitors to IB 2025).
+ */
 export const DEFAULT_SIXTHPHYSICS_CONCEPT_CATALOGUE: readonly ConceptSliceSpec[] =
-  [
-    // 1. GRAPHS (Cartesian kinematics & force/momentum calculus)
-    {
-      conceptId: "kinematics-motion-graphs",
-      domain: "graphs",
-      visualFamily: "cartesian_plot",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "A.1", subtopicId: "A.1.2" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.4.1", subtopicId: "3.4.1.2" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-M1", subtopicId: "kinematics" },
-      ],
-    },
-    {
-      conceptId: "force-displacement-impulse-graphs",
-      domain: "graphs",
-      visualFamily: "cartesian_plot",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "A.2", subtopicId: "A.2.3" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.4.1", subtopicId: "3.4.1.6" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-M2", subtopicId: "momentum-work" },
-      ],
-    },
-    // 2. MECHANICS
-    {
-      conceptId: "collisions-and-momentum-conservation",
-      domain: "mechanics",
-      visualFamily: "mechanics_scene",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "A.2", subtopicId: "A.2.4" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.4.1", subtopicId: "3.4.1.6" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-M2", subtopicId: "collisions" },
-      ],
-    },
-    {
-      conceptId: "inclined-planes-work-and-friction",
-      domain: "mechanics",
-      visualFamily: "mechanics_scene",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "A.3", subtopicId: "A.3.1" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.4.1", subtopicId: "3.4.1.7" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-M3", subtopicId: "work-energy" },
-      ],
-    },
-    {
-      conceptId: "projectile-motion-2d",
-      domain: "mechanics",
-      visualFamily: "mechanics_scene",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "A.1", subtopicId: "A.1.3" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.4.1", subtopicId: "3.4.1.4" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-M1", subtopicId: "projectiles" },
-      ],
-    },
-    // 3. CIRCUITS
-    {
-      conceptId: "dc-series-parallel-networks",
-      domain: "circuits",
-      visualFamily: "circuit_network",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "B.5", subtopicId: "B.5.2" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.5.1", subtopicId: "3.5.1.4" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-E1", subtopicId: "dc-circuits" },
-      ],
-    },
-    {
-      conceptId: "emf-internal-resistance-and-dividers",
-      domain: "circuits",
-      visualFamily: "circuit_network",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "B.5", subtopicId: "B.5.3" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.5.1", subtopicId: "3.5.1.5" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-E1", subtopicId: "potential-dividers" },
-      ],
-    },
-    // 4. FIELDS
-    {
-      conceptId: "coulomb-superposition-and-null-points",
-      domain: "fields",
-      visualFamily: "field_map",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "D.2", subtopicId: "D.2.1" },
-        { syllabus: "alevel", level: "Y13", topicId: "3.7.3", subtopicId: "3.7.3.1" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-E2", subtopicId: "electric-fields" },
-      ],
-    },
-    {
-      conceptId: "electric-potential-and-equipotential-work",
-      domain: "fields",
-      visualFamily: "field_map",
-      syllabi: [
-        { syllabus: "ib", level: "HL", topicId: "D.2", subtopicId: "D.2.3" },
-        { syllabus: "alevel", level: "Y13", topicId: "3.7.3", subtopicId: "3.7.3.2" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-E2", subtopicId: "electric-potential" },
-      ],
-    },
-    // 5. WAVES
-    {
-      conceptId: "progressive-and-standing-waves",
-      domain: "waves",
-      visualFamily: "waves",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "C.2", subtopicId: "C.2.1" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.3.1", subtopicId: "3.3.1.3" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-W1", subtopicId: "standing-waves" },
-      ],
-    },
-    {
-      conceptId: "double-slit-and-diffraction-gratings",
-      domain: "waves",
-      visualFamily: "waves",
-      syllabi: [
-        { syllabus: "ib", level: "HL", topicId: "C.3", subtopicId: "C.3.2" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.3.2", subtopicId: "3.3.2.1" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-W2", subtopicId: "interference" },
-      ],
-    },
-    // 6. OPTICS & SHM
-    {
-      conceptId: "refraction-tir-and-thin-lenses",
-      domain: "optics-shm",
-      visualFamily: "optics-shm",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "C.3", subtopicId: "C.3.1" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.3.2", subtopicId: "3.3.2.3" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-W3", subtopicId: "geometrical-optics" },
-      ],
-    },
-    {
-      conceptId: "simple-harmonic-motion-kinematics-energy",
-      domain: "optics-shm",
-      visualFamily: "optics-shm",
-      syllabi: [
-        { syllabus: "ib", level: "HL", topicId: "C.1", subtopicId: "C.1.2" },
-        { syllabus: "alevel", level: "Y13", topicId: "3.6.1", subtopicId: "3.6.1.2" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-M4", subtopicId: "oscillations" },
-      ],
-    },
-    // 7. THERMAL
-    {
-      conceptId: "ideal-gas-pv-cycles-and-first-law",
-      domain: "thermal",
-      visualFamily: "thermal",
-      syllabi: [
-        { syllabus: "ib", level: "HL", topicId: "B.4", subtopicId: "B.4.1" },
-        { syllabus: "alevel", level: "Y13", topicId: "3.6.2", subtopicId: "3.6.2.2" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-T1", subtopicId: "ideal-gases" },
-      ],
-    },
-    {
-      conceptId: "calorimetry-phase-change-and-radiation",
-      domain: "thermal",
-      visualFamily: "thermal",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "B.1", subtopicId: "B.1.2" },
-        { syllabus: "alevel", level: "Y13", topicId: "3.6.2", subtopicId: "3.6.2.1" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-T2", subtopicId: "thermal-transfers" },
-      ],
-    },
-    // 8. GRAVITATION & ASTROPHYSICS
-    {
-      conceptId: "circular-motion-and-orbital-gravitation",
-      domain: "grav-astro",
-      visualFamily: "grav-astro",
-      syllabi: [
-        { syllabus: "ib", level: "HL", topicId: "D.1", subtopicId: "D.1.2" },
-        { syllabus: "alevel", level: "Y13", topicId: "3.7.2", subtopicId: "3.7.2.4" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-G1", subtopicId: "gravitation-orbits" },
-      ],
-    },
-    // 9. EM INDUCTION & CAPACITANCE
-    {
-      conceptId: "capacitors-rc-decay-and-em-induction",
-      domain: "em-induction",
-      visualFamily: "em-induction",
-      syllabi: [
-        { syllabus: "ib", level: "HL", topicId: "D.4", subtopicId: "D.4.1" },
-        { syllabus: "alevel", level: "Y13", topicId: "3.7.4", subtopicId: "3.7.4.3" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-E3", subtopicId: "capacitance-induction" },
-      ],
-    },
-    // 10. QUANTUM & NUCLEAR
-    {
-      conceptId: "photoelectric-atomic-levels-and-nuclear-decay",
-      domain: "quantum-nuclear",
-      visualFamily: "quantum-nuclear",
-      syllabi: [
-        { syllabus: "ib", level: "HL", topicId: "E.2", subtopicId: "E.2.1" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.2.2", subtopicId: "3.2.2.1" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-Q1", subtopicId: "quantum-nuclear" },
-      ],
-    },
-    // 11. PURE CALCULATION
-    {
-      conceptId: "uncertainties-suvat-and-efficiency",
-      domain: "pure-calculation",
-      visualFamily: "none",
-      syllabi: [
-        { syllabus: "ib", level: "SL", topicId: "A.1", subtopicId: "A.1.1" },
-        { syllabus: "alevel", level: "Y12", topicId: "3.1.2", subtopicId: "3.1.2.2" },
-        { syllabus: "ncuk", level: "IFY", topicId: "NCUK-F1", subtopicId: "measurements-uncertainties" },
-      ],
-    },
-  ];
+  Object.freeze(
+    groupGeneratableSlicesIntoConceptEntries(
+      getGeneratableSlices({ includeOptionTopics: true }),
+    ),
+  );
+
+const PURE_CALCULATION_SOURCE_CONCEPT_IDS = [
+  "error-propagation-uncertainties",
+  "uniform-acceleration-suvat",
+  "work-energy-power-efficiency",
+] as const;
+
+export const PURE_CALCULATION_CONCEPT_CATALOGUE: readonly ConceptSliceSpec[] =
+  Object.freeze(
+    groupGeneratableSlicesIntoConceptEntries(
+      getGeneratableSlices({
+        conceptId: PURE_CALCULATION_SOURCE_CONCEPT_IDS,
+        includeOptionTopics: false,
+      }),
+      "pure-calculation",
+    ),
+  );
 
 export interface PlanWorkOrdersOptions {
   catalogue?: readonly ConceptSliceSpec[];
   syllabi?: readonly SyllabusId[];
+  levels?: readonly string[];
   domains?: readonly PhysicsDomainId[];
   formats?: readonly QuestionFormat[];
+  concepts?: readonly string[];
+  includeOptionTopics?: boolean;
+  includePureCalculation?: boolean;
   registeredDomainsOnly?: boolean;
   itemsPerSlice?: number;
   maxItemsPerShard?: number;
@@ -259,16 +223,36 @@ function slugify(value: string): string {
 
 /**
  * Generates deterministic, non-overlapping slice manifests with disjoint seed
- * intervals for parallel swarm generator sharding.
+ * intervals for parallel swarm generator sharding across IB (SL/HL),
+ * UK A-Level (Y12/Y13), and NCUK IFY (IFY/IFY-S1/IFY-S2).
  */
 export function planWorkOrders(
   options: PlanWorkOrdersOptions = {},
 ): WorkOrderManifest {
-  const catalogue =
-    options.catalogue ?? DEFAULT_SIXTHPHYSICS_CONCEPT_CATALOGUE;
+  const includePureCalculation =
+    options.includePureCalculation ??
+    Boolean(
+      !options.catalogue && options.domains?.includes("pure-calculation"),
+    );
+
+  const catalogue: readonly ConceptSliceSpec[] =
+    options.catalogue ??
+    (includePureCalculation
+      ? [
+          ...DEFAULT_SIXTHPHYSICS_CONCEPT_CATALOGUE,
+          ...PURE_CALCULATION_CONCEPT_CATALOGUE,
+        ]
+      : DEFAULT_SIXTHPHYSICS_CONCEPT_CATALOGUE);
+
   const allowedSyllabi = new Set<SyllabusId>(
     options.syllabi ?? ["ib", "alevel", "ncuk"],
   );
+  const allowedLevels = options.levels ? new Set<string>(options.levels) : null;
+  const allowedConcepts = options.concepts
+    ? new Set<string>(options.concepts)
+    : null;
+  const includeOptionTopics = options.includeOptionTopics ?? true;
+
   const registeredSet = new Set(listRegisteredDomains());
   const allowedDomains = new Set<PhysicsDomainId>(
     options.domains ??
@@ -301,6 +285,7 @@ export function planWorkOrders(
   let sequence = 1;
 
   for (const concept of catalogue) {
+    if (allowedConcepts && !allowedConcepts.has(concept.conceptId)) continue;
     if (!allowedDomains.has(concept.domain)) continue;
     if (options.registeredDomainsOnly && !registeredSet.has(concept.domain)) {
       continue;
@@ -310,8 +295,12 @@ export function planWorkOrders(
 
     for (const sylEntry of concept.syllabi) {
       if (!allowedSyllabi.has(sylEntry.syllabus)) continue;
+      if (allowedLevels && !allowedLevels.has(sylEntry.level)) continue;
+      if (!includeOptionTopics && sylEntry.isOption) continue;
 
-      for (const fmt of conceptFormats) {
+      const entryFormats = sylEntry.formats ?? conceptFormats;
+
+      for (const fmt of entryFormats) {
         if (!formats.includes(fmt)) continue;
 
         let remaining = itemsPerSlice;
@@ -338,12 +327,18 @@ export function planWorkOrders(
             topicId: sylEntry.topicId,
             ...(sylEntry.subtopicId ? { subtopicId: sylEntry.subtopicId } : {}),
             conceptId: concept.conceptId,
+            ...(concept.conceptTitle
+              ? { conceptTitle: concept.conceptTitle }
+              : {}),
             domain: concept.domain,
             visualFamily: concept.visualFamily,
             format: fmt,
             difficultyCounts: allocateDifficultyCounts(chunkCount),
             targetCount: chunkCount,
             seedRange: [seedStart, seedEnd],
+            ...(sylEntry.assumptionNotes
+              ? { assumptionNotes: sylEntry.assumptionNotes }
+              : {}),
           });
 
           sequence += 1;

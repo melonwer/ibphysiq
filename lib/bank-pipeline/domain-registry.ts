@@ -48,11 +48,59 @@ import {
   SyntheticScenario,
 } from "@/lib/visuals/synthetic-pilot";
 import {
+  EM_INDUCTION_SCENARIO_KINDS,
+  EmInductionScenarioKind,
+  generateEmInductionScenario,
+  renderEmInductionSvg,
+  solveEmInductionScenario,
+  validateEmInductionScenario,
+} from "@/lib/visuals/em-induction";
+import {
+  createGravAstroRng,
+  generateGravAstroScenario,
+  GRAV_ASTRO_SCENARIO_KINDS,
+  GravAstroScenarioKind,
+  renderGravAstroSvg,
+  solveGravAstroScenario,
+  validateGravAstroScenario,
+} from "@/lib/visuals/grav-astro";
+import {
+  generateOpticsShmScenario,
+  OPTICS_SHM_ARCHETYPES,
+  OpticsShmArchetype,
+  OpticsShmScenarioKind,
+  renderOpticsShmSvg,
+  solveOpticsShmScenario,
+  validateOpticsShmScenario,
+} from "@/lib/visuals/optics-shm";
+import {
+  QuantumNuclearScenarioKind,
+  renderQuantumNuclearSvg,
+  sampleQuantumNuclearSpec,
+  solveQuantumNuclearScenario,
+  validateQuantumNuclearScenario,
+} from "@/lib/visuals/quantum-nuclear";
+import {
+  generateThermalScenario,
+  renderThermalSvg,
+  solveThermalScenario,
+  ThermalScenarioKind,
+  validateThermalScenario,
+} from "@/lib/visuals/thermal";
+import {
   MechanicsLabel,
   Point2D,
   VISUAL_SCHEMA_VERSION,
   VisualSpec,
 } from "@/lib/visuals/types";
+import {
+  renderWavesSvg,
+  sampleWavesScenario,
+  solveWavesScenario,
+  validateWavesScenario,
+  WAVES_SCENARIO_KINDS,
+  WavesScenarioKind,
+} from "@/lib/visuals/waves";
 
 import { formatSignificantFigures } from "./numeric-checker";
 import { PhysicsDomainId, VerifiedQuantityMap, VerifiedScalar } from "./types";
@@ -1930,12 +1978,158 @@ export function registerVisualModule<
   return registerDomainAdapter(adapter);
 }
 
+const OPTICS_SHM_SCENARIO_KINDS: readonly OpticsShmScenarioKind[] = [
+  "planar-refraction",
+  "multi-layer-slab",
+  "optical-fiber",
+  "thin-lens",
+  "mass-spring-shm",
+  "simple-pendulum-shm",
+  "kinematic-shm",
+];
+
+const OPTICS_SHM_KIND_TO_DEFAULT_ARCHETYPE: Readonly<
+  Record<OpticsShmScenarioKind, OpticsShmArchetype>
+> = {
+  "planar-refraction": "planar-refraction-subcritical",
+  "multi-layer-slab": "multi-layer-parallel-slab",
+  "optical-fiber": "optical-fiber-guided",
+  "thin-lens": "thin-lens-converging-real-diminished",
+  "mass-spring-shm": "mass-spring-horizontal-time",
+  "simple-pendulum-shm": "simple-pendulum-shm",
+  "kinematic-shm": "kinematic-shm-phase-portrait",
+};
+
+const THERMAL_SCENARIO_KINDS: readonly ThermalScenarioKind[] = [
+  "thermodynamic-process",
+  "carnot-cycle",
+  "phase-change-curve",
+  "calorimetry-mixing",
+  "kinetic-theory",
+  "thermal-radiation",
+];
+
+const QUANTUM_NUCLEAR_SCENARIO_KINDS: readonly QuantumNuclearScenarioKind[] = [
+  "energy-levels",
+  "photoelectric-effect",
+  "matter-waves",
+  "radioactive-decay",
+  "nuclear-decay-chain",
+  "nuclear-binding",
+  "rutherford-scattering",
+  "special-relativity",
+];
+
 export function resetDomainRegistryToDefaults(): void {
   registry.clear();
   registerDomainAdapter(buildGraphAdapter());
   registerDomainAdapter(buildCircuitsAdapter());
   registerDomainAdapter(buildFieldsAdapter());
   registerDomainAdapter(buildMechanicsAdapter());
+  registerVisualModule("waves", {
+    validate: validateWavesScenario,
+    solve: solveWavesScenario,
+    render: renderWavesSvg,
+    description:
+      "Progressive and standing waves, double-slit and single-slit diffraction, diffraction gratings, Doppler effect, and Malus polarization",
+    supportedScenarioKinds: WAVES_SCENARIO_KINDS,
+    sampleScenario: (seed, kind) =>
+      sampleWavesScenario({
+        seed,
+        ...(kind && (WAVES_SCENARIO_KINDS as readonly string[]).includes(kind)
+          ? { kind: kind as WavesScenarioKind }
+          : {}),
+      }).spec,
+  });
+  registerVisualModule("optics-shm", {
+    validate: validateOpticsShmScenario,
+    solve: solveOpticsShmScenario,
+    render: renderOpticsShmSvg,
+    description:
+      "Planar Snell refraction, critical angle & TIR, multi-layer slabs, optical fibers, thin lenses, and mass-spring/pendulum/kinematic SHM",
+    supportedScenarioKinds: OPTICS_SHM_SCENARIO_KINDS,
+    sampleScenario: (seed, kind) => {
+      const archetype =
+        kind && (OPTICS_SHM_ARCHETYPES as readonly string[]).includes(kind)
+          ? (kind as OpticsShmArchetype)
+          : kind && kind in OPTICS_SHM_KIND_TO_DEFAULT_ARCHETYPE
+            ? OPTICS_SHM_KIND_TO_DEFAULT_ARCHETYPE[kind as OpticsShmScenarioKind]
+            : undefined;
+      return generateOpticsShmScenario(seed, {
+        ...(archetype ? { archetype } : {}),
+        hideTargets: false,
+      }).spec;
+    },
+  });
+  registerVisualModule("thermal", {
+    validate: validateThermalScenario,
+    solve: solveThermalScenario,
+    render: renderThermalSvg,
+    description:
+      "Ideal gas PV/PT/VT processes, Carnot & heat-engine cycles, phase-change curves, calorimetry mixing, Maxwell-Boltzmann kinetic theory, and blackbody radiation",
+    supportedScenarioKinds: THERMAL_SCENARIO_KINDS,
+    sampleScenario: (seed, kind) => {
+      const spec = generateThermalScenario(
+        seed,
+        kind && (THERMAL_SCENARIO_KINDS as readonly string[]).includes(kind)
+          ? (kind as ThermalScenarioKind)
+          : undefined,
+      );
+      return { ...spec, hiddenQuantities: [] };
+    },
+  });
+  registerVisualModule("grav-astro", {
+    validate: validateGravAstroScenario,
+    solve: solveGravAstroScenario,
+    render: renderGravAstroSvg,
+    description:
+      "Conical pendulum, flat/banked/vertical circular motion, gravitational fields & orbits, stellar blackbody/HR diagrams, parallax, and cosmological redshift",
+    supportedScenarioKinds: GRAV_ASTRO_SCENARIO_KINDS,
+    sampleScenario: (seed, kind) => {
+      const rng = createGravAstroRng(seed);
+      const chosenKind =
+        kind && (GRAV_ASTRO_SCENARIO_KINDS as readonly string[]).includes(kind)
+          ? (kind as GravAstroScenarioKind)
+          : rng.pick(GRAV_ASTRO_SCENARIO_KINDS);
+      return generateGravAstroScenario(chosenKind, seed);
+    },
+  });
+  registerVisualModule("em-induction", {
+    validate: validateEmInductionScenario,
+    solve: solveEmInductionScenario,
+    render: renderEmInductionSvg,
+    description:
+      "Parallel-plate & network capacitors, RC transients, Faraday/Lenz flux & motional EMF, AC generators, transformers, and E/B charged-particle motion",
+    supportedScenarioKinds: EM_INDUCTION_SCENARIO_KINDS,
+    sampleScenario: (seed, kind) => {
+      const spec = generateEmInductionScenario(
+        seed,
+        kind &&
+          (EM_INDUCTION_SCENARIO_KINDS as readonly string[]).includes(kind)
+          ? (kind as EmInductionScenarioKind)
+          : undefined,
+      );
+      return { ...spec, hiddenQuantities: [] };
+    },
+  });
+  registerVisualModule("quantum-nuclear", {
+    validate: validateQuantumNuclearScenario,
+    solve: solveQuantumNuclearScenario,
+    render: renderQuantumNuclearSvg,
+    description:
+      "Atomic energy levels & spectra, photoelectric effect, de Broglie matter waves, radioactive decay & chains, nuclear binding, Rutherford scattering, and special relativity",
+    supportedScenarioKinds: QUANTUM_NUCLEAR_SCENARIO_KINDS,
+    sampleScenario: (seed, kind) => {
+      const spec = sampleQuantumNuclearSpec(
+        seed,
+        kind &&
+          (QUANTUM_NUCLEAR_SCENARIO_KINDS as readonly string[]).includes(kind)
+          ? { kind: kind as QuantumNuclearScenarioKind }
+          : {},
+      );
+      return { ...spec, hiddenQuantities: [] };
+    },
+  });
   registerDomainAdapter(buildPureCalculationAdapter());
 }
 

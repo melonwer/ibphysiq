@@ -1,9 +1,10 @@
 import { CandidateQuestionInput } from "./types";
 
 /**
- * Deterministic solver-verified sample candidates across all built-in fa50e43
- * visual families (`graphs`, `circuits`, `fields`, `mechanics`) plus
- * `pure-calculation`, covering IB (SL/HL), UK A-Level (AS/A2), and NCUK IFY.
+ * Deterministic solver-verified sample candidates across all 10 visual domains
+ * (`graphs`, `circuits`, `fields`, `mechanics`, `waves`, `optics-shm`,
+ * `thermal`, `grav-astro`, `em-induction`, `quantum-nuclear`) plus
+ * `pure-calculation`, covering IB (SL/HL), UK A-Level (Y12/Y13), and NCUK IFY.
  */
 export function buildSampleCandidates(): CandidateQuestionInput[] {
   return [
@@ -740,6 +741,667 @@ export function buildSampleCandidates(): CandidateQuestionInput[] {
         },
       ],
       totalMarks: 1,
+    },
+
+    // 10. WAVES — MCQ
+    {
+      id: "sp-waves-mcq-010",
+      conceptId: "standing-waves-harmonics",
+      templateArchetype: "fixed-string-third-harmonic-frequency",
+      seed: 100601,
+      syllabi: [
+        {
+          syllabus: "ib",
+          level: "SL",
+          topicId: "ib-theme-c",
+          subtopicId: "ib-c4-standing-waves-resonance",
+        },
+        {
+          syllabus: "alevel",
+          level: "Y12",
+          topicId: "alevel-sec3-waves",
+          subtopicId: "alevel-3-3-1-progressive-stationary-waves",
+        },
+        {
+          syllabus: "ncuk",
+          level: "IFY-S2",
+          topicId: "ncuk-ac6",
+          subtopicId: "ncuk-ac6-5",
+        },
+      ],
+      format: "mcq",
+      difficulty: "standard",
+      domain: "waves",
+      scenarioSpec: {
+        kind: "standing-wave",
+        boundaryKind: "string-fixed-both",
+        lengthM: 1.2,
+        harmonicNumber: 3,
+        waveSpeedMs: 96,
+      },
+      hiddenQuantities: [
+        "wavelengthM",
+        "fundamentalFrequencyHz",
+        "harmonicFrequencyHz",
+        "frequencyHz",
+        "periodS",
+        "adjacentNodeSpacingM",
+        "nodeToAntinodeSpacingM",
+      ],
+      targetQuantityKey: "harmonicFrequencyHz",
+      stem: "A taut string of length 1.2 m fixed at both ends vibrates in its 3rd harmonic mode, as shown. Transverse waves travel along the string at 96 m s⁻¹. What is the frequency of this standing wave?",
+      options: [
+        {
+          label: "A",
+          text: "40.0 Hz",
+          isCorrect: false,
+          distractorRationale:
+            "Calculates the fundamental (first-harmonic) frequency v / (2L) = 96 / 2.4 instead of the 3rd harmonic.",
+        },
+        {
+          label: "B",
+          text: "80.0 Hz",
+          isCorrect: false,
+          distractorRationale:
+            "Divides wave speed by the full string length L = 1.2 m instead of the 3rd-harmonic wavelength λ = 0.80 m.",
+        },
+        {
+          label: "C",
+          text: "120 Hz",
+          isCorrect: true,
+        },
+        {
+          label: "D",
+          text: "240 Hz",
+          isCorrect: false,
+          distractorRationale:
+            "Omits the factor of 2 in λ₃ = 2L / 3 and computes f = 3v / L = 3(96) / 1.2.",
+        },
+      ],
+      workedSolution:
+        "For a string fixed at both ends in the n = 3 harmonic, λ₃ = 2L / 3 = 2(1.2) / 3 = 0.800 m. Therefore f₃ = v / λ₃ = 96 / 0.800 = 120 Hz.",
+      markScheme: [
+        {
+          code: "A1",
+          criterion:
+            "Determines λ₃ = 0.800 m and computes f₃ = 96 / 0.800 = 120 Hz (C).",
+          marks: 1,
+        },
+      ],
+      totalMarks: 1,
+    },
+
+    // 11. OPTICS & SHM — Structured
+    {
+      id: "sp-optics-shm-struct-011",
+      conceptId: "simple-harmonic-motion",
+      templateArchetype: "horizontal-mass-spring-energy-speed",
+      seed: 100701,
+      syllabi: [
+        {
+          syllabus: "ib",
+          level: "SL",
+          topicId: "ib-theme-c",
+          subtopicId: "ib-c1-shm",
+        },
+        {
+          syllabus: "alevel",
+          level: "Y13",
+          topicId: "alevel-sec6-further-mechanics-thermal",
+          subtopicId: "alevel-3-6-1-periodic-motion-shm",
+        },
+        {
+          syllabus: "ncuk",
+          level: "IFY-S2",
+          topicId: "ncuk-ac6",
+          subtopicId: "ncuk-ac6-1",
+        },
+      ],
+      format: "structured",
+      difficulty: "standard",
+      domain: "optics-shm",
+      scenarioSpec: {
+        kind: "mass-spring-shm",
+        orientation: "horizontal",
+        massKg: 0.5,
+        springConstantNm: 200,
+        amplitudeM: 0.08,
+        phaseConvention: "cosine",
+        queryDisplacementM: 0.04,
+        plotMode: "energy-displacement",
+      },
+      hiddenQuantities: [
+        "angularFrequencyRadS",
+        "periodS",
+        "frequencyHz",
+        "energyOscillationFrequencyHz",
+        "energyOscillationPeriodS",
+        "maxSpeedMs",
+        "maxAccelerationMs2",
+        "maxRestoringForceN",
+        "totalEnergyJ",
+        "equalEnergyDisplacementM",
+        "speedAtQueryDisplacementMs",
+        "positiveVelocityAtQueryDisplacementMs",
+        "negativeVelocityAtQueryDisplacementMs",
+        "accelerationAtQueryDisplacementMs2",
+        "kineticEnergyAtQueryDisplacementJ",
+        "potentialEnergyAtQueryDisplacementJ",
+        "potentialEnergyAtQueryTimeJ",
+        "accelerationAtQueryTimeMs2",
+        "restoringForceAtQueryTimeN",
+      ],
+      stem: "A block of mass 0.5 kg attached to an ideal horizontal spring of spring constant 200 N m⁻¹ oscillates in simple harmonic motion on a frictionless surface with an amplitude of 0.08 m.",
+      parts: [
+        {
+          partId: "a",
+          prompt: "Calculate the period of oscillation of the block.",
+          marks: 2,
+          targetQuantityKey: "periodS",
+          expectedAnswer: "0.314 s",
+          workingSteps: [
+            "ω = √(k / m) = √(200 / 0.5) = 20.0 rad s⁻¹.",
+            "T = 2π / ω = 2π / 20.0 = 0.314 s.",
+          ],
+        },
+        {
+          partId: "b",
+          prompt: "Calculate the total mechanical energy of the oscillating system.",
+          marks: 2,
+          targetQuantityKey: "totalEnergyJ",
+          expectedAnswer: "0.640 J",
+          workingSteps: [
+            "E_total = ½ k x₀² = ½ × 200 × (0.08)² = 0.640 J.",
+          ],
+        },
+        {
+          partId: "c",
+          prompt: "Determine the speed of the block when its displacement from equilibrium is 0.04 m.",
+          marks: 2,
+          dependsOnPartIds: ["a"],
+          targetQuantityKey: "speedAtQueryDisplacementMs",
+          expectedAnswer: "1.39 m s⁻¹",
+          workingSteps: [
+            "v = ω √(x₀² − x²) = 20.0 × √(0.08² − 0.04²).",
+            "v = 20.0 × √0.0048 = 1.39 m s⁻¹.",
+          ],
+        },
+      ],
+      workedSolution:
+        "(a) ω = √(200 / 0.5) = 20.0 rad s⁻¹, so T = 2π / 20.0 = 0.314 s. (b) Total energy E = ½ k A² = ½(200)(0.08)² = 0.640 J. (c) At x = 0.04 m, speed v = 20.0√(0.08² − 0.04²) = 1.39 m s⁻¹.",
+      markScheme: [
+        {
+          code: "M1",
+          partId: "a",
+          criterion: "Uses T = 2π√(m / k) with m = 0.5 kg and k = 200 N m⁻¹.",
+          marks: 1,
+        },
+        {
+          code: "A1",
+          partId: "a",
+          criterion: "Obtains T = 0.314 s.",
+          marks: 1,
+        },
+        {
+          code: "M1",
+          partId: "b",
+          criterion: "Substitutes k = 200 N m⁻¹ and A = 0.08 m into E = ½ k A².",
+          marks: 1,
+        },
+        {
+          code: "A1",
+          partId: "b",
+          criterion: "Obtains E = 0.640 J.",
+          marks: 1,
+        },
+        {
+          code: "M1",
+          partId: "c",
+          criterion: "Applies v = ω√(A² − x²) or ½mv² = E_total − ½kx² at x = 0.04 m.",
+          marks: 1,
+        },
+        {
+          code: "A1",
+          partId: "c",
+          criterion: "Obtains v = 1.39 m s⁻¹.",
+          marks: 1,
+        },
+      ],
+      totalMarks: 6,
+    },
+
+    // 12. THERMAL — MCQ
+    {
+      id: "sp-thermal-mcq-012",
+      conceptId: "ideal-gas-kinetic-theory",
+      templateArchetype: "maxwell-boltzmann-rms-speed",
+      seed: 100801,
+      syllabi: [
+        {
+          syllabus: "ib",
+          level: "SL",
+          topicId: "ib-theme-b",
+          subtopicId: "ib-b3-gas-laws",
+        },
+        {
+          syllabus: "alevel",
+          level: "Y13",
+          topicId: "alevel-sec6-further-mechanics-thermal",
+          subtopicId: "alevel-3-6-2-thermal-physics",
+        },
+        {
+          syllabus: "ncuk",
+          level: "IFY-S1",
+          topicId: "ncuk-ac3",
+          subtopicId: "ncuk-ac3-4",
+        },
+      ],
+      format: "mcq",
+      difficulty: "standard",
+      domain: "thermal",
+      scenarioSpec: {
+        kind: "kinetic-theory",
+        gasName: "Argon",
+        temperatureK: 300,
+        molarMassKgPerMol: 0.04,
+        moles: 2,
+        volumeM3: 0.05,
+      },
+      hiddenQuantities: [
+        "rmsSpeedMs",
+        "meanSpeedMs",
+        "mostProbableSpeedMs",
+        "pressurePa",
+        "averageKineticEnergyJ",
+        "averageKineticEnergyEv",
+        "molarInternalEnergyJPerMol",
+        "densityKgPerM3",
+        "particleMassKg",
+      ],
+      targetQuantityKey: "rmsSpeedMs",
+      stem: "A rigid vessel of volume 0.05 m³ contains 2 mol of monatomic argon gas of molar mass 0.04 kg mol⁻¹ in thermal equilibrium at 300 K. Take R = 8.31 J mol⁻¹ K⁻¹. What is the root-mean-square (rms) speed of the argon atoms?",
+      options: [
+        {
+          label: "A",
+          text: "250 m s⁻¹",
+          isCorrect: false,
+          distractorRationale:
+            "Omits the factor of 3 in v_rms = √(3RT / M) and computes √(RT / M).",
+        },
+        {
+          label: "B",
+          text: "353 m s⁻¹",
+          isCorrect: false,
+          distractorRationale:
+            "Uses a factor of 2 instead of 3, calculating the most probable speed √(2RT / M).",
+        },
+        {
+          label: "C",
+          text: "432 m s⁻¹",
+          isCorrect: true,
+        },
+        {
+          label: "D",
+          text: "1.87 × 10⁵ m s⁻¹",
+          isCorrect: false,
+          distractorRationale:
+            "Calculates mean-square speed 3RT / M without taking the square root.",
+        },
+      ],
+      workedSolution:
+        "Using v_rms = √(3RT / M) with R = 8.31 J mol⁻¹ K⁻¹, T = 300 K, and M = 0.04 kg mol⁻¹ gives v_rms = √(3 × 8.31 × 300 / 0.04) = √186975 = 432 m s⁻¹.",
+      markScheme: [
+        {
+          code: "A1",
+          criterion:
+            "Substitutes T = 300 K and M = 0.04 kg mol⁻¹ into √(3RT / M) to obtain 432 m s⁻¹ (C).",
+          marks: 1,
+        },
+      ],
+      totalMarks: 1,
+    },
+
+    // 13. GRAVITATION & ASTROPHYSICS — Structured
+    {
+      id: "sp-grav-astro-struct-013",
+      conceptId: "gravitational-potential-orbits",
+      templateArchetype: "circular-satellite-orbit-speed-energy",
+      seed: 100901,
+      syllabi: [
+        {
+          syllabus: "ib",
+          level: "HL",
+          topicId: "ib-theme-d",
+          subtopicId: "ib-d1-gravitational-fields",
+        },
+        {
+          syllabus: "alevel",
+          level: "Y13",
+          topicId: "alevel-sec7-fields-consequences",
+          subtopicId: "alevel-3-7-2-gravitational-fields",
+        },
+        {
+          syllabus: "ncuk",
+          level: "IFY-S2",
+          topicId: "ncuk-ac5",
+          subtopicId: "ncuk-ac5-1",
+        },
+      ],
+      format: "structured",
+      difficulty: "higher",
+      domain: "grav-astro",
+      scenarioSpec: {
+        kind: "circular-orbit-energy",
+        centralMassKg: 6.0e24,
+        centralRadiusM: 6.4e6,
+        satelliteMassKg: 500,
+        orbitRadiusM: 8.0e6,
+      },
+      hiddenQuantities: [
+        "altitudeM",
+        "fieldStrengthNkg",
+        "gravitationalForceN",
+        "orbitalSpeedMs",
+        "escapeSpeedMs",
+        "angularSpeedRadS",
+        "orbitalPeriodS",
+        "gravitationalPotentialJkg",
+        "kineticEnergyJ",
+        "potentialEnergyJ",
+        "totalEnergyJ",
+        "bindingEnergyJ",
+      ],
+      stem: "A scientific satellite of mass 500 kg travels in a circular orbit of radius 8.0 × 10⁶ m around a spherical planet of mass 6.0 × 10²⁴ kg and radius 6.4 × 10⁶ m. Take G = 6.67 × 10⁻¹¹ N m² kg⁻².",
+      parts: [
+        {
+          partId: "a",
+          prompt: "Calculate the orbital speed of the satellite.",
+          marks: 2,
+          targetQuantityKey: "orbitalSpeedMs",
+          expectedAnswer: "7.07 × 10³ m s⁻¹",
+          workingSteps: [
+            "v = √(GM / r) = √(6.67 × 10⁻¹¹ × 6.0 × 10²⁴ / 8.0 × 10⁶).",
+            "v = √(5.0025 × 10⁷) = 7.07 × 10³ m s⁻¹.",
+          ],
+        },
+        {
+          partId: "b",
+          prompt: "Determine the orbital period of the satellite.",
+          marks: 2,
+          dependsOnPartIds: ["a"],
+          targetQuantityKey: "orbitalPeriodS",
+          expectedAnswer: "7.11 × 10³ s",
+          workingSteps: [
+            "T = 2πr / v = 2π(8.0 × 10⁶) / 7072.8 = 7.11 × 10³ s.",
+          ],
+        },
+        {
+          partId: "c",
+          prompt: "Calculate the total mechanical energy of the satellite in this circular orbit.",
+          marks: 2,
+          targetQuantityKey: "totalEnergyJ",
+          expectedAnswer: "-1.25 × 10¹⁰ J",
+          workingSteps: [
+            "E_total = −GMm / (2r) = −(6.67 × 10⁻¹¹)(6.0 × 10²⁴)(500) / (2 × 8.0 × 10⁶).",
+            "E_total = −1.25 × 10¹⁰ J.",
+          ],
+        },
+      ],
+      workedSolution:
+        "(a) Orbital speed v = √(GM / r) = √(4.002 × 10¹⁴ / 8.0 × 10⁶) = 7.07 × 10³ m s⁻¹. (b) Period T = 2πr / v = 2π(8.0 × 10⁶) / 7073 = 7.11 × 10³ s. (c) Total mechanical energy E = −GMm / (2r) = −1.25 × 10¹⁰ J.",
+      markScheme: [
+        {
+          code: "M1",
+          partId: "a",
+          criterion: "Equates gravitational force to centripetal force to obtain v = √(GM / r).",
+          marks: 1,
+        },
+        {
+          code: "A1",
+          partId: "a",
+          criterion: "Obtains v = 7.07 × 10³ m s⁻¹.",
+          marks: 1,
+        },
+        {
+          code: "M1",
+          partId: "b",
+          criterion: "Uses T = 2πr / v or Kepler's third law T = 2π√(r³ / GM).",
+          marks: 1,
+        },
+        {
+          code: "A1",
+          partId: "b",
+          criterion: "Obtains T = 7.11 × 10³ s.",
+          marks: 1,
+        },
+        {
+          code: "M1",
+          partId: "c",
+          criterion: "Uses E_total = −GMm / (2r) (including negative bound-state sign).",
+          marks: 1,
+        },
+        {
+          code: "A1",
+          partId: "c",
+          criterion: "Obtains −1.25 × 10¹⁰ J.",
+          marks: 1,
+        },
+      ],
+      totalMarks: 6,
+    },
+
+    // 14. EM INDUCTION — MCQ
+    {
+      id: "sp-em-induction-mcq-014",
+      conceptId: "electromagnetic-induction-faraday-lenz",
+      templateArchetype: "conducting-rod-rails-magnetic-braking-force",
+      seed: 101001,
+      syllabi: [
+        {
+          syllabus: "ib",
+          level: "HL",
+          topicId: "ib-theme-d",
+          subtopicId: "ib-d4-induction",
+        },
+        {
+          syllabus: "alevel",
+          level: "Y13",
+          topicId: "alevel-sec7-fields-consequences",
+          subtopicId: "alevel-3-7-5-magnetic-fields-induction-ac",
+        },
+        {
+          syllabus: "ncuk",
+          level: "IFY-S2",
+          topicId: "ncuk-ac4",
+          subtopicId: "ncuk-ac4-6",
+        },
+      ],
+      format: "mcq",
+      difficulty: "higher",
+      domain: "em-induction",
+      scenarioSpec: {
+        kind: "motional-emf-rails",
+        magneticFieldT: 0.75,
+        fieldDirection: "into-page",
+        railSeparationM: 0.4,
+        rodSpeedMs: 6,
+        rodDirection: "right",
+        loadResistanceOhm: 1.7,
+        rodResistanceOhm: 0.3,
+      },
+      hiddenQuantities: [
+        "totalResistanceOhm",
+        "motionalEmfV",
+        "inducedCurrentA",
+        "terminalVoltageV",
+        "magneticBrakingForceN",
+        "mechanicalPowerW",
+        "electricalPowerW",
+      ],
+      targetQuantityKey: "magneticBrakingForceN",
+      stem: "A conducting rod of resistance 0.3 Ω slides to the right at a constant speed of 6 m s⁻¹ along smooth horizontal rails separated by 0.4 m in a uniform 0.75 T magnetic field directed into the page. The rails are connected to a 1.7 Ω load resistor. What external force magnitude is required to keep the rod moving at 6 m s⁻¹?",
+      options: [
+        {
+          label: "A",
+          text: "0.270 N",
+          isCorrect: true,
+        },
+        {
+          label: "B",
+          text: "0.318 N",
+          isCorrect: false,
+          distractorRationale:
+            "Neglects the 0.3 Ω internal resistance of the moving rod and divides ε = 1.80 V by 1.7 Ω only.",
+        },
+        {
+          label: "C",
+          text: "0.900 N",
+          isCorrect: false,
+          distractorRationale:
+            "Stops after computing the induced current I = 0.900 A without multiplying by B L.",
+        },
+        {
+          label: "D",
+          text: "1.62 N",
+          isCorrect: false,
+          distractorRationale:
+            "Calculates the mechanical power input P = Fv = 1.62 W instead of the applied force F.",
+        },
+      ],
+      workedSolution:
+        "Motional emf ε = BLv = 0.75 × 0.4 × 6 = 1.80 V. Total loop resistance R_tot = 1.7 + 0.3 = 2.00 Ω, so induced current I = 1.80 / 2.00 = 0.900 A. Magnetic braking force magnitude F = BIL = 0.75 × 0.900 × 0.4 = 0.270 N.",
+      markScheme: [
+        {
+          code: "A1",
+          criterion:
+            "Finds ε = 1.80 V, I = 0.900 A, and F = BIL = 0.270 N (A).",
+          marks: 1,
+        },
+      ],
+      totalMarks: 1,
+    },
+
+    // 15. QUANTUM & NUCLEAR — Structured
+    {
+      id: "sp-quantum-nuclear-struct-015",
+      conceptId: "photoelectric-effect",
+      templateArchetype: "uv-photoelectric-threshold-stopping-potential",
+      seed: 101101,
+      syllabi: [
+        {
+          syllabus: "ib",
+          level: "HL",
+          topicId: "ib-theme-e",
+          subtopicId: "ib-e2-quantum-physics",
+        },
+        {
+          syllabus: "alevel",
+          level: "Y12",
+          topicId: "alevel-sec2-particles-radiation",
+          subtopicId: "alevel-3-2-2-quantum-phenomena",
+        },
+        {
+          syllabus: "ncuk",
+          level: "IFY-S2",
+          topicId: "ncuk-ac8",
+          subtopicId: "ncuk-ac8-1",
+        },
+      ],
+      format: "structured",
+      difficulty: "standard",
+      domain: "quantum-nuclear",
+      scenarioSpec: {
+        kind: "photoelectric-effect",
+        workFunctionEv: 2.2,
+        incidentFrequencyHz: 1.0e15,
+      },
+      hiddenQuantities: [
+        "workFunctionJ",
+        "thresholdFrequencyHz",
+        "thresholdWavelengthM",
+        "thresholdWavelengthNm",
+        "incidentWavelengthM",
+        "incidentWavelengthNm",
+        "photonEnergyEv",
+        "photonEnergyJ",
+        "signedEnergyBalanceEv",
+        "maxKineticEnergyEv",
+        "maxKineticEnergyJ",
+        "stoppingPotentialV",
+        "maxElectronSpeedMs",
+        "graphSlope",
+      ],
+      stem: "Monochromatic ultraviolet radiation of frequency 1.0 × 10¹⁵ Hz is incident on a clean potassium surface in vacuum with work function 2.2 eV. Take h = 6.63 × 10⁻³⁴ J s and e = 1.60 × 10⁻¹⁹ C.",
+      parts: [
+        {
+          partId: "a",
+          prompt: "Calculate the threshold frequency of the potassium surface.",
+          marks: 2,
+          targetQuantityKey: "thresholdFrequencyHz",
+          expectedAnswer: "5.31 × 10¹⁴ Hz",
+          workingSteps: [
+            "Φ = 2.2 × 1.60 × 10⁻¹⁹ = 3.52 × 10⁻¹⁹ J.",
+            "f₀ = Φ / h = 3.52 × 10⁻¹⁹ / 6.63 × 10⁻³⁴ = 5.31 × 10¹⁴ Hz.",
+          ],
+        },
+        {
+          partId: "b",
+          prompt: "Determine the maximum kinetic energy, in eV, of the emitted photoelectrons.",
+          marks: 2,
+          targetQuantityKey: "maxKineticEnergyEv",
+          expectedAnswer: "1.94 eV",
+          workingSteps: [
+            "Photon energy E = hf / e = (6.63 × 10⁻³⁴ × 1.0 × 10¹⁵) / 1.60 × 10⁻¹⁹ = 4.14 eV.",
+            "E_k,max = 4.14 − 2.2 = 1.94 eV.",
+          ],
+        },
+        {
+          partId: "c",
+          prompt: "State the stopping potential required to reduce the photocurrent to zero.",
+          marks: 1,
+          dependsOnPartIds: ["b"],
+          targetQuantityKey: "stoppingPotentialV",
+          expectedAnswer: "1.94 V",
+          workingSteps: [
+            "V_s = E_k,max / e = 1.94 V.",
+          ],
+        },
+      ],
+      workedSolution:
+        "(a) Work function Φ = 2.2(1.60 × 10⁻¹⁹) = 3.52 × 10⁻¹⁹ J, so f₀ = Φ / h = 5.31 × 10¹⁴ Hz. (b) Incident photon energy = hf / e = 4.144 eV; E_k,max = 4.144 − 2.2 = 1.94 eV. (c) Stopping potential V_s = 1.94 V.",
+      markScheme: [
+        {
+          code: "M1",
+          partId: "a",
+          criterion: "Converts 2.2 eV to 3.52 × 10⁻¹⁹ J and divides by Planck's constant h.",
+          marks: 1,
+        },
+        {
+          code: "A1",
+          partId: "a",
+          criterion: "Obtains f₀ = 5.31 × 10¹⁴ Hz.",
+          marks: 1,
+        },
+        {
+          code: "M1",
+          partId: "b",
+          criterion: "Applies Einstein's photoelectric equation E_k,max = hf − Φ.",
+          marks: 1,
+        },
+        {
+          code: "A1",
+          partId: "b",
+          criterion: "Obtains E_k,max = 1.94 eV.",
+          marks: 1,
+        },
+        {
+          code: "A1",
+          partId: "c",
+          criterion: "States stopping potential V_s = 1.94 V.",
+          marks: 1,
+        },
+      ],
+      totalMarks: 5,
     },
   ];
 }

@@ -5,15 +5,18 @@ import {
 import { extractNumbersFromPhysicsText } from "@/lib/bank-pipeline/numeric-checker";
 import { verifyCandidateWithGate } from "@/lib/bank-pipeline/package-gate";
 import { buildSampleCandidates } from "@/lib/bank-pipeline/sample-candidates";
-import { CandidateQuestionInput } from "@/lib/bank-pipeline/types";
+import {
+  CandidateQuestionInput,
+  PhysicsDomainId,
+} from "@/lib/bank-pipeline/types";
 
 describe("package-gate", () => {
   afterEach(() => {
     resetDomainRegistryToDefaults();
   });
-  it("accepts all 9 solver-verified sample candidates across graphs, circuits, fields, mechanics, and pure-calculation", () => {
+  it("accepts all 15 solver-verified sample candidates across all 10 visual domains and pure-calculation", () => {
     const samples = buildSampleCandidates();
-    expect(samples).toHaveLength(9);
+    expect(samples).toHaveLength(15);
 
     for (const candidate of samples) {
       const result = verifyCandidateWithGate(candidate);
@@ -49,7 +52,7 @@ describe("package-gate", () => {
     const unknownDomain = verifyCandidateWithGate({
       ...base,
       id: "bad-domain",
-      domain: "waves", // not registered until registerVisualModule is called
+      domain: "fluid-dynamics" as unknown as PhysicsDomainId,
     });
     expect(unknownDomain.evaluation.valid).toBe(false);
     expect(unknownDomain.evaluation.issues[0].code).toBe("unknown-domain");

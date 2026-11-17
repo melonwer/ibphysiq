@@ -111,7 +111,7 @@ describe("shard-store, distillation traces, work-order planner, and CLIs", () =>
       shardsDir,
       candidates: shard3Batch,
     });
-    expect(r3.ingestedCount).toBe(2);
+    expect(r3.ingestedCount).toBe(samples.length - 7);
 
     // Verify stored Qwen/Qwen3.5-9B two-step distillation traces
     const shard1Records = readShardRecords(shardsDir, "worker-shard-01");
@@ -143,14 +143,14 @@ describe("shard-store, distillation traces, work-order planner, and CLIs", () =>
       outDir: compiledDir,
     });
 
-    expect(summary.totalCompiledItems).toBe(9);
+    expect(summary.totalCompiledItems).toBe(samples.length);
     expect(summary.splitSummary.zeroContaminationVerified).toBe(true);
     expect(summary.attemptMetrics.totalRejectedInAttempts).toBe(1);
-    expect(summary.coverageBySyllabus.ib.total).toBe(9);
-    expect(summary.coverageBySyllabus.alevel.total).toBe(9);
-    expect(summary.coverageBySyllabus.ncuk.total).toBe(9);
+    expect(summary.coverageBySyllabus.ib.total).toBe(samples.length);
+    expect(summary.coverageBySyllabus.alevel.total).toBe(samples.length);
+    expect(summary.coverageBySyllabus.ncuk.total).toBe(samples.length);
 
-    // Check emitted QLoRA JSONL splits sum to 9 traces
+    // Check emitted QLoRA JSONL splits sum to all sample traces
     let totalTracesOnDisk = 0;
     for (const split of ["train", "val", "test"] as const) {
       const splitFile = path.join(compiledDir, "distillation", `${split}.jsonl`);
@@ -166,7 +166,7 @@ describe("shard-store, distillation traces, work-order planner, and CLIs", () =>
         }
       }
     }
-    expect(totalTracesOnDisk).toBe(9);
+    expect(totalTracesOnDisk).toBe(samples.length);
 
     // Check frozen evaluation manifest round-trip
     const frozenPath = path.join(
@@ -182,7 +182,7 @@ describe("shard-store, distillation traces, work-order planner, and CLIs", () =>
       outDir: path.join(tempRoot, "compiled-recheck"),
       frozenManifest,
     });
-    expect(recompiled.totalCompiledItems).toBe(9);
+    expect(recompiled.totalCompiledItems).toBe(samples.length);
     expect(recompiled.splitSummary.zeroContaminationVerified).toBe(true);
   });
 
@@ -408,7 +408,7 @@ describe("shard-store, distillation traces, work-order planner, and CLIs", () =>
     });
 
     const records = readShardRecords(shardsDir, "trace-audit-shard");
-    expect(records).toHaveLength(9);
+    expect(records).toHaveLength(samples.length);
 
     for (const rec of records) {
       const step1 = JSON.parse(rec.distillationTrace.messages[2].content) as {

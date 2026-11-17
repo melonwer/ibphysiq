@@ -497,3 +497,5 @@ export function validateQwenDistillationTrace(
 
   return { valid: issues.length === 0, issues };
 }
+
+export const buildDistillationTrace = buildQwenDistillationTrace;

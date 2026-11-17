@@ -129,6 +129,20 @@ function mergeSpecAndCandidateHiddenQuantities(
   return [...new Set(rawList)];
 }
 
+const NON_PHYSICAL_VIEWPORT_SPEC_KEYS = new Set([
+  "width",
+  "height",
+  "seed",
+  "cyclesShown",
+  "durationTimeConstants",
+  "arcSweepDegrees",
+  "maxPrincipalN",
+  "domainLightSeconds",
+  "numCycles",
+  "sampleCount",
+  "maxOrderShown",
+]);
+
 function deriveDefaultRequiredGivens(
   scenarioSpec: Record<string, unknown>,
   hiddenQuantities: readonly string[],
@@ -137,7 +151,7 @@ function deriveDefaultRequiredGivens(
   const hidden = new Set(hiddenQuantities);
   const givens: RequiredGivenSpec[] = [];
   for (const [key, value] of Object.entries(scenarioSpec)) {
-    if (hidden.has(key)) continue;
+    if (hidden.has(key) || NON_PHYSICAL_VIEWPORT_SPEC_KEYS.has(key)) continue;
     if (typeof value === "number" && Number.isFinite(value)) {
       if (Math.abs(value) <= 1e-12) continue;
       givens.push({
@@ -1151,3 +1165,5 @@ export function verifyCandidateWithGate(
     correctOptionIndex,
   };
 }
+
+export const evaluateCandidatePackage = verifyCandidateWithGate;

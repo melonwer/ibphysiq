@@ -337,12 +337,14 @@ export interface WorkOrderSlice {
   topicId: string;
   subtopicId?: string;
   conceptId: string;
+  conceptTitle?: string;
   domain: PhysicsDomainId;
   visualFamily: string;
   format: QuestionFormat;
   difficultyCounts: Record<QuestionDifficulty, number>;
   targetCount: number;
   seedRange: [number, number];
+  assumptionNotes?: string;
 }
 
 export interface WorkOrderManifest {

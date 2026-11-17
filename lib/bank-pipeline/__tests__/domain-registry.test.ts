@@ -14,21 +14,36 @@ describe("domain-registry", () => {
     resetDomainRegistryToDefaults();
   });
 
-  it("registers fa50e43 visual families plus pure-calculation out of the box", () => {
+  it("registers all 10 visual families plus pure-calculation out of the box", () => {
     const domains = listRegisteredDomains();
-    expect(domains).toEqual(
-      expect.arrayContaining([
-        "graphs",
-        "circuits",
-        "fields",
-        "mechanics",
-        "pure-calculation",
-      ]),
-    );
+    expect(domains).toEqual([
+      "graphs",
+      "circuits",
+      "fields",
+      "mechanics",
+      "waves",
+      "optics-shm",
+      "thermal",
+      "grav-astro",
+      "em-induction",
+      "quantum-nuclear",
+      "pure-calculation",
+    ]);
   });
 
-  it("solves and renders clean SVGs across graphs, circuits, fields, and mechanics", () => {
-    for (const domain of ["graphs", "circuits", "fields", "mechanics"] as const) {
+  it("solves and renders clean SVGs across all 10 visual domains out of the box", () => {
+    for (const domain of [
+      "graphs",
+      "circuits",
+      "fields",
+      "mechanics",
+      "waves",
+      "optics-shm",
+      "thermal",
+      "grav-astro",
+      "em-induction",
+      "quantum-nuclear",
+    ] as const) {
       const adapter = getDomainAdapter(domain);
       const sampled = adapter.sampleScenario!(42);
       const validation = adapter.validateScenario(sampled);
