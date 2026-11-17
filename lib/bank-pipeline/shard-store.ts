@@ -1,0 +1,976 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+
+import {
+  buildQwenDistillationTrace,
+  validateQwenDistillationTrace,
+} from "./distillation-trace";
+import { getDomainAdapter, hasDomainAdapter } from "./domain-registry";
+import {
+  computeStemSimilarity,
+  formatSignificantFigures,
+} from "./numeric-checker";
+import { ExistingStemEntry, verifyCandidateWithGate } from "./package-gate";
+import {
+  assignSplit,
+  buildFamilyGroupKey,
+  createFrozenEvaluationManifest,
+  serializeFrozenManifest,
+  SplitAuditRecord,
+  SplitContaminationReport,
+  verifyZeroSplitContamination,
+} from "./split-assigner";
+import {
+  CandidateQuestionInput,
+  COMPILED_BANK_SUMMARY_SCHEMA_VERSION,
+  DatasetSplit,
+  FrozenEvaluationManifest,
+  GateDiagnosticIssue,
+  GateRejectionCode,
+  McqOptionItem,
+  PhysicsDomainId,
+  QuestionDifficulty,
+  QuestionFormat,
+  QwenDistillationTrace,
+  SHARD_RECORD_SCHEMA_VERSION,
+  ShardAttemptTelemetry,
+  SIXTHPHYSICS_BANK_ITEM_SCHEMA_VERSION,
+  SixthPhysicsBankItem,
+  SYLLABUS_IDS,
+  SyllabusId,
+  VerifiedQuantityMap,
+  VerifiedShardRecord,
+} from "./types";
+
+export const DEFAULT_SHARDS_RELATIVE_DIR = "dataset/sixthphysics-bank/shards";
+export const DEFAULT_COMPILED_RELATIVE_DIR =
+  "dataset/sixthphysics-bank/compiled";
+
+export interface CandidateIngestItemReport {
+  id: string;
+  status: "ingested" | "already-present" | "rejected";
+  familyGroupKey?: string;
+  split?: DatasetSplit;
+  visualFamily?: string;
+  passedChecks: string[];
+  issues: GateDiagnosticIssue[];
+  verifiedQuantities?: VerifiedQuantityMap;
+}
+
+export interface ShardIngestSummary {
+  shardId: string;
+  shardFilePath: string;
+  dryRun: boolean;
+  totalCandidates: number;
+  ingestedCount: number;
+  alreadyPresentCount: number;
+  rejectedCount: number;
+  results: CandidateIngestItemReport[];
+}
+
+export interface IngestShardOptions {
+  shardId: string;
+  shardsDir: string;
+  candidates: readonly CandidateQuestionInput[];
+  frozenManifest?: FrozenEvaluationManifest;
+  dryRun?: boolean;
+  now?: () => string;
+  nearDuplicateSimilarityThreshold?: number;
+}
+
+export interface SolvePreviewInput {
+  id?: string;
+  domain: PhysicsDomainId;
+  scenarioSpec: Record<string, unknown>;
+  hiddenQuantities?: string[];
+}
+
+export interface SolvePreviewOutput {
+  id: string;
+  domain: PhysicsDomainId;
+  valid: boolean;
+  issues: string[];
+  solverId?: string;
+  verifiedQuantities?: VerifiedQuantityMap;
+  formattedQuantities3sf?: Record<string, string>;
+  visualFamily?: string;
+  publicVisualLabels?: string[];
+}
+
+export interface CompiledFileReceipt {
+  relativePath: string;
+  byteLength: number;
+  sha256: string;
+  recordCount: number;
+}
+
+export interface CompiledBankSummary {
+  schemaVersion: typeof COMPILED_BANK_SUMMARY_SCHEMA_VERSION;
+  compiledAt: string;
+  targetDistillationModel: "Qwen/Qwen3.5-9B";
+  shardsProcessed: string[];
+  attemptMetrics: {
+    totalCandidatesAttempted: number;
+    totalVerifiedInShards: number;
+    totalRejectedInAttempts: number;
+    overallPassRate: number;
+    rejectionCountsByCode: Partial<Record<GateRejectionCode, number>>;
+  };
+  deduplication: {
+    duplicateIdsSkipped: string[];
+    nearDuplicateIdsSkipped: string[];
+  };
+  totalCompiledItems: number;
+  splitSummary: SplitContaminationReport & {
+    zeroContaminationVerified: boolean;
+  };
+  coverageBySyllabus: Record<
+    SyllabusId,
+    {
+      total: number;
+      byLevel: Record<string, number>;
+      byFormat: Record<QuestionFormat, number>;
+      byDifficulty: Record<QuestionDifficulty, number>;
+      byTopic: Record<string, number>;
+    }
+  >;
+  coverageByDomain: Record<
+    string,
+    {
+      total: number;
+      mcq: number;
+      structured: number;
+      visualFamily: string;
+    }
+  >;
+  files: CompiledFileReceipt[];
+}
+
+export interface CompileBankOptions {
+  shardsDir: string;
+  outDir: string;
+  frozenManifest?: FrozenEvaluationManifest;
+  emitFrozenManifestPath?: string;
+  compiledAt?: string;
+  nearDuplicateSimilarityThreshold?: number;
+}
+
+export function assertValidShardId(shardId: string): string {
+  const trimmed = shardId.trim();
+  if (!trimmed || !/^[a-zA-Z0-9._-]+$/.test(trimmed) || trimmed.endsWith(".attempts")) {
+    throw new Error(
+      `Invalid shardId "${shardId}": must match /^[a-zA-Z0-9._-]+$/ and not end with ".attempts"`,
+    );
+  }
+  return trimmed;
+}
+
+export function shardJsonlPath(shardsDir: string, shardId: string): string {
+  const validId = assertValidShardId(shardId);
+  return path.join(shardsDir, `${validId}.jsonl`);
+}
+
+export function shardAttemptsPath(shardsDir: string, shardId: string): string {
+  const validId = assertValidShardId(shardId);
+  return path.join(shardsDir, `${validId}.attempts.jsonl`);
+}
+
+export function readShardRecords(
+  shardsDir: string,
+  shardId: string,
+): VerifiedShardRecord[] {
+  const filePath = shardJsonlPath(shardsDir, shardId);
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+  const raw = fs.readFileSync(filePath, "utf8");
+  const lines = raw.split("\n");
+  const records: VerifiedShardRecord[] = [];
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    try {
+      const parsed = JSON.parse(line) as VerifiedShardRecord;
+      if (parsed.schemaVersion !== SHARD_RECORD_SCHEMA_VERSION) {
+        throw new Error(
+          `Unsupported shard record schemaVersion in ${filePath}:${i + 1}: ${String(parsed.schemaVersion)}`,
+        );
+      }
+      records.push(parsed);
+    } catch (error) {
+      // If the very last non-empty line was truncated by an interrupted process crash, quarantine/ignore trailing fragment
+      const isTrailingLine = lines.slice(i + 1).every((rest) => !rest.trim());
+      if (isTrailingLine && !raw.endsWith("\n")) {
+        break;
+      }
+      throw error;
+    }
+  }
+  return records;
+}
+
+export function readShardAttempts(
+  shardsDir: string,
+  shardId: string,
+): ShardAttemptTelemetry[] {
+  const filePath = shardAttemptsPath(shardsDir, shardId);
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+  const lines = fs.readFileSync(filePath, "utf8").split("\n");
+  const entries: ShardAttemptTelemetry[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      entries.push(JSON.parse(trimmed) as ShardAttemptTelemetry);
+    } catch {
+      // Ignore incomplete trailing telemetry line
+    }
+  }
+  return entries;
+}
+
+/**
+ * Solves and previews deterministic quantities + SVG labels without requiring authored prose,
+ * enabling swarm workers to inspect exact solver ground truth prior to authoring Step 2.
+ */
+export function solveCandidateScenariosOnly(
+  inputs: readonly SolvePreviewInput[],
+): SolvePreviewOutput[] {
+  return inputs.map((item, idx) => {
+    const id = item.id?.trim() || `preview-${idx + 1}`;
+    if (!hasDomainAdapter(item.domain)) {
+      return {
+        id,
+        domain: item.domain,
+        valid: false,
+        issues: [`Unknown domain "${String(item.domain)}"`],
+      };
+    }
+    const adapter = getDomainAdapter(item.domain);
+    const validation = adapter.validateScenario(item.scenarioSpec);
+    if (!validation.valid) {
+      return {
+        id,
+        domain: item.domain,
+        valid: false,
+        issues: validation.issues,
+      };
+    }
+    try {
+      const solved = adapter.solveScenario(item.scenarioSpec);
+      const formattedQuantities3sf: Record<string, string> = {};
+      for (const [k, v] of Object.entries(solved.quantities)) {
+        formattedQuantities3sf[k] =
+          typeof v === "number" && Number.isFinite(v)
+            ? formatSignificantFigures(v, 3)
+            : String(v);
+      }
+      const rendered = adapter.renderSvg?.(item.scenarioSpec, {
+        hiddenQuantities: item.hiddenQuantities ?? [],
+        id,
+      });
+      return {
+        id,
+        domain: item.domain,
+        valid: true,
+        issues: [],
+        solverId: solved.solverId,
+        verifiedQuantities: solved.quantities,
+        formattedQuantities3sf,
+        visualFamily: rendered?.visualFamily ?? adapter.defaultVisualFamily,
+        publicVisualLabels: rendered?.publicLabels ?? [],
+      };
+    } catch (error) {
+      return {
+        id,
+        domain: item.domain,
+        valid: false,
+        issues: [error instanceof Error ? error.message : String(error)],
+      };
+    }
+  });
+}
+
+/**
+ * Verifies a batch of candidates and appends passing items + Qwen3.5-9B distillation
+ * traces to an isolated per-worker shard JSONL file with zero cross-worker lock contention.
+ */
+export function ingestCandidatesIntoShard(
+  options: IngestShardOptions,
+): ShardIngestSummary {
+  const shardId = assertValidShardId(options.shardId);
+  const now = options.now ?? (() => new Date().toISOString());
+  const dryRun = options.dryRun ?? false;
+  const shardFilePath = shardJsonlPath(options.shardsDir, shardId);
+
+  const existingRecords = readShardRecords(options.shardsDir, shardId);
+  const existingById = new Map<string, VerifiedShardRecord>();
+  const existingStemPool: ExistingStemEntry[] = [];
+
+  for (const rec of existingRecords) {
+    existingById.set(rec.bankItem.id, rec);
+    existingStemPool.push({
+      id: rec.bankItem.id,
+      stem: rec.bankItem.stem,
+      stemFingerprint: rec.bankItem.provenance.stemFingerprint,
+    });
+  }
+
+  const newShardRecords: VerifiedShardRecord[] = [];
+  const results: CandidateIngestItemReport[] = [];
+  const rejectionCountsByCode: Partial<Record<GateRejectionCode, number>> = {};
+
+  let ingestedCount = 0;
+  let alreadyPresentCount = 0;
+  let rejectedCount = 0;
+
+  for (const candidate of options.candidates) {
+    const candidateId = candidate.id?.trim() ?? "";
+
+    // Idempotent skip if already verified and present in this shard
+    if (candidateId && existingById.has(candidateId)) {
+      const prev = existingById.get(candidateId)!;
+      alreadyPresentCount += 1;
+      results.push({
+        id: candidateId,
+        status: "already-present",
+        familyGroupKey: prev.bankItem.familyGroupKey,
+        split: prev.distillationTrace.split,
+        visualFamily: prev.bankItem.visualFamily,
+        passedChecks: prev.gateChecksPassed,
+        issues: [],
+        verifiedQuantities: prev.bankItem.verifiedQuantities,
+      });
+      continue;
+    }
+
+    // Compute familyGroupKey & split safely
+    let familyGroupKey = "";
+    let split: DatasetSplit = "train";
+    try {
+      familyGroupKey = buildFamilyGroupKey({
+        conceptId: candidate.conceptId ?? "",
+        templateArchetype: candidate.templateArchetype ?? "",
+        sourceParentId: candidate.sourceParentId,
+      });
+      split = assignSplit(familyGroupKey, {
+        frozenManifest: options.frozenManifest,
+      });
+    } catch (error) {
+      rejectedCount += 1;
+      const code: GateRejectionCode = "invalid-candidate-schema";
+      rejectionCountsByCode[code] = (rejectionCountsByCode[code] ?? 0) + 1;
+      results.push({
+        id: candidateId || "<missing-id>",
+        status: "rejected",
+        passedChecks: [],
+        issues: [
+          {
+            code,
+            stage: "split",
+            message: error instanceof Error ? error.message : String(error),
+          },
+        ],
+      });
+      continue;
+    }
+
+    const execution = verifyCandidateWithGate(candidate, {
+      existingShardItems: existingStemPool,
+      nearDuplicateSimilarityThreshold:
+        options.nearDuplicateSimilarityThreshold,
+    });
+
+    if (!execution.evaluation.valid || !execution.solveOutput) {
+      rejectedCount += 1;
+      for (const issue of execution.evaluation.issues) {
+        rejectionCountsByCode[issue.code] =
+          (rejectionCountsByCode[issue.code] ?? 0) + 1;
+      }
+      results.push({
+        id: candidateId || "<missing-id>",
+        status: "rejected",
+        familyGroupKey,
+        split,
+        passedChecks: execution.evaluation.passedChecks,
+        issues: execution.evaluation.issues,
+        verifiedQuantities: execution.solveOutput?.quantities,
+      });
+      continue;
+    }
+
+    const timestamp = now();
+    const adapter = getDomainAdapter(candidate.domain);
+    const visualFamily =
+      execution.renderOutput?.visualFamily ??
+      (execution.effectiveSvgMarkup
+        ? adapter.defaultVisualFamily
+        : "none");
+
+    const bankItem: SixthPhysicsBankItem = {
+      schemaVersion: SIXTHPHYSICS_BANK_ITEM_SCHEMA_VERSION,
+      id: candidateId,
+      familyGroupKey,
+      syllabi: candidate.syllabi.map((s) => ({
+        syllabus: s.syllabus,
+        level: s.level.trim(),
+        topicId: s.topicId.trim(),
+        ...(s.subtopicId?.trim() ? { subtopicId: s.subtopicId.trim() } : {}),
+      })),
+      format: candidate.format,
+      difficulty: candidate.difficulty,
+      visualFamily,
+      stem: candidate.stem.trim(),
+      ...(execution.effectiveSvgMarkup !== undefined
+        ? { svgMarkup: execution.effectiveSvgMarkup }
+        : {}),
+      ...(candidate.format === "mcq" && candidate.options
+        ? {
+            options: candidate.options as [
+              McqOptionItem,
+              McqOptionItem,
+              McqOptionItem,
+              McqOptionItem,
+            ],
+            correctOptionIndex: execution.correctOptionIndex,
+          }
+        : {}),
+      ...(candidate.format === "structured" && candidate.parts
+        ? { parts: candidate.parts }
+        : {}),
+      workedSolution: candidate.workedSolution.trim(),
+      markScheme: candidate.markScheme,
+      totalMarks: candidate.totalMarks,
+      verifiedQuantities: execution.solveOutput.quantities,
+      provenance: {
+        domain: candidate.domain,
+        conceptId: candidate.conceptId.trim().toLowerCase(),
+        templateArchetype: candidate.templateArchetype.trim().toLowerCase(),
+        familyGroupKey,
+        seed: candidate.seed,
+        shardId,
+        generatorModel:
+          candidate.generatorModel?.trim() || "gemini-4-carbon-high",
+        solverId: execution.solveOutput.solverId,
+        ...(execution.renderOutput?.rendererVersion
+          ? { rendererVersion: execution.renderOutput.rendererVersion }
+          : {}),
+        stemFingerprint: execution.evaluation.stemFingerprint,
+        ...(execution.evaluation.svgFingerprint
+          ? { svgFingerprint: execution.evaluation.svgFingerprint }
+          : {}),
+        split,
+        ...(candidate.sourceParentId?.trim()
+          ? { sourceParentId: candidate.sourceParentId.trim() }
+          : {}),
+        createdAt: timestamp,
+      },
+    };
+
+    const distillationTrace = buildQwenDistillationTrace({
+      candidate,
+      bankItem,
+      split,
+      publicVisualLabels: execution.renderOutput?.publicLabels,
+    });
+
+    const traceValidation = validateQwenDistillationTrace(distillationTrace);
+    if (!traceValidation.valid) {
+      rejectedCount += 1;
+      const code: GateRejectionCode = "invalid-candidate-schema";
+      rejectionCountsByCode[code] = (rejectionCountsByCode[code] ?? 0) + 1;
+      results.push({
+        id: candidateId,
+        status: "rejected",
+        familyGroupKey,
+        split,
+        passedChecks: execution.evaluation.passedChecks,
+        issues: traceValidation.issues.map((msg) => ({
+          code,
+          stage: "schema" as const,
+          message: msg,
+        })),
+      });
+      continue;
+    }
+
+    const shardRecord: VerifiedShardRecord = {
+      schemaVersion: SHARD_RECORD_SCHEMA_VERSION,
+      shardId,
+      ingestedAt: timestamp,
+      bankItem,
+      distillationTrace,
+      gateChecksPassed: execution.evaluation.passedChecks,
+    };
+
+    newShardRecords.push(shardRecord);
+    existingById.set(candidateId, shardRecord);
+    existingStemPool.push({
+      id: candidateId,
+      stem: bankItem.stem,
+      stemFingerprint: bankItem.provenance.stemFingerprint,
+    });
+
+    ingestedCount += 1;
+    results.push({
+      id: candidateId,
+      status: "ingested",
+      familyGroupKey,
+      split,
+      visualFamily,
+      passedChecks: execution.evaluation.passedChecks,
+      issues: [],
+      verifiedQuantities: bankItem.verifiedQuantities,
+    });
+  }
+
+  if (!dryRun) {
+    fs.mkdirSync(options.shardsDir, { recursive: true });
+    if (newShardRecords.length > 0) {
+      const payload =
+        newShardRecords.map((rec) => JSON.stringify(rec)).join("\n") + "\n";
+      fs.appendFileSync(shardFilePath, payload, "utf8");
+    }
+    const attemptEntry: ShardAttemptTelemetry = {
+      shardId,
+      attemptedAt: now(),
+      totalCandidates: options.candidates.length,
+      ingestedCount,
+      alreadyPresentCount,
+      rejectedCount,
+      rejectionCountsByCode,
+    };
+    fs.appendFileSync(
+      shardAttemptsPath(options.shardsDir, shardId),
+      JSON.stringify(attemptEntry) + "\n",
+      "utf8",
+    );
+  }
+
+  return {
+    shardId,
+    shardFilePath,
+    dryRun,
+    totalCandidates: options.candidates.length,
+    ingestedCount,
+    alreadyPresentCount,
+    rejectedCount,
+    results,
+  };
+}
+
+function sanitizePathSlug(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "general";
+}
+
+function writeTrackedFile(
+  outDir: string,
+  relativePath: string,
+  content: string,
+  recordCount: number,
+  receipts: CompiledFileReceipt[],
+): void {
+  const fullPath = path.join(outDir, relativePath);
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  const buf = Buffer.from(content, "utf8");
+  fs.writeFileSync(fullPath, buf);
+  receipts.push({
+    relativePath,
+    byteLength: buf.byteLength,
+    sha256: crypto.createHash("sha256").update(buf).digest("hex"),
+    recordCount,
+  });
+}
+
+/**
+ * Deterministically merges all shard JSONL files, deduplicates across shards,
+ * verifies zero train/val/test split contamination, and emits static-site JSON
+ * bundles + Qwen3.5-9B train/val/test JSONL datasets + SUMMARY.json receipt.
+ */
+export function compileBankFromShards(
+  options: CompileBankOptions,
+): CompiledBankSummary {
+  const compiledAt = options.compiledAt ?? new Date().toISOString();
+  const similarityThreshold = options.nearDuplicateSimilarityThreshold ?? 0.9;
+
+  if (!fs.existsSync(options.shardsDir)) {
+    throw new Error(`Shards directory does not exist: ${options.shardsDir}`);
+  }
+
+  const shardFiles = fs
+    .readdirSync(options.shardsDir)
+    .filter((f) => f.endsWith(".jsonl") && !f.endsWith(".attempts.jsonl"))
+    .sort();
+
+  const shardsProcessed = shardFiles.map((f) => f.replace(/\.jsonl$/, ""));
+
+  // Aggregate attempt telemetry
+  let totalCandidatesAttempted = 0;
+  let totalVerifiedInShards = 0;
+  let totalRejectedInAttempts = 0;
+  const rejectionCountsByCode: Partial<Record<GateRejectionCode, number>> = {};
+
+  for (const shardId of shardsProcessed) {
+    const attempts = readShardAttempts(options.shardsDir, shardId);
+    for (const att of attempts) {
+      totalCandidatesAttempted += att.totalCandidates;
+      totalVerifiedInShards += att.ingestedCount;
+      totalRejectedInAttempts += att.rejectedCount;
+      for (const [code, count] of Object.entries(att.rejectionCountsByCode)) {
+        const key = code as GateRejectionCode;
+        rejectionCountsByCode[key] =
+          (rejectionCountsByCode[key] ?? 0) + (count ?? 0);
+      }
+    }
+  }
+
+  // Deterministically merge and deduplicate across all shards
+  const seenIds = new Set<string>();
+  const acceptedPool: ExistingStemEntry[] = [];
+  const mergedRecords: VerifiedShardRecord[] = [];
+  const duplicateIdsSkipped: string[] = [];
+  const nearDuplicateIdsSkipped: string[] = [];
+
+  for (const shardId of shardsProcessed) {
+    const records = readShardRecords(options.shardsDir, shardId);
+    for (const rec of records) {
+      const id = rec.bankItem.id;
+      if (seenIds.has(id)) {
+        duplicateIdsSkipped.push(id);
+        continue;
+      }
+
+      const stemFp = rec.bankItem.provenance.stemFingerprint;
+      const isNearDup = acceptedPool.some(
+        (existing) =>
+          existing.stemFingerprint === stemFp ||
+          computeStemSimilarity(rec.bankItem.stem, existing.stem) >=
+            similarityThreshold,
+      );
+      if (isNearDup) {
+        nearDuplicateIdsSkipped.push(id);
+        continue;
+      }
+
+      // Re-verify expected split assignment
+      const expectedSplit = assignSplit(rec.bankItem.familyGroupKey, {
+        frozenManifest: options.frozenManifest,
+      });
+      if (
+        rec.distillationTrace.split !== expectedSplit ||
+        rec.bankItem.provenance.split !== expectedSplit
+      ) {
+        throw new Error(
+          `Split mismatch on item "${id}" (familyGroupKey="${rec.bankItem.familyGroupKey}"): record has "${rec.distillationTrace.split}", expected "${expectedSplit}"`,
+        );
+      }
+
+      const traceCheck = validateQwenDistillationTrace(rec.distillationTrace);
+      if (!traceCheck.valid) {
+        throw new Error(
+          `Invalid distillation trace on item "${id}": ${traceCheck.issues.join("; ")}`,
+        );
+      }
+
+      seenIds.add(id);
+      acceptedPool.push({
+        id,
+        stem: rec.bankItem.stem,
+        stemFingerprint: stemFp,
+      });
+      mergedRecords.push(rec);
+    }
+  }
+
+  // Sort merged records deterministically by item ID
+  mergedRecords.sort((a, b) => a.bankItem.id.localeCompare(b.bankItem.id));
+
+  if (totalCandidatesAttempted === 0) {
+    totalCandidatesAttempted = mergedRecords.length;
+    totalVerifiedInShards = mergedRecords.length;
+  }
+
+  // Enforce zero train/val/test split contamination across the entire compiled bank
+  const auditRecords: SplitAuditRecord[] = mergedRecords.map((rec) => ({
+    id: rec.bankItem.id,
+    familyGroupKey: rec.bankItem.familyGroupKey,
+    split: rec.distillationTrace.split,
+    sourceParentId: rec.bankItem.provenance.sourceParentId,
+    stemFingerprint: rec.bankItem.provenance.stemFingerprint,
+  }));
+
+  const contaminationReport = verifyZeroSplitContamination(
+    auditRecords,
+    options.frozenManifest,
+  );
+  if (!contaminationReport.valid) {
+    throw new Error(
+      `Split contamination detected during bank compilation: ${contaminationReport.violations.map((v) => v.message).join("; ")}`,
+    );
+  }
+
+  // Prepare clean staging directory and move into place atomically
+  fs.mkdirSync(path.dirname(options.outDir), { recursive: true });
+  const stagingDir = fs.mkdtempSync(`${options.outDir}.staging-`);
+  const fileReceipts: CompiledFileReceipt[] = [];
+
+  try {
+    const allBankItems = mergedRecords.map((r) => r.bankItem);
+
+    // 1. Static site bundles (`bank/`)
+    writeTrackedFile(
+      stagingDir,
+      "bank/all-items.json",
+      JSON.stringify(allBankItems, null, 2) + "\n",
+      allBankItems.length,
+      fileReceipts,
+    );
+
+    const syllabusCatalog: Record<
+      SyllabusId,
+      {
+        bundlePath: string;
+        count: number;
+        topics: Record<string, { bundlePath: string; count: number }>;
+      }
+    > = {
+      ib: { bundlePath: "bank/by-syllabus/ib.json", count: 0, topics: {} },
+      alevel: {
+        bundlePath: "bank/by-syllabus/alevel.json",
+        count: 0,
+        topics: {},
+      },
+      ncuk: { bundlePath: "bank/by-syllabus/ncuk.json", count: 0, topics: {} },
+    };
+
+    const coverageBySyllabus: CompiledBankSummary["coverageBySyllabus"] = {
+      ib: {
+        total: 0,
+        byLevel: {},
+        byFormat: { mcq: 0, structured: 0 },
+        byDifficulty: { foundation: 0, standard: 0, higher: 0 },
+        byTopic: {},
+      },
+      alevel: {
+        total: 0,
+        byLevel: {},
+        byFormat: { mcq: 0, structured: 0 },
+        byDifficulty: { foundation: 0, standard: 0, higher: 0 },
+        byTopic: {},
+      },
+      ncuk: {
+        total: 0,
+        byLevel: {},
+        byFormat: { mcq: 0, structured: 0 },
+        byDifficulty: { foundation: 0, standard: 0, higher: 0 },
+        byTopic: {},
+      },
+    };
+
+    for (const syllabus of SYLLABUS_IDS) {
+      const itemsForSyllabus = allBankItems.filter((item) =>
+        item.syllabi.some((tag) => tag.syllabus === syllabus),
+      );
+      syllabusCatalog[syllabus].count = itemsForSyllabus.length;
+      writeTrackedFile(
+        stagingDir,
+        `bank/by-syllabus/${syllabus}.json`,
+        JSON.stringify(itemsForSyllabus, null, 2) + "\n",
+        itemsForSyllabus.length,
+        fileReceipts,
+      );
+
+      const byTopicMap = new Map<string, SixthPhysicsBankItem[]>();
+      const cov = coverageBySyllabus[syllabus];
+      cov.total = itemsForSyllabus.length;
+
+      for (const item of itemsForSyllabus) {
+        cov.byFormat[item.format] += 1;
+        cov.byDifficulty[item.difficulty] += 1;
+        const matchingTags = item.syllabi.filter(
+          (tag) => tag.syllabus === syllabus,
+        );
+        const countedLevels = new Set<string>();
+        const countedTopics = new Set<string>();
+        for (const tag of matchingTags) {
+          if (!countedLevels.has(tag.level)) {
+            countedLevels.add(tag.level);
+            cov.byLevel[tag.level] = (cov.byLevel[tag.level] ?? 0) + 1;
+          }
+          if (!countedTopics.has(tag.topicId)) {
+            countedTopics.add(tag.topicId);
+            cov.byTopic[tag.topicId] = (cov.byTopic[tag.topicId] ?? 0) + 1;
+            const list = byTopicMap.get(tag.topicId) ?? [];
+            list.push(item);
+            byTopicMap.set(tag.topicId, list);
+          }
+        }
+      }
+
+      for (const topicId of [...byTopicMap.keys()].sort()) {
+        const topicItems = byTopicMap.get(topicId)!;
+        const slug = sanitizePathSlug(topicId);
+        const relPath = `bank/by-syllabus/${syllabus}/${slug}.json`;
+        syllabusCatalog[syllabus].topics[topicId] = {
+          bundlePath: relPath,
+          count: topicItems.length,
+        };
+        writeTrackedFile(
+          stagingDir,
+          relPath,
+          JSON.stringify(topicItems, null, 2) + "\n",
+          topicItems.length,
+          fileReceipts,
+        );
+      }
+    }
+
+    // Domain bundles
+    const byDomainMap = new Map<string, SixthPhysicsBankItem[]>();
+    const coverageByDomain: CompiledBankSummary["coverageByDomain"] = {};
+    for (const item of allBankItems) {
+      const dom = item.provenance.domain;
+      const list = byDomainMap.get(dom) ?? [];
+      list.push(item);
+      byDomainMap.set(dom, list);
+      const entry = coverageByDomain[dom] ?? {
+        total: 0,
+        mcq: 0,
+        structured: 0,
+        visualFamily: item.visualFamily,
+      };
+      entry.total += 1;
+      entry[item.format] += 1;
+      coverageByDomain[dom] = entry;
+    }
+
+    const domainCatalog: Record<string, { bundlePath: string; count: number }> =
+      {};
+    for (const dom of [...byDomainMap.keys()].sort()) {
+      const domItems = byDomainMap.get(dom)!;
+      const relPath = `bank/by-domain/${sanitizePathSlug(dom)}.json`;
+      domainCatalog[dom] = { bundlePath: relPath, count: domItems.length };
+      writeTrackedFile(
+        stagingDir,
+        relPath,
+        JSON.stringify(domItems, null, 2) + "\n",
+        domItems.length,
+        fileReceipts,
+      );
+    }
+
+    const staticSiteIndex = {
+      schemaVersion: "sixthphysics-static-bank-index/1.0.0",
+      compiledAt,
+      totalItems: allBankItems.length,
+      syllabi: syllabusCatalog,
+      domains: domainCatalog,
+    };
+    writeTrackedFile(
+      stagingDir,
+      "bank/index.json",
+      JSON.stringify(staticSiteIndex, null, 2) + "\n",
+      allBankItems.length,
+      fileReceipts,
+    );
+
+    // 2. Qwen/Qwen3.5-9B Distillation JSONLs (`distillation/train.jsonl`, `val.jsonl`, `test.jsonl`)
+    const tracesBySplit: Record<DatasetSplit, QwenDistillationTrace[]> = {
+      train: [],
+      val: [],
+      test: [],
+    };
+    for (const rec of mergedRecords) {
+      tracesBySplit[rec.distillationTrace.split].push(rec.distillationTrace);
+    }
+
+    for (const split of ["train", "val", "test"] as const) {
+      const splitTraces = tracesBySplit[split];
+      const jsonl =
+        splitTraces.length > 0
+          ? splitTraces.map((t) => JSON.stringify(t)).join("\n") + "\n"
+          : "";
+      writeTrackedFile(
+        stagingDir,
+        `distillation/${split}.jsonl`,
+        jsonl,
+        splitTraces.length,
+        fileReceipts,
+      );
+    }
+
+    const emittedFrozenManifest =
+      options.frozenManifest ??
+      createFrozenEvaluationManifest(auditRecords, { createdAt: compiledAt });
+    const serializedFrozen = serializeFrozenManifest(emittedFrozenManifest);
+    writeTrackedFile(
+      stagingDir,
+      "distillation/frozen-eval-manifest.json",
+      serializedFrozen,
+      Object.keys(emittedFrozenManifest.frozenGroups).length,
+      fileReceipts,
+    );
+
+    if (options.emitFrozenManifestPath) {
+      fs.mkdirSync(path.dirname(options.emitFrozenManifestPath), {
+        recursive: true,
+      });
+      fs.writeFileSync(options.emitFrozenManifestPath, serializedFrozen, "utf8");
+    }
+
+    const overallPassRate =
+      totalCandidatesAttempted > 0
+        ? Number((totalVerifiedInShards / totalCandidatesAttempted).toFixed(4))
+        : 1;
+
+    const summary: CompiledBankSummary = {
+      schemaVersion: COMPILED_BANK_SUMMARY_SCHEMA_VERSION,
+      compiledAt,
+      targetDistillationModel: "Qwen/Qwen3.5-9B",
+      shardsProcessed,
+      attemptMetrics: {
+        totalCandidatesAttempted,
+        totalVerifiedInShards,
+        totalRejectedInAttempts,
+        overallPassRate,
+        rejectionCountsByCode,
+      },
+      deduplication: {
+        duplicateIdsSkipped,
+        nearDuplicateIdsSkipped,
+      },
+      totalCompiledItems: allBankItems.length,
+      splitSummary: {
+        ...contaminationReport,
+        zeroContaminationVerified: contaminationReport.valid,
+      },
+      coverageBySyllabus,
+      coverageByDomain,
+      files: fileReceipts,
+    };
+
+    fs.writeFileSync(
+      path.join(stagingDir, "SUMMARY.json"),
+      JSON.stringify(summary, null, 2) + "\n",
+      "utf8",
+    );
+
+    if (fs.existsSync(options.outDir)) {
+      fs.rmSync(options.outDir, { recursive: true, force: true });
+    }
+    fs.renameSync(stagingDir, options.outDir);
+
+    return summary;
+  } catch (error) {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+    throw error;
+  }
+}
