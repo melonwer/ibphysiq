@@ -113,44 +113,79 @@ To emit a reference batch of 15 verified candidates across all 10 visual domains
 npx tsx scripts/bank-generation/verify-and-ingest-shard.ts --emit-sample /tmp/sample-candidates.json
 ```
 
-### C. Compile Static Bank Bundles & `Qwen3.5-9B` QLoRA Splits
+### C. Reproducible Full-Bank Generation (`generate-full-bank.ts`)
 
-After workers finish ingesting shards, deterministically merge all shards, deduplicate, verify zero cross-split contamination, and emit static-site JSON bundles + QLoRA JSONLs:
+All 11 deterministic domain generators are unified in [lib/bank-pipeline/generators/index.ts](../lib/bank-pipeline/generators/index.ts) (`generateAllDomainCandidates`, `generateDomainShardBatches`, `generateDomainCandidates`, plus individual `generate*Candidates` exports) and re-exported from [lib/bank-pipeline/index.ts](../lib/bank-pipeline/index.ts).
+
+To regenerate all 11 shards (`gen-graphs` through `gen-quantum-nuclear` + `gen-pure-calc`) from code, verify every item through `package-gate.ts`, and compile the complete SixthPhysics bank and locked `Qwen/Qwen3.5-9B` splits reproducibly:
+
+```bash
+npx tsx scripts/bank-generation/generate-full-bank.ts \
+  --out-dir dataset/sixthphysics-bank \
+  --clean-shards \
+  --lock-held-out
+```
+
+Use `--domains graphs,fields`, `--count-per-domain 10`, `--shards-only`, or `--dry-run` for targeted subsets and fast smoke checks.
+
+### D. Compile Static Bank Bundles & `Qwen3.5-9B` QLoRA Splits (`compile-bank.ts`)
+
+After workers finish ingesting shards, deterministically merge all shards, deduplicate, verify zero cross-split contamination, lock held-out splits (`lockHeldOut: true`), and emit static-site JSON bundles + QLoRA JSONLs (safely preserving `shards/` when `--out-dir` is the parent directory):
 
 ```bash
 npx tsx scripts/bank-generation/compile-bank.ts \
   --shards-dir dataset/sixthphysics-bank/shards \
-  --out-dir dataset/sixthphysics-bank/compiled
+  --out-dir dataset/sixthphysics-bank \
+  --lock-held-out
 ```
 
-Compiled outputs under `dataset/sixthphysics-bank/compiled/`:
+Compiled outputs under `dataset/sixthphysics-bank/`:
 
-- `bank/index.json` — Static catalog manifest for `sixthphysics.github.io`
-- `bank/all-items.json` — Full sorted `SixthPhysicsBankItem[]`
+- `shards/gen-*.jsonl` & `shards/gen-*.attempts.jsonl` — 11 lock-free verified domain shards (`3,644` records)
+- `bank/index.json` — Static catalog manifest (`sixthphysics-static-bank-index/1.0.0`) for `sixthphysics.github.io`
+- `bank/all-items.json` — Full sorted `SixthPhysicsBankItem[]` (`3,644` items)
 - `bank/by-syllabus/{ib,alevel,ncuk}.json` & `bank/by-syllabus/<syllabus>/<topic>.json` — Per-syllabus and per-topic lazy-loadable bundles
-- `bank/by-domain/<domain>.json` — Per-domain bundles
-- `distillation/{train,val,test}.jsonl` — Contamination-free `70/15/15` `QwenDistillationTrace` SFT splits for `Qwen/Qwen3.5-9B`
-- `distillation/frozen-eval-manifest.json` — Checksummed held-out evaluation lockfile
+- `bank/by-domain/<domain>.json` — Per-domain bundles across all 11 domains
+- `distillation/{train,val,test}.jsonl` — Contamination-free `70/15/15` 5-message `QwenDistillationTrace` SFT splits for `Qwen/Qwen3.5-9B`
+- `frozen-eval-manifest.json` & `distillation/frozen-eval-manifest.json` — Checksummed held-out evaluation lockfile (`lockHeldOut: true`)
 - `SUMMARY.json` — Pass-rate, rejection breakdown, syllabus/domain coverage, split audit, and file SHA-256 receipts
 
 ---
 
-## 6. Verification & Testing Commands
+## 6. Verified Wave 2 Full-Bank Compilation Receipt (`dataset/sixthphysics-bank/SUMMARY.json`)
+
+Compiled on 2026-11-17 across all 11 Wave 2 shards:
+
+- **Total compiled items**: **`3,644`** (`2,366` Paper 1 MCQs = `64.93%`, `1,278` Paper 2 structured = `35.07%`), `overallPassRate: 1` (`0` rejected, `0` duplicate IDs skipped, `0` cross-shard near-duplicate skips)
+- **Contamination-free `70/15/15` split** (`zeroContaminationVerified: true`, `175` distinct `familyGroupKey`s, `lockHeldOut: true` with manifest SHA-256 `933d4b9ca1e86cb00d5134a8fefeabd276bd759d043df2e277dddc839fc3ad31`):
+  - `train`: **`2,413`** items (`66.22%`) across **`116`** family groups (`66.29%`)
+  - `val`: **`645`** items (`17.70%`) across **`31`** family groups (`17.71%`)
+  - `test`: **`586`** items (`16.08%`) across **`28`** family groups (`16.00%`)
+- **Multi-syllabus coverage**:
+  - **IB Physics (2025)**: `3,037` items (`SL: 1,266`, `HL: 1,771`; `mcq: 1,971`, `structured: 1,066`) across `ib-tools` and Themes A–E
+  - **UK A-Level Physics**: `3,142` items (`Y12: 921`, `Y13: 2,221`; `mcq: 1,992`, `structured: 1,150`) across Sections 1–8 and Options 9–13
+  - **NCUK IFY Physics**: `2,986` items (`IFY: 1,351`, `IFY-S1: 670`, `IFY-S2: 965`; `mcq: 1,934`, `structured: 1,052`) across Modules `ncuk-ac1`–`ncuk-ac8`
+- **Domain coverage (`11` domains)**:
+  - `graphs` (`320`), `circuits` (`325`), `fields` (`336`), `mechanics` (`336`), `waves` (`327`), `optics-shm` (`336`), `thermal` (`336`), `grav-astro` (`336`), `em-induction` (`320`), `quantum-nuclear` (`336`), `pure-calculation` (`336`)
+
+---
+
+## 7. Verification & Testing Commands
 
 Run the full unit and CLI end-to-end test suite and static type checks:
 
 ```bash
 npx jest --runInBand lib/bank-pipeline
-npm test -- --testPathPatterns=bank-pipeline
+npm test
 npm run type-check
-npx eslint lib/bank-pipeline scripts/bank-generation
+npx eslint --max-warnings=0 lib/bank-pipeline scripts/bank-generation
 ```
 
-*(Note: In Jest 30, `package.json`'s `npm test` ends with `--testPathIgnorePatterns=...`, so pass `--testPathPatterns=bank-pipeline` when using `npm test --`, or invoke `npx jest lib/bank-pipeline` directly.)*
+*(Note: In Jest 30, `package.json`'s `npm test` ends with `--testPathIgnorePatterns=...`, so pass `--testPathPatterns=bank-pipeline` when filtering via `npm test --`, or invoke `npx jest lib/bank-pipeline` directly.)*
 
 ---
 
-## 7. Authoring Providers & Environment Variable Names
+## 8. Authoring Providers & Environment Variable Names
 
 Primary Wave 2 generation uses native `Gemini 4 Carbon (High)` swarm workers invoking `verify-and-ingest-shard.ts` directly. Optional API/local provider configuration in `.env.example` / `.env.local` (variable names only; never log or commit secret values):
 

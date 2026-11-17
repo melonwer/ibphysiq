@@ -8,3 +8,4 @@ export * from "./distillation-trace";
 export * from "./shard-store";
 export * from "./work-order-planner";
 export * from "./sample-candidates";
+export * from "./generators";

@@ -8,7 +8,7 @@ import {
 } from "./distillation-trace";
 import { getDomainAdapter, hasDomainAdapter } from "./domain-registry";
 import {
-  computeStemSimilarity,
+  computeShingleSet,
   formatSignificantFigures,
 } from "./numeric-checker";
 import { ExistingStemEntry, verifyCandidateWithGate } from "./package-gate";
@@ -155,6 +155,7 @@ export interface CompileBankOptions {
   outDir: string;
   frozenManifest?: FrozenEvaluationManifest;
   emitFrozenManifestPath?: string;
+  lockHeldOut?: boolean;
   compiledAt?: string;
   nearDuplicateSimilarityThreshold?: number;
 }
@@ -808,7 +809,8 @@ export function compileBankFromShards(
 
   // Deterministically merge and deduplicate across all shards
   const seenIds = new Set<string>();
-  const acceptedPool: ExistingStemEntry[] = [];
+  const seenStemFingerprints = new Set<string>();
+  const acceptedShinglesPool: Array<ReadonlySet<string>> = [];
   const mergedRecords: VerifiedShardRecord[] = [];
   const duplicateIdsSkipped: string[] = [];
   const nearDuplicateIdsSkipped: string[] = [];
@@ -823,12 +825,38 @@ export function compileBankFromShards(
       }
 
       const stemFp = rec.bankItem.provenance.stemFingerprint;
-      const isNearDup = acceptedPool.some(
-        (existing) =>
-          existing.stemFingerprint === stemFp ||
-          computeStemSimilarity(rec.bankItem.stem, existing.stem) >=
-            similarityThreshold,
-      );
+      const candShingles = computeShingleSet(rec.bankItem.stem);
+      const isNearDup =
+        seenStemFingerprints.has(stemFp) ||
+        acceptedShinglesPool.some((existingShingles) => {
+          if (candShingles.size === 0 && existingShingles.size === 0) {
+            return 1 >= similarityThreshold;
+          }
+          if (candShingles.size === 0 || existingShingles.size === 0) {
+            return false;
+          }
+          const minSize = Math.min(candShingles.size, existingShingles.size);
+          const maxSize = Math.max(candShingles.size, existingShingles.size);
+          if (minSize < similarityThreshold * maxSize) {
+            return false;
+          }
+          const smaller =
+            candShingles.size <= existingShingles.size
+              ? candShingles
+              : existingShingles;
+          const larger =
+            candShingles.size <= existingShingles.size
+              ? existingShingles
+              : candShingles;
+          let intersection = 0;
+          for (const token of smaller) {
+            if (larger.has(token)) {
+              intersection += 1;
+            }
+          }
+          const union = candShingles.size + existingShingles.size - intersection;
+          return union > 0 && intersection / union >= similarityThreshold;
+        });
       if (isNearDup) {
         nearDuplicateIdsSkipped.push(id);
         continue;
@@ -842,11 +870,8 @@ export function compileBankFromShards(
       }
 
       seenIds.add(id);
-      acceptedPool.push({
-        id,
-        stem: rec.bankItem.stem,
-        stemFingerprint: stemFp,
-      });
+      seenStemFingerprints.add(stemFp);
+      acceptedShinglesPool.push(candShingles);
       mergedRecords.push(rec);
     }
   }
@@ -952,9 +977,20 @@ export function compileBankFromShards(
     );
   }
 
+  const resolvedOutDir = path.resolve(options.outDir);
+  const resolvedShardsDir = path.resolve(options.shardsDir);
+  if (resolvedOutDir === resolvedShardsDir) {
+    throw new Error(
+      `outDir and shardsDir must not be the same directory: ${resolvedOutDir}`,
+    );
+  }
+  const shardsInsideOutDir = resolvedShardsDir.startsWith(
+    `${resolvedOutDir}${path.sep}`,
+  );
+
   // Prepare clean staging directory and move into place atomically
-  fs.mkdirSync(path.dirname(options.outDir), { recursive: true });
-  const stagingDir = fs.mkdtempSync(`${options.outDir}.staging-`);
+  fs.mkdirSync(path.dirname(resolvedOutDir), { recursive: true });
+  const stagingDir = fs.mkdtempSync(`${resolvedOutDir}.staging-`);
   const fileReceipts: CompiledFileReceipt[] = [];
 
   try {
@@ -1144,22 +1180,28 @@ export function compileBankFromShards(
 
     const emittedFrozenManifest =
       options.frozenManifest ??
-      createFrozenEvaluationManifest(auditRecords, { createdAt: compiledAt });
+      createFrozenEvaluationManifest(auditRecords, {
+        createdAt: compiledAt,
+        lockHeldOut: options.lockHeldOut ?? true,
+      });
     const serializedFrozen = serializeFrozenManifest(emittedFrozenManifest);
+    const frozenGroupCount = Object.keys(
+      emittedFrozenManifest.frozenGroups,
+    ).length;
     writeTrackedFile(
       stagingDir,
       "distillation/frozen-eval-manifest.json",
       serializedFrozen,
-      Object.keys(emittedFrozenManifest.frozenGroups).length,
+      frozenGroupCount,
       fileReceipts,
     );
-
-    if (options.emitFrozenManifestPath) {
-      fs.mkdirSync(path.dirname(options.emitFrozenManifestPath), {
-        recursive: true,
-      });
-      fs.writeFileSync(options.emitFrozenManifestPath, serializedFrozen, "utf8");
-    }
+    writeTrackedFile(
+      stagingDir,
+      "frozen-eval-manifest.json",
+      serializedFrozen,
+      frozenGroupCount,
+      fileReceipts,
+    );
 
     const overallPassRate =
       totalCandidatesAttempted > 0
@@ -1200,10 +1242,44 @@ export function compileBankFromShards(
       "utf8",
     );
 
-    if (fs.existsSync(options.outDir)) {
-      fs.rmSync(options.outDir, { recursive: true, force: true });
+    if (shardsInsideOutDir) {
+      fs.mkdirSync(resolvedOutDir, { recursive: true });
+      for (const entryName of fs.readdirSync(stagingDir)) {
+        const destPath = path.join(resolvedOutDir, entryName);
+        if (fs.existsSync(destPath)) {
+          fs.rmSync(destPath, { recursive: true, force: true });
+        }
+        fs.renameSync(path.join(stagingDir, entryName), destPath);
+      }
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+    } else {
+      if (fs.existsSync(resolvedOutDir)) {
+        fs.rmSync(resolvedOutDir, { recursive: true, force: true });
+      }
+      fs.renameSync(stagingDir, resolvedOutDir);
     }
-    fs.renameSync(stagingDir, options.outDir);
+
+    if (options.emitFrozenManifestPath) {
+      const resolvedEmitFrozen = path.resolve(options.emitFrozenManifestPath);
+      const topLevelFrozen = path.join(
+        resolvedOutDir,
+        "frozen-eval-manifest.json",
+      );
+      const distFrozen = path.join(
+        resolvedOutDir,
+        "distillation",
+        "frozen-eval-manifest.json",
+      );
+      if (
+        resolvedEmitFrozen !== topLevelFrozen &&
+        resolvedEmitFrozen !== distFrozen
+      ) {
+        fs.mkdirSync(path.dirname(resolvedEmitFrozen), {
+          recursive: true,
+        });
+        fs.writeFileSync(resolvedEmitFrozen, serializedFrozen, "utf8");
+      }
+    }
 
     return summary;
   } catch (error) {

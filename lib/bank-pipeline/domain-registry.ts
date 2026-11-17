@@ -972,8 +972,8 @@ function buildFieldsAdapter(): DomainAdapter {
       );
       const accelerationMs2 = accelerationInElectricField(
         spec.chargeC,
-        fieldNC,
         spec.massKg,
+        fieldNC,
       );
       const workJ = spec.chargeC * spec.potentialDifferenceV;
       const finalSpeedMs = Math.sqrt((2 * workJ) / spec.massKg);

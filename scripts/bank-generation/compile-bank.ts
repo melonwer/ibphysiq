@@ -14,6 +14,7 @@ interface ParsedCompileArgs {
   outDir: string;
   frozenManifestPath?: string;
   emitFrozenManifestPath?: string;
+  lockHeldOut: boolean;
   help: boolean;
 }
 
@@ -27,6 +28,8 @@ function printUsage(): void {
     "  --out-dir <dir>                Output compiled directory (default: dataset/sixthphysics-bank/compiled)",
     "  --frozen-manifest <path>       Existing frozen evaluation manifest to enforce",
     "  --emit-frozen-manifest <path>  Optional extra copy path for emitted frozen evaluation manifest",
+    "  --lock-held-out                Lock val/test held-out splits in emitted frozen manifest (default: true)",
+    "  --no-lock-held-out             Allow unlocked held-out splits in emitted frozen manifest",
     "  --help                         Show this usage message",
   ].join("\n");
   console.log(usage);
@@ -38,6 +41,7 @@ export function parseCompileCliArgs(
   const parsed: ParsedCompileArgs = {
     shardsDir: path.resolve(process.cwd(), DEFAULT_SHARDS_RELATIVE_DIR),
     outDir: path.resolve(process.cwd(), DEFAULT_COMPILED_RELATIVE_DIR),
+    lockHeldOut: true,
     help: false,
   };
 
@@ -45,6 +49,10 @@ export function parseCompileCliArgs(
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") {
       parsed.help = true;
+    } else if (arg === "--lock-held-out") {
+      parsed.lockHeldOut = true;
+    } else if (arg === "--no-lock-held-out") {
+      parsed.lockHeldOut = false;
     } else if (arg === "--shards-dir") {
       const val = argv[i + 1];
       if (!val) throw new Error("--shards-dir requires a directory path");
@@ -92,6 +100,7 @@ export function runCompileBankCli(argv: readonly string[]): number {
     outDir: args.outDir,
     frozenManifest,
     emitFrozenManifestPath: args.emitFrozenManifestPath,
+    lockHeldOut: args.lockHeldOut,
   });
 
   console.log(
@@ -99,10 +108,12 @@ export function runCompileBankCli(argv: readonly string[]): number {
       {
         outDir: args.outDir,
         summaryPath: path.join(args.outDir, "SUMMARY.json"),
+        frozenManifestPath: path.join(args.outDir, "frozen-eval-manifest.json"),
         shardsProcessed: summary.shardsProcessed.length,
         totalCompiledItems: summary.totalCompiledItems,
         overallPassRate: summary.attemptMetrics.overallPassRate,
         splitItemCounts: summary.splitSummary.itemCounts,
+        splitGroupCounts: summary.splitSummary.groupCounts,
         newPostFreezeFamiliesRoutedToTrain:
           summary.newPostFreezeFamiliesRoutedToTrain,
         zeroContaminationVerified:

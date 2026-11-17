@@ -10,8 +10,11 @@ import {
   checkSvgHiddenQuantityLeaks,
   CompiledBankSummary,
   evaluateCandidatePackage,
+  generateAllDomainCandidates,
+  getDomainAdapter,
   inspectSvgSanity,
   listRegisteredDomains,
+  parseFrozenManifest,
   PHYSICS_DOMAIN_IDS,
   PhysicsDomainId,
   planWorkOrders,
@@ -31,6 +34,7 @@ import {
 } from "@/lib/constants/syllabi";
 
 import { runCompileBankCli } from "../../../scripts/bank-generation/compile-bank";
+import { runGenerateFullBankCli } from "../../../scripts/bank-generation/generate-full-bank";
 import { runPlanWorkOrdersCli } from "../../../scripts/bank-generation/plan-work-orders";
 import { runVerifyAndIngestCli } from "../../../scripts/bank-generation/verify-and-ingest-shard";
 
@@ -967,6 +971,152 @@ describe("Wave 1 unified 10-domain + 3-syllabus harness integration", () => {
       expect(cliWithPureManifest.totalSlices).toBe(
         fullManifest.totalSlices + pureOnlyManifest.totalSlices,
       );
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("computes parallel-plates-particle accelerationMs2 = qE / m with exact argument order and validates candidate packages", () => {
+    const adapter = getDomainAdapter("fields");
+    const scenarioSpec = {
+      kind: "parallel-plates-particle",
+      potentialDifferenceV: 240,
+      plateSeparationM: 0.03,
+      chargeC: 2.5e-8,
+      massKg: 4.0e-6,
+    };
+    const solved = adapter.solveScenario(scenarioSpec);
+    // E = 240 / 0.03 = 8000 N/C; a = qE / m = (2.5e-8 * 8000) / 4.0e-6 = 50 m s^-2
+    expect(solved.quantities.fieldNC).toBeCloseTo(8000, 6);
+    expect(solved.quantities.accelerationMs2).toBeCloseTo(50, 6);
+    expect(solved.quantities.workJ).toBeCloseTo(6.0e-6, 12);
+    expect(solved.quantities.finalSpeedMs).toBeCloseTo(Math.sqrt(3), 6);
+
+    const candidate: CandidateQuestionInput = {
+      id: "int-fields-plate-accel-001",
+      conceptId: "electrostatic-coulomb-uniform-fields",
+      templateArchetype: "parallel-plate-particle-acceleration",
+      seed: 201999,
+      syllabi: [
+        {
+          syllabus: "ib",
+          level: "SL",
+          topicId: "ib-theme-d",
+          subtopicId: "ib-d2-electric-magnetic-fields",
+        },
+      ],
+      format: "mcq",
+      difficulty: "standard",
+      domain: "fields",
+      scenarioSpec,
+      hiddenQuantities: [
+        "fieldNC",
+        "accelerationMs2",
+        "workJ",
+        "finalSpeedMs",
+      ],
+      targetQuantityKey: "accelerationMs2",
+      stem: "Two parallel conducting plates separated by 0.03 m are held at a potential difference of 240 V in vacuum. A charged micro-droplet of charge +2.5 × 10⁻⁸ C and mass 4.0 × 10⁻⁶ kg is released between the plates (neglecting gravity). What is the magnitude of its electrostatic acceleration?",
+      options: [
+        {
+          label: "A",
+          text: "1.50 m s⁻²",
+          isCorrect: false,
+          distractorRationale:
+            "Computes qV / m instead of dividing by the 0.03 m plate separation.",
+        },
+        { label: "B", text: "50.0 m s⁻²", isCorrect: true },
+        {
+          label: "C",
+          text: "100 m s⁻²",
+          isCorrect: false,
+          distractorRationale:
+            "Uses the half-gap spacing 0.015 m instead of the full 0.03 m separation.",
+        },
+        {
+          label: "D",
+          text: "8.00 × 10³ m s⁻²",
+          isCorrect: false,
+          distractorRationale:
+            "Reports the electric field strength E = V / d instead of a = qE / m.",
+        },
+      ],
+      workedSolution:
+        "Uniform field E = V / d = 240 / 0.03 = 8.00 × 10³ V m⁻¹, so a = qE / m = (2.5 × 10⁻⁸ × 8.00 × 10³) / (4.0 × 10⁻⁶) = 50.0 m s⁻².",
+      markScheme: [
+        {
+          code: "A1",
+          criterion:
+            "Evaluates E = 240 / 0.03 = 8000 V m⁻¹ and a = qE / m = 50.0 m s⁻² (B).",
+          marks: 1,
+        },
+      ],
+      totalMarks: 1,
+    };
+
+    const exec = evaluateCandidatePackage(candidate);
+    expect({
+      valid: exec.evaluation.valid,
+      issues: exec.evaluation.issues,
+    }).toEqual({
+      valid: true,
+      issues: [],
+    });
+  });
+
+  it("generates unified multi-domain batches via generateAllDomainCandidates and compiles in-place via generate-full-bank CLI", () => {
+    const miniBatch = generateAllDomainCandidates({ countPerDomain: 2 });
+    expect(miniBatch).toHaveLength(PHYSICS_DOMAIN_IDS.length * 2);
+    const domainSet = new Set(miniBatch.map((c) => c.domain));
+    expect([...domainSet].sort()).toEqual([...PHYSICS_DOMAIN_IDS].sort());
+
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const bankRoot = path.join(tempRoot, "full-bank-root");
+      expect(
+        runGenerateFullBankCli([
+          "--out-dir",
+          bankRoot,
+          "--domains",
+          "graphs,fields,pure-calculation",
+          "--count-per-domain",
+          "2",
+          "--clean-shards",
+          "--lock-held-out",
+        ]),
+      ).toBe(0);
+
+      // Verify shards/ survived inside bankRoot alongside SUMMARY.json, frozen-eval-manifest.json, distillation/, and bank/
+      expect(
+        fs.existsSync(path.join(bankRoot, "shards", "gen-graphs.jsonl")),
+      ).toBe(true);
+      expect(
+        fs.existsSync(path.join(bankRoot, "shards", "gen-fields.jsonl")),
+      ).toBe(true);
+      expect(
+        fs.existsSync(path.join(bankRoot, "shards", "gen-pure-calc.jsonl")),
+      ).toBe(true);
+
+      const summary = JSON.parse(
+        fs.readFileSync(path.join(bankRoot, "SUMMARY.json"), "utf8"),
+      ) as CompiledBankSummary;
+      expect(summary.totalCompiledItems).toBe(6);
+      expect(summary.splitSummary.zeroContaminationVerified).toBe(true);
+
+      const frozenTop = parseFrozenManifest(
+        fs.readFileSync(
+          path.join(bankRoot, "frozen-eval-manifest.json"),
+          "utf8",
+        ),
+      );
+      const frozenDist = parseFrozenManifest(
+        fs.readFileSync(
+          path.join(bankRoot, "distillation", "frozen-eval-manifest.json"),
+          "utf8",
+        ),
+      );
+      expect(frozenTop.lockHeldOut).toBe(true);
+      expect(frozenTop.manifestSha256).toBe(frozenDist.manifestSha256);
     } finally {
       logSpy.mockRestore();
     }
