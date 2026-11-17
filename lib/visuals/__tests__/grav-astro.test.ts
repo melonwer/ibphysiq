@@ -709,6 +709,212 @@ describe("lib/visuals/grav-astro — physics solver, validation, SVG & visibilit
         "VISIBILITY_CONFLICT",
       );
     });
+
+    it("prevents leakage across coincident, companion, and virial quantities in text, title, desc, and aria-label", () => {
+      // 1. planetary-field-potential: g0 must not leak into <desc> when fieldStrengthNkg is hidden,
+      // and M must not reveal enclosedMassKg when probeRadiusM >= planetRadiusM
+      const planetSurface: GravAstroScenario = {
+        kind: "planetary-field-potential",
+        centralMassKg: EARTH_MASS_KG,
+        planetRadiusM: EARTH_RADIUS_M,
+        probeRadiusM: EARTH_RADIUS_M,
+        visibility: {
+          showDerivedValues: true,
+          hiddenQuantities: ["fieldStrengthNkg"],
+        },
+      };
+      const planetSurfSol = solveGravAstroScenario(planetSurface);
+      const planetSurfText = extractSvgTextAndMeta(
+        renderGravAstroSvg(planetSurface),
+      );
+      expect(planetSurfText).not.toContain(
+        formatQuantityValue(planetSurfSol.quantities.surfaceFieldNkg),
+      );
+
+      const planetExterior: GravAstroScenario = {
+        kind: "planetary-field-potential",
+        centralMassKg: EARTH_MASS_KG,
+        planetRadiusM: EARTH_RADIUS_M,
+        probeRadiusM: 2 * EARTH_RADIUS_M,
+        visibility: {
+          showDerivedValues: true,
+          hiddenQuantities: ["enclosedMassKg"],
+        },
+      };
+      expect(extractSvgTextAndMeta(renderGravAstroSvg(planetExterior))).not.toContain(
+        formatQuantityValue(EARTH_MASS_KG),
+      );
+
+      // 2. vertical-circle uniform: hiding speedTopMs or speedBottomMs hides both v_top and v_bot numbers
+      for (const hiddenKey of [
+        "speedTopMs",
+        "speedBottomMs",
+        "referenceSpeedMs",
+      ] as const) {
+        const uniformLoop: GravAstroScenario = {
+          kind: "vertical-circle",
+          massKg: 1.2,
+          radiusM: 1.5,
+          motionMode: "uniform",
+          referenceSpeedMs: 6.42,
+          visibility: {
+            showDerivedValues: true,
+            hiddenQuantities: [hiddenKey],
+          },
+        };
+        expect(extractSvgTextAndMeta(renderGravAstroSvg(uniformLoop))).not.toContain(
+          "6.42",
+        );
+      }
+
+      // 3. circular-orbit-energy: virial |E_tot| === E_k === E_bind
+      for (const hiddenKey of [
+        "kineticEnergyJ",
+        "totalEnergyJ",
+        "bindingEnergyJ",
+      ] as const) {
+        const orbitVirial: GravAstroScenario = {
+          kind: "circular-orbit-energy",
+          centralMassKg: EARTH_MASS_KG,
+          centralRadiusM: EARTH_RADIUS_M,
+          satelliteMassKg: 1100,
+          orbitRadiusM: 1.1e7,
+          targetOrbitRadiusM: 2.4e7,
+          visibility: {
+            showDerivedValues: true,
+            hiddenQuantities: [hiddenKey],
+          },
+        };
+        const orbSol = solveGravAstroScenario(orbitVirial);
+        const orbText = extractSvgTextAndMeta(renderGravAstroSvg(orbitVirial));
+        expect(orbText).not.toContain(
+          formatQuantityValue(orbSol.quantities.kineticEnergyJ),
+        );
+      }
+
+      // 4 & 5. banked-curve: signedSlopeFrictionN companion & smooth-bank design speed bounds
+      const bankedWithFriction: GravAstroScenario = {
+        kind: "banked-curve",
+        massKg: 1150,
+        radiusM: 65,
+        bankAngleDeg: 18,
+        staticFrictionCoeff: 0.45,
+        speedMs: 21.3,
+        visibility: {
+          showDerivedValues: true,
+          hiddenQuantities: ["signedSlopeFrictionN"],
+        },
+      };
+      const bankedFricSol = solveGravAstroScenario(bankedWithFriction);
+      expect(
+        extractSvgTextAndMeta(renderGravAstroSvg(bankedWithFriction)),
+      ).not.toContain(
+        formatQuantityValue(bankedFricSol.quantities.frictionForceN),
+      );
+
+      for (const hiddenKey of [
+        "idealSpeedMs",
+        "minSafeSpeedMs",
+        "maxSafeSpeedMs",
+      ] as const) {
+        const vIdeal = Math.sqrt(
+          STANDARD_GRAVITY_MS2 * 80 * Math.tan((20 * Math.PI) / 180),
+        );
+        const smoothBank: GravAstroScenario = {
+          kind: "banked-curve",
+          massKg: 1050,
+          radiusM: 80,
+          bankAngleDeg: 20,
+          staticFrictionCoeff: 0,
+          speedMs: vIdeal,
+          visibility: {
+            showDerivedValues: true,
+            hiddenQuantities: [hiddenKey],
+          },
+        };
+        expect(extractSvgTextAndMeta(renderGravAstroSvg(smoothBank))).not.toContain(
+          formatQuantityValue(vIdeal),
+        );
+      }
+
+      // 6. flat-curve: non-skidding centripetalForceN === frictionForceN
+      const flatNoSkid: GravAstroScenario = {
+        kind: "flat-curve",
+        massKg: 1300,
+        radiusM: 60,
+        speedMs: 14.5,
+        staticFrictionCoeff: 0.65,
+        visibility: {
+          showDerivedValues: true,
+          hiddenQuantities: ["centripetalForceN"],
+        },
+      };
+      const flatSol = solveGravAstroScenario(flatNoSkid);
+      expect(extractSvgTextAndMeta(renderGravAstroSvg(flatNoSkid))).not.toContain(
+        formatQuantityValue(flatSol.quantities.frictionForceN),
+      );
+    });
+
+    it("passes exhaustive per-quantity fuzz check across all 11 scenarios with showDerivedValues false and true", () => {
+      const fuzzFixtures: GravAstroScenario[] = [
+        ...sampleAllGravAstroScenarios("fuzz-seed-alpha"),
+        ...sampleAllGravAstroScenarios("fuzz-seed-beta"),
+        {
+          kind: "banked-curve",
+          massKg: 1200,
+          radiusM: 90,
+          bankAngleDeg: 22,
+          staticFrictionCoeff: 0,
+        },
+        {
+          kind: "vertical-circle",
+          massKg: 1.4,
+          radiusM: 1.8,
+          motionMode: "uniform",
+          referenceSpeedMs: 7.3,
+        },
+        {
+          kind: "planetary-field-potential",
+          centralMassKg: EARTH_MASS_KG,
+          planetRadiusM: EARTH_RADIUS_M,
+          probeRadiusM: EARTH_RADIUS_M,
+          testMassKg: 350,
+        },
+      ];
+
+      const escapedNumberPattern = (formatted: string): RegExp => {
+        const escaped = formatted.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const suffix = formatted.includes("× 10")
+          ? "(?![\\d.])"
+          : "(?![\\d.]|\\s*×\\s*10)";
+        return new RegExp(`(?<![\\d.])${escaped}${suffix}`);
+      };
+
+      for (const baseSpec of fuzzFixtures) {
+        const sol = solveGravAstroScenario(baseSpec);
+        for (const showDerivedValues of [false, true]) {
+          for (const [qKey, qVal] of Object.entries(sol.quantities)) {
+            if (qVal === 0) continue;
+            const specWithHidden: GravAstroScenario = {
+              ...baseSpec,
+              hiddenQuantities: undefined,
+              visibility: {
+                showDerivedValues,
+                hiddenQuantities: [qKey],
+              },
+            };
+            const svg = renderGravAstroSvg(specWithHidden);
+            const allText = extractSvgTextAndMeta(svg);
+            const fmtSigned = formatQuantityValue(qVal);
+            const fmtMag = formatQuantityValue(Math.abs(qVal));
+            expect(allText).not.toMatch(escapedNumberPattern(fmtSigned));
+            if (Math.abs(qVal) !== 1) {
+              expect(allText).not.toMatch(escapedNumberPattern(fmtMag));
+            }
+          }
+        }
+      }
+    });
   });
 
   describe("Seeded Parametric Generators & SVG Integrity", () => {

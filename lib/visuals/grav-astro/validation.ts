@@ -33,9 +33,12 @@ export const HIDDEN_COMPANION_GROUPS: ReadonlyArray<readonly string[]> = [
   ["hubbleTimeS", "hubbleTimeGyr"],
   ["nullPointFromPrimaryM", "nullPointFromSecondaryM", "nullPointFraction"],
   ["speedMs", "actualSpeedMs"],
+  ["frictionForceN", "signedSlopeFrictionN"],
   ["massKg", "weightN"],
   ["periodS", "frequencyHz"],
-  ["totalEnergyJ", "bindingEnergyJ"],
+  ["kineticEnergyJ", "totalEnergyJ", "bindingEnergyJ"],
+  ["targetKineticEnergyJ", "targetTotalEnergyJ"],
+  ["transferDeltaKineticEnergyJ", "transferDeltaTotalEnergyJ"],
   ["scaleFactorRatioEmissionToNow", "scaleFactorRatioNowToEmission"],
 ];
 

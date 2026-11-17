@@ -102,12 +102,16 @@ interface VisibilityContext {
   showDerivedValues: boolean;
   showSymbolsForHidden: boolean;
   customLabels: Readonly<Record<string, string>>;
+  hiddenMagnitudes: readonly number[];
+  hiddenFormattedMagnitudes: ReadonlySet<string>;
+  zeroIsHidden: boolean;
   emittedLabels: string[];
 }
 
 function buildVisibilityContext(
   spec: GravAstroScenario,
   options: GravAstroRenderOptions,
+  quantities: Readonly<Record<string, number>>,
 ): VisibilityContext {
   const rawHidden = [
     ...(spec.hiddenQuantities ?? []),
@@ -131,6 +135,23 @@ function buildVisibilityContext(
       );
     }
   }
+
+  const hiddenMagnitudes: number[] = [];
+  const hiddenFormattedMagnitudes = new Set<string>();
+  let zeroIsHidden = false;
+  for (const hKey of hiddenSet) {
+    const val = quantities[hKey];
+    if (typeof val === "number" && Number.isFinite(val)) {
+      if (val === 0) {
+        zeroIsHidden = true;
+      } else {
+        const mag = Math.abs(val);
+        hiddenMagnitudes.push(mag);
+        hiddenFormattedMagnitudes.add(formatQuantityValue(mag));
+      }
+    }
+  }
+
   return {
     hiddenSet,
     visibleSet,
@@ -138,8 +159,26 @@ function buildVisibilityContext(
     showDerivedValues: spec.visibility?.showDerivedValues ?? false,
     showSymbolsForHidden: spec.visibility?.showSymbolsForHidden ?? true,
     customLabels,
+    hiddenMagnitudes,
+    hiddenFormattedMagnitudes,
+    zeroIsHidden,
     emittedLabels: [],
   };
+}
+
+function matchesAnyHiddenValue(
+  ctx: VisibilityContext,
+  candidateValue: number,
+): boolean {
+  if (!Number.isFinite(candidateValue)) return false;
+  if (candidateValue === 0) return ctx.zeroIsHidden;
+  const mag = Math.abs(candidateValue);
+  if (ctx.hiddenFormattedMagnitudes.has(formatQuantityValue(mag))) {
+    return true;
+  }
+  return ctx.hiddenMagnitudes.some(
+    (hMag) => Math.abs(mag - hMag) <= 1e-6 * hMag,
+  );
 }
 
 function canShowNumeric(
@@ -160,18 +199,23 @@ function resolveQuantityLabel(
   value: number,
   unit: string,
   isInput: boolean,
+  forceSymbolic = false,
 ): string | null {
   const custom = ctx.customLabels[key];
   if (custom !== undefined) {
     ctx.emittedLabels.push(custom);
     return custom;
   }
-  if (canShowNumeric(ctx, key, isInput)) {
+  if (
+    !forceSymbolic &&
+    canShowNumeric(ctx, key, isInput) &&
+    !matchesAnyHiddenValue(ctx, value)
+  ) {
     const formatted = `${symbol} = ${formatQuantityValue(value, unit)}`;
     ctx.emittedLabels.push(formatted);
     return formatted;
   }
-  if (ctx.hiddenSet.has(key) && !ctx.showSymbolsForHidden) {
+  if ((ctx.hiddenSet.has(key) || forceSymbolic) && !ctx.showSymbolsForHidden) {
     return null;
   }
   ctx.emittedLabels.push(symbol);
@@ -531,6 +575,7 @@ function renderFlatCurve(
     sol.details.frictionForceN,
     "N",
     false,
+    !sol.details.skids && ctx.hiddenSet.has("centripetalForceN"),
   );
   parts.push(
     svgText(carX - 60, carY - 10, fsLbl, {
@@ -756,9 +801,27 @@ function renderBankedCurve(
     "m",
     true,
   );
+  const atIdealSpeed =
+    Math.abs(sol.details.actualSpeedMs - sol.details.idealSpeedMs) <=
+    1e-6 * Math.max(1, sol.details.idealSpeedMs);
+  const smoothBankSafeBoundHidden =
+    spec.staticFrictionCoeff === 0 &&
+    (ctx.hiddenSet.has("minSafeSpeedMs") ||
+      ctx.hiddenSet.has("maxSafeSpeedMs"));
+  const forceSymbolicSpeed =
+    (atIdealSpeed && ctx.hiddenSet.has("idealSpeedMs")) ||
+    smoothBankSafeBoundHidden;
   const vLbl =
     spec.speedMs !== undefined
-      ? resolveQuantityLabel(ctx, "speedMs", "v", spec.speedMs, "m s⁻¹", true)
+      ? resolveQuantityLabel(
+          ctx,
+          "speedMs",
+          "v",
+          spec.speedMs,
+          "m s⁻¹",
+          true,
+          forceSymbolicSpeed,
+        )
       : resolveQuantityLabel(
           ctx,
           "idealSpeedMs",
@@ -766,6 +829,7 @@ function renderBankedCurve(
           sol.details.idealSpeedMs,
           "m s⁻¹",
           false,
+          forceSymbolicSpeed,
         );
   const muLbl =
     spec.staticFrictionCoeff > 0
@@ -777,7 +841,7 @@ function renderBankedCurve(
           "",
           true,
         )
-      : canShowNumeric(ctx, "staticFrictionCoeff", true)
+      : canShowNumeric(ctx, "staticFrictionCoeff", true) && !ctx.zeroIsHidden
         ? "Smooth bank (μ_s = 0)"
         : "Smooth bank";
   if (
@@ -861,8 +925,17 @@ function renderVerticalCircle(
   const refPos =
     spec.referencePosition ??
     (spec.motionMode === "energy-conserving" ? "bottom" : "top");
+  const uniformAnySpeedHidden =
+    spec.motionMode === "uniform" &&
+    (ctx.hiddenSet.has("speedTopMs") ||
+      ctx.hiddenSet.has("speedBottomMs") ||
+      ctx.hiddenSet.has("referenceSpeedMs"));
   const topSpeedIsInput =
     spec.motionMode === "uniform" || refPos === "top";
+  const forceSymbolicTop =
+    uniformAnySpeedHidden ||
+    ctx.hiddenSet.has("speedTopMs") ||
+    (topSpeedIsInput && ctx.hiddenSet.has("referenceSpeedMs"));
   const vTopKey =
     ctx.hiddenSet.has("speedTopMs") || !topSpeedIsInput
       ? "speedTopMs"
@@ -873,7 +946,8 @@ function renderVerticalCircle(
     "v_top",
     sol.details.speedTopMs,
     "m s⁻¹",
-    topSpeedIsInput && !ctx.hiddenSet.has("speedTopMs"),
+    topSpeedIsInput,
+    forceSymbolicTop,
   );
   parts.push(
     svgText(cx + 72, topY + 4, vTopLbl, {
@@ -895,6 +969,10 @@ function renderVerticalCircle(
   );
   const botSpeedIsInput =
     spec.motionMode === "uniform" || refPos === "bottom";
+  const forceSymbolicBot =
+    uniformAnySpeedHidden ||
+    ctx.hiddenSet.has("speedBottomMs") ||
+    (botSpeedIsInput && ctx.hiddenSet.has("referenceSpeedMs"));
   const vBotKey =
     ctx.hiddenSet.has("speedBottomMs") || !botSpeedIsInput
       ? "speedBottomMs"
@@ -905,7 +983,8 @@ function renderVerticalCircle(
     "v_bot",
     sol.details.speedBottomMs,
     "m s⁻¹",
-    botSpeedIsInput && !ctx.hiddenSet.has("speedBottomMs"),
+    botSpeedIsInput,
+    forceSymbolicBot,
   );
   parts.push(
     svgText(cx + 82, botY + 4, vBotLbl, {
@@ -1146,15 +1225,18 @@ function renderPlanetaryFieldPotential(
       );
     }
 
-    const gSurfLbl = resolveQuantityLabel(
-      ctx,
-      "surfaceFieldNkg",
-      "g₀",
-      sol.details.surfaceFieldNkg,
-      "N kg⁻¹",
-      false,
-    );
-    if (!ctx.hiddenSet.has("fieldStrengthNkg")) {
+    if (
+      !ctx.hiddenSet.has("fieldStrengthNkg") &&
+      !ctx.hiddenSet.has("surfaceFieldNkg")
+    ) {
+      const gSurfLbl = resolveQuantityLabel(
+        ctx,
+        "surfaceFieldNkg",
+        "g₀",
+        sol.details.surfaceFieldNkg,
+        "N kg⁻¹",
+        false,
+      );
       const gSurfY = projY(sol.details.surfaceFieldNkg);
       parts.push(
         `<line x1="${fmtCoord(left)}" y1="${fmtCoord(gSurfY)}" x2="${fmtCoord(rx)}" y2="${fmtCoord(gSurfY)}" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="4 3"/>`,
@@ -1229,6 +1311,8 @@ function renderPlanetaryFieldPotential(
     );
   }
 
+  const enclosedEqualsCentral =
+    spec.probeRadiusM >= spec.planetRadiusM - 1e-9 * spec.planetRadiusM;
   const mCentralLbl = resolveQuantityLabel(
     ctx,
     "centralMassKg",
@@ -1236,6 +1320,7 @@ function renderPlanetaryFieldPotential(
     spec.centralMassKg,
     "kg",
     true,
+    enclosedEqualsCentral && ctx.hiddenSet.has("enclosedMassKg"),
   );
   parts.push(svgText(right - 10, top + 20, mCentralLbl, { anchor: "end" }));
 
@@ -1941,14 +2026,16 @@ function renderHrDiagram(
         parts.push(
           `<path d="${polylineFromData(pts, projX, projY)}" fill="none" stroke="#d1d5db" stroke-width="1.2" stroke-dasharray="4 4"/>`,
         );
-        const mid = pts[Math.floor(pts.length / 2)];
-        parts.push(
-          svgText(projX(mid.x) + 6, projY(mid.y) - 4, rText, {
-            anchor: "start",
-            size: 10,
-            fill: "#6b7280",
-          }),
-        );
+        if (!matchesAnyHiddenValue(ctx, rSol)) {
+          const mid = pts[Math.floor(pts.length / 2)];
+          parts.push(
+            svgText(projX(mid.x) + 6, projY(mid.y) - 4, rText, {
+              anchor: "start",
+              size: 10,
+              fill: "#6b7280",
+            }),
+          );
+        }
       }
     }
   }
@@ -2031,6 +2118,7 @@ function renderHrDiagram(
 
   if (canShowNumeric(ctx, "surfaceTempK", true)) {
     for (const tTick of [40000, 20000, 10000, 5000, 2500]) {
+      if (matchesAnyHiddenValue(ctx, tTick)) continue;
       const tx = projX(tTick);
       parts.push(
         `<line x1="${fmtCoord(tx)}" y1="${fmtCoord(bottom)}" x2="${fmtCoord(tx)}" y2="${fmtCoord(bottom + 6)}" stroke="#1f2937"/>`,
@@ -2041,6 +2129,7 @@ function renderHrDiagram(
 
   if (canShowNumeric(ctx, "luminositySolar", true)) {
     for (const exp of [-4, -2, 0, 2, 4, 6]) {
+      if (matchesAnyHiddenValue(ctx, 10 ** exp)) continue;
       const ly = projY(10 ** exp);
       const sup = [...String(exp)].map((c) => SUPERSCRIPT_DIGITS[c] ?? c).join("");
       const txt = exp === 0 ? "1" : `10${sup}`;
@@ -2502,8 +2591,8 @@ export function renderGravAstroSvg(
     throw new Error("Invalid grav-astro SVG dimensions");
   }
 
-  const ctx = buildVisibilityContext(spec, options);
   const solution = solveGravAstroScenario(spec);
+  const ctx = buildVisibilityContext(spec, options, solution.quantities);
   const prefix = sanitizeId(spec.id ?? `ga-${spec.kind}`);
   const safeTitle = SCENARIO_TITLES[spec.kind];
 
