@@ -1,10 +1,44 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* Palette tokens (H S L channels) */
+  /* SixthPhysics tactile study-desk tokens — warm-cloud Light default */
+  --sp-bg: #F4F6FB;
+  --sp-surface: #FFFFFF;
+  --sp-surface-subtle: #F1F4F9;
+  --sp-border: #E2E8F0;
+  --sp-lip: #CBD5E1;
+  --sp-ink: #0F172A;
+  --sp-muted: #64748B;
+  --sp-accent: #4F46E5;
+  --sp-accent-lip: #3730A3;
+  --sp-accent-tint: #EEF2FF;
+  --sp-accent-ink: #3730A3;
+
+  --sp-success: #10B981;
+  --sp-success-lip: #059669;
+  --sp-success-tint: #ECFDF5;
+  --sp-success-ink: #047857;
+
+  --sp-warn: #F59E0B;
+  --sp-warn-lip: #D97706;
+  --sp-warn-tint: #FFFBEB;
+  --sp-warn-ink: #92400E;
+
+  --sp-danger: #EF4444;
+  --sp-danger-lip: #B91C1C;
+  --sp-danger-tint: #FEF2F2;
+  --sp-danger-ink: #B91C1C;
+
+  --sp-track: #E8ECF4;
+  --sp-raised: #FFFFFF;
+
+  /* Font alias compatibility */
+  --font-inter: var(--font-jakarta);
+
+  /* Shadcn / review route H S L palette tokens (preserved intact) */
   --background: 0 0% 100%;
   --foreground: 222.2 15% 7%;
   --muted: 214 10% 96%;
@@ -25,7 +59,6 @@
   --warning: 42 90% 60%;
   --warning-foreground: 222.2 84% 4.9%;
 
-  /* Preserved existing tokens */
   --popover: 0 0% 100%;
   --popover-foreground: 222.2 84% 4.9%;
   --primary: 221.2 83.2% 53.3%;
@@ -36,15 +69,7 @@
   --ring: 221.2 83.2% 53.3%;
   --radius: 0.75rem;
 
-  /* Gradient variables for beautiful effects */
-  --gradient-primary: linear-gradient(135deg, hsl(221.2 83.2% 53.3%) 0%, hsl(262.1 83.3% 57.8%) 100%);
-  --gradient-secondary: linear-gradient(135deg, hsl(210 40% 96%) 0%, hsl(214.3 31.8% 91.4%) 100%);
-  --gradient-dark: linear-gradient(135deg, hsl(222.2 84% 4.9%) 0%, hsl(215.4 16.3% 25%) 100%);
-  /* Button gradient token (switches per theme) */
-  --gradient-button: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(0 0% 98%) 100%);
-  --gradient-button-foreground: 222.2 15% 7%;
-
-  /* Convenience mappings used by Tailwind / CSS */
+  /* Convenience mappings used by Tailwind / Shadcn UI */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
@@ -60,55 +85,78 @@
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
-}
 
-html, body {
-  background: hsl(var(--color-background));
-  color: hsl(var(--color-foreground));
-  min-height: 100vh;
+  color-scheme: light;
 }
 
 html.dark {
+  /* SixthPhysics tactile study-desk tokens — night-desk mode */
+  --sp-bg: #0F1420;
+  --sp-surface: #171F30;
+  --sp-surface-subtle: #1D2639;
+  --sp-border: #28354E;
+  --sp-lip: #0B101B;
+  --sp-ink: #F1F5F9;
+  --sp-muted: #94A3B8;
+  --sp-accent: #6366F1;
+  --sp-accent-lip: #3730A3;
+  --sp-accent-tint: rgba(99, 102, 241, 0.16);
+  --sp-accent-ink: #C7D2FE;
+
+  --sp-success: #10B981;
+  --sp-success-lip: #047857;
+  --sp-success-tint: rgba(16, 185, 129, 0.14);
+  --sp-success-ink: #6EE7B7;
+
+  --sp-warn: #F59E0B;
+  --sp-warn-lip: #B45309;
+  --sp-warn-tint: rgba(245, 158, 11, 0.13);
+  --sp-warn-ink: #FCD34D;
+
+  --sp-danger: #F87171;
+  --sp-danger-lip: #991B1B;
+  --sp-danger-tint: rgba(239, 68, 68, 0.14);
+  --sp-danger-ink: #FCA5A5;
+
+  --sp-track: #232E44;
+  --sp-raised: #243049;
+
+  /* Shadcn dark tokens */
   --background: 222.2 84% 4.9%;
   --foreground: 210 40% 98%;
   --muted: 222.2 84% 12%;
-  --muted-foreground: 222.2 84% 60%;
+  --muted-foreground: 215 20.2% 65.1%;
   --card: 222.2 84% 6.9%;
   --card-foreground: 210 40% 98%;
-  --border: 222.2 84% 10%;
+  --border: 217.2 32.6% 17.5%;
 
-  --accent: 222.2 89% 60%;
+  --accent: 217.2 91.2% 59.8%;
   --accent-foreground: 222.2 84% 4.9%;
 
   --destructive: 0 67% 50%;
   --destructive-foreground: 210 40% 98%;
 
-  /* success/warning remain but with dark-appropriate foregrounds */
   --success: 145 63% 35%;
   --success-foreground: 210 40% 98%;
   --warning: 42 90% 60%;
   --warning-foreground: 222.2 84% 4.9%;
 
-  --primary: 221.2 83.2% 66%;
+  --popover: 222.2 84% 6.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 217.2 91.2% 59.8%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 217.2 91.2% 59.8%;
 
-  /* Dark gradient variables - Less transparent, better readability */
-  --gradient-primary: linear-gradient(135deg, hsl(217.2 91.2% 66%) 0%, hsl(262.1 83.3% 64%) 100%);
-  --gradient-secondary: linear-gradient(135deg, hsl(217.2 32.6% 17.5%) 0%, hsl(222.2 84% 8%) 100%);
-  --gradient-dark: linear-gradient(135deg, hsl(222.2 84% 4.9%) 0%, hsl(217.2 32.6% 8%) 100%);
-  --gradient-card: linear-gradient(135deg, hsl(222.2 84% 10%) 0%, hsl(217.2 32.6% 18%) 100%);
-  --gradient-button: linear-gradient(135deg, hsl(217.2 91.2% 36%) 0%, hsl(262.1 83.3% 30%) 100%);
-  --gradient-button-foreground: 210 40% 98%;
-}
-/* Accessible fallback for gradient text in dark mode:
-   Provides a non-transparent text fill so automated contrast checks can measure a valid color.
-   Visually this will show the fallback color in dark mode; if you prefer keeping the visual
-   gradient while having an accessible fallback, we can implement a more complex pseudo-element solution later. */
-html.dark .bg-clip-text.text-transparent {
-  color: hsl(var(--color-foreground)) !important;
-  -webkit-text-fill-color: hsl(var(--color-foreground)) !important;
+  color-scheme: dark;
 }
 
 @theme inline {
+  --font-sans: var(--font-jakarta), "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -132,234 +180,441 @@ html.dark .bg-clip-text.text-transparent {
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-  
+
+  html,
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    background: hsl(var(--background));
-  }
-  
-  /* Beautiful gradient backgrounds */
-  .gradient-bg {
-    background: var(--gradient-dark);
-  }
-  
-  .gradient-card {
-    background: var(--gradient-card, var(--gradient-secondary));
-  }
-  
-  .gradient-primary {
-    background: var(--gradient-primary);
-  }
-
-  .gradient-button {
-    background: var(--gradient-button);
-    color: hsl(var(--gradient-button-foreground));
-    /* Keep button text readable and allow utility classes to override if necessary */
-  }
-  
-  /* Dark theme body with full coverage */
-  html.dark body {
-    background: hsl(222.2 84% 4.9%);
     min-height: 100vh;
-    position: relative;
-  }
-  
-  .dark body::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: 
-      radial-gradient(circle at 20% 80%, hsl(217.2 91.2% 59.8% / 0.03) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, hsl(262.1 83.3% 57.8% / 0.03) 0%, transparent 50%);
-    pointer-events: none;
-    z-index: -1;
-  }
-  
-  /* Light theme body with full coverage */
-  html:not(.dark) body {
-    background: hsl(0 0% 100%);
-    min-height: 100vh;
-    position: relative;
-  }
-  
-  body:not(.dark)::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: 
-      radial-gradient(circle at 20% 80%, hsl(221.2 83.2% 53.3% / 0.02) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, hsl(262.1 83.3% 57.8% / 0.02) 0%, transparent 50%);
-    pointer-events: none;
-    z-index: -1;
-  }
-  
-  /* Enhanced card styling with better opacity */
-  .card-gradient {
-    background: var(--gradient-card, hsl(var(--card)));
-    border: 1px solid hsl(var(--border));
-    /* Removed backdrop-filter for better readability */
-  }
-  
-  /* Smooth transitions for theme switching */
-  * {
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
-  }
-  
-  /* Custom scrollbar for dark theme */
-  .dark ::-webkit-scrollbar {
-    width: 8px;
-  }
-  
-  .dark ::-webkit-scrollbar-track {
-    background: hsl(217.2 32.6% 17.5%);
-  }
-  
-  .dark ::-webkit-scrollbar-thumb {
-    background: hsl(217.2 91.2% 59.8%);
-    border-radius: 4px;
-  }
-  
-  .dark ::-webkit-scrollbar-thumb:hover {
-    background: hsl(217.2 91.2% 69.8%);
-  }
-  
-  /* Beautiful hover effects */
-  .hover-lift {
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    background-color: var(--sp-bg);
+    color: var(--sp-ink);
   }
 
-  .hover-lift:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 25px -5px hsl(var(--primary) / 0.2);
+  body {
+    @apply font-sans antialiased;
   }
 
-  /* Enhanced focus states for accessibility */
-  .focus-visible-ring:focus-visible {
-    outline: 2px solid hsl(var(--primary));
-    outline-offset: 2px;
-    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.1);
-  }
-
-  /* Button focus states */
-  button:focus-visible {
-    outline: 2px solid hsl(var(--primary));
-    outline-offset: 2px;
-    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.1);
-  }
-
-  /* Input focus states */
+  button:focus-visible,
+  a:focus-visible,
   input:focus-visible,
   textarea:focus-visible,
   select:focus-visible {
-    outline: 2px solid hsl(var(--primary));
+    outline: 3px solid color-mix(in srgb, var(--sp-accent) 55%, transparent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.1);
   }
 
-  /* Skip link for screen readers */
+  ::selection {
+    background: color-mix(in srgb, var(--sp-accent) 22%, transparent);
+  }
+
   .skip-link {
     position: absolute;
-    top: -40px;
-    left: 6px;
-    background: hsl(var(--primary));
-    color: hsl(var(--primary-foreground));
-    padding: 8px;
+    top: -48px;
+    left: 12px;
+    background: var(--sp-accent);
+    color: #ffffff;
+    padding: 8px 12px;
+    font-size: 0.875rem;
+    font-weight: 600;
     text-decoration: none;
-    border-radius: 4px;
+    border-radius: 8px;
     z-index: 1000;
-    transition: top 0.3s;
+    transition: top 0.15s ease;
   }
 
   .skip-link:focus {
-    top: 6px;
+    top: 10px;
   }
-  
-  /* Animated gradient text */
-  .gradient-text {
-    background: linear-gradient(45deg, hsl(var(--primary)), hsl(var(--primary) / 0.7));
-    background-size: 200% 200%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: gradient-shift 3s ease infinite;
+
+  /* Keep display math contained within narrow mobile viewports */
+  .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    padding-block: 0.25rem;
   }
-  
-  /* Accessible gradient utility: renders visible gradient via a pseudo-element while keeping a real computed text color for accessibility */
-  .accessible-gradient {
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------
+   SixthPhysics tactile system
+   Every pressable thing is a keycap: 2px rim + solid lip underneath.
+   The lip is a box-shadow so pressing never reflows the page.
+   ------------------------------------------------------------------ */
+@layer components {
+  /* Static elevated study card */
+  .sp-card {
+    background: var(--sp-surface);
+    border: 2px solid var(--sp-border);
+    border-radius: 1.25rem;
+    box-shadow: 0 4px 0 var(--sp-lip);
+  }
+
+  /* Recessed inset well (scratchpads, worked solutions, tracks) */
+  .sp-well {
+    background: var(--sp-surface-subtle);
+    border: 2px solid var(--sp-border);
+    border-radius: 1rem;
+  }
+
+  /* Pressable keycap base */
+  .sp-key {
+    --k-bg: var(--sp-raised);
+    --k-border: var(--sp-border);
+    --k-lip: var(--sp-lip);
+    --k-fg: var(--sp-ink);
+    --k-depth: 4px;
     position: relative;
-    display: inline-block;
-    color: hsl(var(--color-foreground));
+    background: var(--k-bg);
+    color: var(--k-fg);
+    border: 2px solid var(--k-border);
+    box-shadow: 0 var(--k-depth) 0 var(--k-lip);
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      transform 110ms cubic-bezier(0.3, 0.7, 0.4, 1.4),
+      box-shadow 110ms ease-out,
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease;
   }
-  .accessible-gradient::before {
-    content: attr(data-text);
+
+  .sp-key:hover:not(:disabled):not([aria-disabled='true']) {
+    transform: translateY(-1px);
+    box-shadow: 0 calc(var(--k-depth) + 1px) 0 var(--k-lip);
+  }
+
+  .sp-key:active:not(:disabled):not([aria-disabled='true']) {
+    transform: translateY(calc(var(--k-depth) - 1px));
+    box-shadow: 0 1px 0 var(--k-lip);
+    transition-duration: 40ms;
+  }
+
+  .sp-key:disabled,
+  .sp-key[aria-disabled='true'] {
+    cursor: default;
+  }
+
+  .sp-key--sm {
+    --k-depth: 3px;
+  }
+
+  .sp-key--neutral:hover:not(:disabled):not([aria-disabled='true']) {
+    --k-border: color-mix(in srgb, var(--sp-accent) 35%, var(--sp-border));
+  }
+
+  .sp-key--primary {
+    --k-bg: var(--sp-accent);
+    --k-border: var(--sp-accent);
+    --k-lip: var(--sp-accent-lip);
+    --k-fg: #ffffff;
+  }
+
+  .sp-key--success {
+    --k-bg: #059669;
+    --k-border: #059669;
+    --k-lip: #047857;
+    --k-fg: #ffffff;
+  }
+
+  .sp-key--warn {
+    --k-bg: var(--sp-warn);
+    --k-border: var(--sp-warn);
+    --k-lip: var(--sp-warn-lip);
+    --k-fg: #451a03;
+  }
+
+  /* Waiting state: visibly a button, plainly not ready */
+  .sp-key--idle {
+    --k-bg: var(--sp-surface-subtle);
+    --k-border: var(--sp-border);
+    --k-lip: var(--sp-border);
+    --k-fg: var(--sp-muted);
+  }
+
+  .sp-key--selected {
+    --k-bg: var(--sp-accent-tint);
+    --k-border: var(--sp-accent);
+    --k-lip: var(--sp-accent-lip);
+  }
+
+  .sp-key--correct {
+    --k-bg: var(--sp-success-tint);
+    --k-border: var(--sp-success);
+    --k-lip: var(--sp-success-lip);
+  }
+
+  .sp-key--wrong {
+    --k-bg: var(--sp-danger-tint);
+    --k-border: var(--sp-danger);
+    --k-lip: var(--sp-danger-lip);
+  }
+
+  /* Answered tiles settle into the desk */
+  .sp-key--settled {
+    --k-depth: 2px;
+    opacity: 0.62;
+  }
+
+  /* Squircle letter keycap inside option tiles */
+  .sp-keycap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.125rem;
+    height: 2.125rem;
+    border-radius: 0.7rem;
+    border: 2px solid var(--sp-border);
+    background: var(--sp-surface);
+    color: var(--sp-muted);
+    box-shadow: 0 3px 0 var(--sp-border);
+    font-weight: 800;
+    font-size: 0.875rem;
+    line-height: 1;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease,
+      box-shadow 140ms ease;
+  }
+
+  .sp-keycap--selected {
+    background: var(--sp-accent);
+    border-color: var(--sp-accent);
+    color: #ffffff;
+    box-shadow: 0 3px 0 var(--sp-accent-lip);
+  }
+
+  .sp-keycap--correct {
+    background: #059669;
+    border-color: #059669;
+    color: #ffffff;
+    box-shadow: 0 3px 0 #047857;
+  }
+
+  .sp-keycap--wrong {
+    background: var(--sp-danger);
+    border-color: var(--sp-danger);
+    color: #ffffff;
+    box-shadow: 0 3px 0 var(--sp-danger-lip);
+  }
+
+  /* Segmented switcher: sunken track, raised selected keycap */
+  .sp-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 0.95rem;
+    background: var(--sp-track);
+    box-shadow: inset 0 2px 0 color-mix(in srgb, var(--sp-lip) 55%, transparent);
+  }
+
+  .sp-seg-item {
+    border: 2px solid transparent;
+    border-radius: 0.75rem;
+    color: var(--sp-muted);
+    font-weight: 650;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      background-color 120ms ease,
+      box-shadow 120ms ease,
+      transform 90ms ease-out;
+  }
+
+  .sp-seg-item:hover {
+    color: var(--sp-ink);
+  }
+
+  .sp-seg-item[aria-selected='true'],
+  .sp-seg-item[aria-pressed='true'] {
+    background: var(--sp-raised);
+    border-color: var(--sp-border);
+    color: var(--sp-ink);
+    font-weight: 750;
+    box-shadow: 0 2px 0 var(--sp-lip);
+  }
+
+  .sp-seg-item:active {
+    transform: translateY(1px);
+  }
+
+  /* Static information chip */
+  .sp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 9999px;
+    border: 1.5px solid var(--sp-border);
+    background: var(--sp-surface-subtle);
+    color: var(--sp-ink);
+    padding: 0.2rem 0.65rem;
+    font-size: 0.78rem;
+    font-weight: 650;
+    line-height: 1.35;
+    white-space: nowrap;
+  }
+
+  .sp-chip--accent {
+    border-color: color-mix(in srgb, var(--sp-accent) 30%, transparent);
+    background: var(--sp-accent-tint);
+    color: var(--sp-accent-ink);
+  }
+
+  .sp-chip--success {
+    border-color: color-mix(in srgb, var(--sp-success) 35%, transparent);
+    background: var(--sp-success-tint);
+    color: var(--sp-success-ink);
+  }
+
+  .sp-chip--warn {
+    border-color: color-mix(in srgb, var(--sp-warn) 40%, transparent);
+    background: var(--sp-warn-tint);
+    color: var(--sp-warn-ink);
+  }
+
+  .sp-chip--danger {
+    border-color: color-mix(in srgb, var(--sp-danger) 35%, transparent);
+    background: var(--sp-danger-tint);
+    color: var(--sp-danger-ink);
+  }
+
+  .sp-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    flex-shrink: 0;
+  }
+
+  /* Chunky progress bar with a glossy highlight band */
+  .sp-progress {
+    position: relative;
+    height: 0.75rem;
+    border-radius: 9999px;
+    background: var(--sp-track);
+    overflow: hidden;
+  }
+
+  .sp-progress-fill {
+    position: relative;
+    height: 100%;
+    border-radius: 9999px;
+    background: var(--sp-accent);
+    transition: width 420ms cubic-bezier(0.3, 0.7, 0.4, 1);
+  }
+
+  .sp-progress-fill::after {
+    content: '';
     position: absolute;
-    inset: 0;
-    display: inline-block;
-    background: var(--gradient-primary);
-    background-size: 200% 200%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-    white-space: pre-wrap;
-    pointer-events: none;
+    left: 0.4rem;
+    right: 0.4rem;
+    top: 0.18rem;
+    height: 0.18rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.38);
   }
-  .accessible-gradient > svg {
-    position: relative;
-    z-index: 2;
+
+  .sp-progress--sm {
+    height: 0.4rem;
   }
-  
-  @keyframes gradient-shift {
-    0%, 100% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
+
+  .sp-progress--sm .sp-progress-fill::after {
+    display: none;
   }
-  
-  /* Floating animation */
-  .float {
-    animation: float 6s ease-in-out infinite;
+
+  /* Feedback banners */
+  .sp-banner {
+    border-radius: 1.1rem;
+    border: 2px solid var(--b-border);
+    background: var(--b-bg);
+    box-shadow: 0 4px 0 var(--b-lip);
   }
-  
-  @keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
+
+  .sp-banner--success {
+    --b-border: var(--sp-success);
+    --b-bg: var(--sp-success-tint);
+    --b-lip: var(--sp-success-lip);
   }
-  
-  /* Pulse glow effect */
-  .pulse-glow {
-    animation: pulse-glow 2s ease-in-out infinite alternate;
+
+  .sp-banner--warn {
+    --b-border: var(--sp-warn);
+    --b-bg: var(--sp-warn-tint);
+    --b-lip: var(--sp-warn-lip);
   }
-  
-  @keyframes pulse-glow {
-    from { box-shadow: 0 0 20px hsl(var(--primary) / 0.3); }
-    to { box-shadow: 0 0 30px hsl(var(--primary) / 0.5); }
+
+  /* Reaction motion: only fires in answer to the student's action */
+  .sp-anim-pop {
+    animation: sp-pop 320ms cubic-bezier(0.3, 0.7, 0.4, 1.4) both;
+  }
+
+  .sp-anim-shake {
+    animation: sp-shake 360ms ease-in-out both;
+  }
+
+  .sp-anim-bump {
+    animation: sp-bump 360ms cubic-bezier(0.3, 0.7, 0.4, 1.5) both;
+  }
+}
+
+@keyframes sp-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sp-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-5px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes sp-bump {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
   }
 }

@@ -1,7 +1,7 @@
 # Visual reconstruction pilots
 
 Status: Cartesian reconstruction and parameter-variation pilots plus complete
-eight-package circuit and field-map vertical slices are implemented. Human acceptance,
+eight-package circuit, field-map and mechanics vertical slices are implemented. Human acceptance,
 broader family coverage, and source-material rights clearance remain open. This is not
 training-ready data.
 
@@ -243,3 +243,64 @@ It validates the question/mark-scheme linkage, evidence files and page bounds, w
 scheme targets remain manually transcribed and page-compared. The manifest status is
 `physics-verified-awaiting-human-review`, and training eligibility remains blocked
 pending human acceptance, source-use rights and training metadata with a grouped split.
+
+## Mechanics package pipeline
+
+Eight distinct source questions form four Paper 1A and four Paper 2 derivative
+packages. The scene compiler covers projectile launch, carts, a vertical circle,
+inclines, a pendulum, elastic-rope snapshots and a truck accelerometer with a
+semicircular road. Each package contains one typed scenario, diagram intent,
+student wording, deterministic results, complete solutions and marking points,
+and independent targets transcribed from a visually checked mark scheme.
+
+The Paper 1A source answers are B, A, D and D. Paper 2 checks include a friction
+coefficient of 0.264, pendulum tension of 5.88 N, postcollision rise of 0.200 m,
+rope stiffness of 648 N m⁻¹ and a truck corner speed of 21.0 m s⁻¹. Intermediate
+calculations retain full precision; calculated final answers use three significant
+figures. The elastic-rope derivative covers only Q5 parts a and b, explicitly
+excluding the unrelated water-wave parts.
+
+`mechanics-intent/0.1.0` is a strict model-facing contract. It names a supported
+scene template and visible labels without coordinates or executable drawing code.
+The compiler owns layout and emits the mechanics-specific payload in
+`VisualSpec<"mechanics_scene">`. The renderer validates body/vector references,
+geometry, composition and label visibility. Student diagrams preserve source
+geometric givens and omit solution forces and calculated unknowns.
+
+Generate the private review artifact and durable harness runs:
+
+```bash
+node scripts/visual-pilot/generate-mechanics.cjs
+```
+
+If the private corpus is in another checkout, pass its repository root:
+
+```bash
+node scripts/visual-pilot/generate-mechanics.cjs --source-root /path/to/ibphysiq
+```
+
+The output is `dataset/_derived/mechanics-pilot-v0.1/index.html`, eight SVGs,
+eight package JSON files and `manifest.json`. The generator checks source and
+scheme hashes, crop/question linkage, PDF page bounds, package validation and
+persisted run recovery before switching the staged output into place. It keeps
+timestamped backups of existing output. Stable run IDs derived from package
+content reuse existing review histories on reruns.
+
+Runs default to `data/question-runs/`. Use `--run-store DIRECTORY` or
+`REVIEW_RUN_STORE_DIR` for another store, and point the local review app at the
+same directory. Start the app with `npm run dev`, configure
+`REVIEW_ADMIN_TOKEN` locally, and open `/review` to inspect the saved runs.
+
+The generator establishes engineering evidence for these eight models. It does
+not establish complete mechanics coverage, model-generated questions, or
+training readiness. Human acceptance, source-use clearance, metadata and grouped
+splits remain independent review decisions.
+
+Verify interrupted-run recovery, rerun idempotency, preservation of an isolated
+authenticated review decision, backups and SVG parsing:
+
+```bash
+node scripts/visual-pilot/verify-mechanics.cjs /path/to/ibphysiq
+```
+
+This check uses a temporary run store and never approves the real pilot.

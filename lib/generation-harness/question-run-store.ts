@@ -391,7 +391,12 @@ export function applyQuestionRunEvent(
           : {}),
       };
     case "rejection-recorded":
-      return { ...run, status: "rejected", rejection: event.payload.rejection };
+      return {
+        ...run,
+        status: "rejected",
+        currentStage: event.payload.rejection.stage,
+        rejection: event.payload.rejection,
+      };
   }
 }
 

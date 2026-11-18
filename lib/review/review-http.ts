@@ -19,6 +19,7 @@ import {
   type RequestLike,
 } from "./review-auth";
 import { ReviewServiceOptions, ReviewServiceError } from "./review-service";
+import { authoredPackageResolver } from "./authored-package-resolver";
 
 /** Where stored question runs live. Overridable for tests and deployments. */
 export function reviewStoreRoot(
@@ -40,6 +41,9 @@ export function getReviewServiceOptions(): ReviewServiceOptions {
   return {
     store: getReviewStore(authConfig.sessionSecret),
     authConfig,
+    resolvePackage: process.env.REVIEW_PACKAGE_DIR
+      ? authoredPackageResolver(process.env.REVIEW_PACKAGE_DIR)
+      : undefined,
   };
 }
 

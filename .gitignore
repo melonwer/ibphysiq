@@ -89,3 +89,7 @@ Thumbs.db
 dev-notes.md
 todo.md
 docs/TESTING_REPORT.md
+
+# SixthPhysics compiled web bank chunks and GitHub Pages static bundle
+public/sixthphysics-data/
+dist-pages/

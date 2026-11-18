@@ -816,7 +816,7 @@ describe("idempotency", () => {
 
   it("deduplicates a concurrent identical submission across store instances", async () => {
     const run = await seedRun();
-    const secondStore = new JsonlQuestionRunStore(rootDir);
+    const secondStore = new JsonlQuestionRunStore(rootDir, authConfig.sessionSecret);
     const secondOptions: ReviewServiceOptions = {
       ...options(),
       store: secondStore,

@@ -2,7 +2,9 @@
 
 Created: 2026-09-18
 
-Status: Working plan; paper mining, source-backed Cartesian, circuit and field-map renderers, checked eight-package circuit and field vertical slices, and the `QuestionRun v0.1` deterministic harness replay are implemented locally. The persistent run store and authenticated human-review UI are also implemented. Live model adapters, review of the pilot corpus, broader package coverage, dataset assembly, training, and the remaining renderer families are still outstanding.
+Progress reviewed: 2026-10-02
+
+Status: The mechanics pipeline, 100-question source sampler, frozen split and coverage report are complete. The native harness supports persistent runs, authenticated review and local Qwen planning and source-conditioned authoring. A separate deterministic generator produces 20 fresh complete questions across four visual families; independent physics and visual checks pass. Connecting fresh scenarios to Qwen and native review, broader package coverage, dataset assembly and training remain open. See the [session handoff](SESSION_HANDOFF.md) for the next engineering step.
 
 Working label: V2; the release version and delivery date are not yet assigned.
 
@@ -234,22 +236,55 @@ Report sample sizes and uncertainty, and slice results by paper, level, topic an
 
 ## 7. Immediate implementation checklist
 
-- [ ] Inventory available source papers and mark schemes; select approximately 100 pilot packages.
+- [x] Inventory source papers and mark schemes and reproduce extraction: 80 PDFs, 33 canonical English question papers, 643 questions, 337 visual plans and 522 crops.
+- [x] Implement the versioned visual specifications, 16-family registry and package/run schema foundations.
+- [x] Build the Cartesian renderer, eight checked source reconstructions, 24 parameter exercises and 24 source-linked expansion fixtures.
+- [x] Build the reproducible 100-question source sampler, corpus-wide split manifest and coverage report: 25 questions per paper/level stratum, 70 train, 15 validation and 15 test. Include all 24 checked packages and bound renderer-gap discovery to 20 sources.
+- [ ] Complete and human-review the 100 pilot packages, including source-only records, conceptual questions and questions without visuals.
 - [ ] Confirm syllabus taxonomy and pilot family coverage, including both papers.
-- [ ] Draft schema v0.1 with a few manually reviewed examples before bulk extraction.
+- [ ] Confirm the schemas against the reviewed pilot and finalize training-record formats.
 - [x] Build the source-backed circuit renderer and representative fixtures.
 - [x] Add a coordinate-free circuit intent contract and deterministic series/parallel compiler.
 - [x] Build the source-backed field-map renderer, intent compiler and representative fixtures.
-- [ ] Build one additional visual family beyond Cartesian, circuits and fields.
+- [x] Complete the mechanics-scene vertical slice: eight source-backed packages, balanced four Paper 1A and four Paper 2, with coordinate-free intent, deterministic physics, figures, solutions and harness replay.
 - [x] Demonstrate extraction -> specification -> solution -> render -> validated package for the eight-circuit vertical slice.
 - [x] Repeat the complete-package vertical slice for eight balanced field questions.
-- [ ] Freeze grouped evaluation examples and capture the untuned baseline.
-- [ ] Assemble the initial training dataset and agree the experiment contract.
+- [x] Build the deterministic QuestionRun harness with bounded retries, rejection evidence and circuit, field and mechanics replay.
+- [x] Persist versioned runs and provide authenticated human review with independent training-readiness gates.
+- [x] Freeze source-group evaluation membership across the extracted corpus. Keep all 55 previously developed source questions and their siblings in train; reserve fresh validation and test sources for each working visual family.
+- [x] Connect a schema-constrained local Qwen planner and source-conditioned author to the native harness. Persist model-written candidates separately and resolve them for authenticated review.
+- [x] Run the 20-request development authoring pilot, with five cases per working visual family and all 40 local model calls retained. Fifteen candidates passed structure/target checks; five were rejected. All question wording was copied from the supplied reference, and content diagnostics found issues in 15 outputs.
+- [x] Preserve the 20-request source-conditioned authoring experiment as historical engineering evidence. It copied supplied question objects, so it is not a new-question review milestone.
+- [x] Build a deterministic original-scenario generator with checked physics, fresh wording and assessment targets, figure compilation, duplicate rejection, mark-balance checks and split lineage.
+- [x] Add regular labelled scales and half-step grids to generated quantitative graphs, with rendered-SVG regression checks for interpolated readings. See [the new question pilot](SYNTHETIC_QUESTION_PILOT.md).
+- [x] Independently check all 20 new packages with GPT-6.1 Sol reviewers, including calculations, working, marking points and 40 desktop/mobile screenshots. Bind the evidence to the final artifacts; agent checks do not record human acceptance.
+- [ ] Human-review the new 20-question synthetic pilot. It contains five new packages each for graphs, circuits, fields and mechanics; all remain blocked from training until review and source-use clearance.
+- [ ] Capture the untuned baseline using the live model adapters.
+- [ ] Assemble approximately 1,000 reviewed source-backed and synthetic question packages for the initial training experiment; track independent families and tokens separately from training-record counts.
+- [ ] Agree the training experiment contract, including budget, evidence thresholds and stop rules.
 - [ ] Train, compare and decide whether to expand data or revise the architecture.
-- [ ] Connect live model adapters to the local harness and review workflow.
-- [ ] Publish the harness on GitHub and the evaluated model on Hugging Face with reproducible setup instructions.
+- [ ] Connect parameter-bearing Qwen scenario generation and fresh-question authoring to the native harness and review workflow.
+- [x] Publish the existing harness source and local setup instructions on GitHub.
+- [ ] Release and document the live model workflow, evaluated adapter and reproducible training setup on Hugging Face.
 
-Open choices: extraction tooling, renderer libraries, solver implementation, compute budget/hardware, final adapter strategy, quality thresholds, local inference setup and milestone dates. The first concrete artifact is the reviewed pilot dataset and reconstruction report; completing a catalogue alone does not establish a working generator.
+### Current build sequence
+
+1. Connect the tested fresh-scenario contracts to local Qwen planning and authoring, then persist the resulting packages in the native run and review workflow. Use the [20 checked synthetic questions](SYNTHETIC_QUESTION_PILOT.md) as development fixtures. Independent checks are complete; human acceptance remains a separate decision. The earlier [source-conditioned experiment](UNTUNED_AUTHOR_BASELINE.md) remains historical evidence and does not need re-acceptance.
+2. Complete packages for the 76 source-only selections and review the [100-question source pilot](PILOT_DATASET.md). Confirm provisional labels and grouping evidence, then capture the held-out untuned baseline with the same validators and review workflow.
+3. Generate, validate and review diverse synthetic packages toward the approximately 1,000-package training target. Keep every source and its descendants in one split and measure independent family diversity separately from package count.
+4. Run the bounded QLoRA experiment and compare held-out package quality before deciding whether to expand.
+
+The circuit, field and mechanics slices contain 24 complete physics-checked source packages. The fresh synthetic pilot adds 20 complete checked packages; the older 24 Cartesian parameter exercises remain incomplete packages. The corpus split is frozen. Human acceptance, source-use clearance and training metadata remain open. A general force-diagram family and broader mechanics coverage remain open, alongside live Qwen generation of fresh scenarios, novelty assessment and broader batch adapters.
+
+### Mechanics implementation note, 2026-10-01
+
+Visual review: the user confirmed that all eight mechanics reconstructions look acceptable after raising the distance lines on May 2026 TZ3 HL Paper 1A Q5 and May 2026 TZ2 SL Paper 2 Q1. This records figure approval; full question and solution acceptance remains a separate review.
+
+The mechanics slice includes projectile flight, cart momentum, vertical-circle tension, constant-speed ramp resistance, incline friction, pendulum collision, elastic-rope energy and truck motion. Four Paper 1A and four Paper 2 packages preserve the diagram givens, verified scheme targets, complete worked solutions and per-part marking points. The mixed elastic-rope source is explicitly scoped to mechanics parts a and b; its water-wave parts are excluded.
+
+A strict `mechanics-intent/0.1.0` contract keeps model output free of drawing coordinates. Deterministic code compiles bodies, surfaces, connectors, paths, dimensions, angle arcs and velocity vectors into `scene.mechanics.v1` SVGs. Student diagrams exclude derived answers and solution force arrows. The generator verifies source PDF hashes, question/crop links and one-based PDF page bounds, checks all packages and creates recoverable source-replay runs for the authenticated reviewer. See [the mechanics review workflow](VISUAL_PILOT.md#mechanics-package-pipeline).
+
+Remaining choices: final syllabus taxonomy, pilot composition, training-record formats, compute budget and hardware, adapter strategy, quality thresholds, local Qwen inference setup and milestone dates. The next dataset artifact is the reviewed pilot and its coverage report. Extraction, deterministic SVG rendering and tested physics calculations already have working implementations.
 
 ### Implementation note — 2026-09-18
 
@@ -314,7 +349,7 @@ three-significant-figure calculated answers, and pass their source/scheme target
 private `field-packages.html` review page and manifest remain blocked from training for
 the same three reasons as circuits: human acceptance, source-use rights and training
 metadata with a grouped split. This establishes a second family-level architecture
-test; the approximately 100-package pilot and an additional visual family remain open.
+test. The approximately 100-package pilot remains open; the mechanics slice described above adds the subsequent visual family.
 See `docs/VISUAL_PILOT.md`.
 
 The Cartesian corpus audit now evaluates every primary plot candidate rather than

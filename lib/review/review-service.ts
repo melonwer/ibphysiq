@@ -31,7 +31,15 @@ import {
 } from "../visuals/field-question-packages";
 import { renderCircuitNetwork } from "../visuals/render-circuit";
 import { renderFieldMap } from "../visuals/render-field-map";
+import {
+  MECHANICS_QUESTION_PACKAGES,
+  MechanicsQuestionPackage,
+  renderMechanicsSolutionVisuals,
+} from "../visuals/mechanics-question-packages";
+import { renderMechanicsScene } from "../visuals/render-mechanics";
 import { packageContentFingerprint } from "../generation-harness/replay-fixtures";
+import type { ModelAuthoredPackage } from "../generation-harness/ollama-author";
+import { renderCartesianPlot } from "../visuals/render-cartesian";
 import type { VisualSpec } from "../visuals/types";
 import {
   RequestLike,
@@ -45,7 +53,11 @@ import {
   verifyObservedReviewContextToken,
 } from "./review-auth";
 
-export type ReviewablePackage = CircuitQuestionPackage | FieldQuestionPackage;
+export type ReviewablePackage =
+  | CircuitQuestionPackage
+  | FieldQuestionPackage
+  | MechanicsQuestionPackage
+  | ModelAuthoredPackage;
 
 export interface ReviewServiceOptions {
   store: AuthorizedHumanReviewStore;
@@ -430,6 +442,7 @@ export interface ReviewView {
   };
   solution?: {
     correctOptionId?: string;
+    visuals?: Array<{ partId: string; svg: string }>;
     parts: Array<{
       partId: string;
       marks: number;
@@ -498,19 +511,45 @@ function renderVisuals(
 ): Array<{ id: string; family: string; svg?: string; error?: string }> {
   // An absent spec means the package is explicitly no-visual, which the
   // question's own checks are responsible for justifying.
-  if (!item?.visualSpec) return [];
-  // A union of the two concrete specs, so `family` discriminates them. A
-  // widened `VisualSpec<A | B>` would not narrow.
-  const spec: VisualSpec<"circuit_network"> | VisualSpec<"field_map"> =
-    item.visualSpec;
+  if (!item) return [];
+  const rendered: Array<{
+    id: string;
+    family: string;
+    svg?: string;
+    error?: string;
+  }> = [];
+  if ("plot" in item && item.plot) {
+    const { spec, data } = item.plot.student;
+    try {
+      rendered.push({
+        id: spec.id,
+        family: spec.family,
+        svg: renderCartesianPlot(spec, data),
+      });
+    } catch (error) {
+      rendered.push({
+        id: spec.id,
+        family: spec.family,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (!item.visualSpec) return rendered;
+  const spec:
+    | VisualSpec<"circuit_network">
+    | VisualSpec<"field_map">
+    | VisualSpec<"mechanics_scene"> = item.visualSpec;
   try {
     const svg =
       spec.family === "circuit_network"
         ? renderCircuitNetwork(spec)
-        : renderFieldMap(spec);
-    return [{ id: spec.id, family: spec.family, svg }];
+        : spec.family === "field_map"
+          ? renderFieldMap(spec)
+          : renderMechanicsScene(spec);
+    return [...rendered, { id: spec.id, family: spec.family, svg }];
   } catch (error) {
     return [
+      ...rendered,
       {
         id: spec.id,
         family: spec.family,
@@ -526,7 +565,8 @@ export function findReviewablePackage(
   if (!packageId) return undefined;
   return (
     CIRCUIT_QUESTION_PACKAGES.find((item) => item.id === packageId) ??
-    FIELD_QUESTION_PACKAGES.find((item) => item.id === packageId)
+    FIELD_QUESTION_PACKAGES.find((item) => item.id === packageId) ??
+    MECHANICS_QUESTION_PACKAGES.find((item) => item.id === packageId)
   );
 }
 
@@ -577,6 +617,10 @@ export function buildReviewView(
   const solution: ReviewView["solution"] = item
     ? {
         correctOptionId: item.solution.correctOptionId,
+        visuals:
+          item.schemaVersion === "mechanics-question-package/0.1.0"
+            ? renderMechanicsSolutionVisuals(item)
+            : [],
         parts: item.solution.parts.map((part) => ({
           partId: part.partId,
           marks: part.marks,

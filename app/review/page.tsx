@@ -584,6 +584,12 @@ function RunDetail({
                 ) : null}
               </div>
             ))}
+            {view.solution.visuals?.map((visual) => (
+              <div key={visual.partId}>
+                <p className="text-sm">Solution diagram for {visual.partId}</p>
+                <div dangerouslySetInnerHTML={{ __html: visual.svg }} />
+              </div>
+            ))}
           </div>
         ) : (
           <p className="text-sm text-gray-600">Not available.</p>

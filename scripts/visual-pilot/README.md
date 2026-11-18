@@ -1,5 +1,15 @@
 # Source-backed visual renderer pilots
 
+The mechanics package pipeline has a separate entry point:
+
+```bash
+node scripts/visual-pilot/generate-mechanics.cjs
+```
+
+It creates eight source-backed packages, a private comparison page and persistent
+mechanics harness runs. Pass `--source-root REPOSITORY` if the private corpus is in
+another checkout. See [the mechanics workflow](../../docs/VISUAL_PILOT.md#mechanics-package-pipeline).
+
 Run from the repository root after `scripts/paper-mining/mine_papers.py` has produced
 `dataset/_derived/paper-mining-v0.1/`:
 
