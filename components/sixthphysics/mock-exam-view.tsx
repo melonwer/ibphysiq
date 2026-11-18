@@ -5,10 +5,12 @@ import {
   Check,
   ChevronRight,
   Clock,
+  FileText,
   Flag,
   Loader2,
   Pause,
   Play,
+  Printer,
   RotateCcw,
 } from 'lucide-react';
 import { MathText } from '@/components/sixthphysics/math-text';
@@ -49,6 +51,7 @@ export interface MockExamViewProps {
   onRecordQuestionAttempt: (attempt: QuestionAttemptInput) => void;
   onPracticeWeakTopics: (topicIds: string[], syllabus: SyllabusId) => void;
   onSessionActiveChange?: (isActive: boolean) => void;
+  onOpenPdfStudio?: (session?: MockPaperSession) => void;
 }
 
 const CUSTOM_FORMAT_OPTIONS: ReadonlyArray<{
@@ -175,6 +178,7 @@ export function MockExamView({
   onRecordQuestionAttempt,
   onPracticeWeakTopics,
   onSessionActiveChange,
+  onOpenPdfStudio,
 }: MockExamViewProps) {
   const [session, setSession] = useState<MockPaperSession | null>(null);
   const [itemsById, setItemsById] = useState<Record<string, PublicBankItem>>(
@@ -618,6 +622,19 @@ export function MockExamView({
               <span className="sp-chip tabular-nums text-[var(--sp-muted)]">
                 <MathText text={syllabusMeta.gravityConvention} />
               </span>
+            )}
+            {onOpenPdfStudio && (
+              <button
+                type="button"
+                onClick={() => onOpenPdfStudio()}
+                className="sp-key sp-key--sm sp-key--neutral inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-[13px] font-extrabold"
+              >
+                <FileText
+                  className="h-4 w-4 text-[var(--sp-accent)]"
+                  aria-hidden="true"
+                />
+                <span>Create PDF exam paper</span>
+              </button>
             )}
           </div>
         </div>
@@ -1393,6 +1410,21 @@ export function MockExamView({
                 className="sp-key sp-key--primary inline-flex items-center justify-center rounded-2xl px-5 py-3 text-[15px] font-extrabold"
               >
                 Practise weak topics
+              </button>
+            )}
+
+            {onOpenPdfStudio && (
+              <button
+                type="button"
+                onClick={() => onOpenPdfStudio(session)}
+                className="sp-key sp-key--neutral inline-flex items-center gap-1.5 rounded-2xl px-4 py-3 text-[15px] font-extrabold"
+              >
+                <Printer
+                  className="h-4 w-4 text-[var(--sp-accent)]"
+                  aria-hidden="true"
+                  strokeWidth={2.5}
+                />
+                <span>Save PDF</span>
               </button>
             )}
 

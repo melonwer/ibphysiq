@@ -618,3 +618,194 @@ html.dark {
     transform: scale(1);
   }
 }
+
+/* ------------------------------------------------------------------
+   Exam-style PDF Mock Paper Sheet & Print Engine
+   Always renders as crisp black ink on pure white paper (even in dark mode).
+   ------------------------------------------------------------------ */
+.sp-print-portal {
+  display: none;
+}
+
+.sp-exam-sheet {
+  color: #111111;
+  background: #ffffff;
+  color-scheme: light;
+  font-family: var(--font-jakarta), 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  line-height: 1.48;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.sp-exam-sheet .katex {
+  color: #111111;
+  font-size: 1.02em;
+}
+
+.sp-exam-sheet .katex-display {
+  margin: 0.4em 0;
+  overflow: visible;
+}
+
+.sp-exam-cover {
+  display: flex;
+  flex-direction: column;
+  min-height: 760px;
+}
+
+/* Visual page dividers inside the on-screen preview frame */
+.sp-exam-preview-frame .sp-exam-cover,
+.sp-exam-preview-frame .sp-exam-formula-page {
+  margin-bottom: 2.25rem;
+  padding-bottom: 2rem;
+  border-bottom: 2px dashed #cbd5e1;
+}
+
+.sp-exam-preview-frame .sp-exam-section--break,
+.sp-exam-preview-frame .sp-exam-markscheme--break {
+  margin-top: 2.25rem;
+  padding-top: 2rem;
+  border-top: 2px dashed #cbd5e1;
+}
+
+.sp-exam-figure {
+  margin: 0.65rem auto 0.5rem;
+  text-align: center;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.sp-exam-svg-host {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #ffffff;
+  padding: 0.25rem 0;
+}
+
+.sp-exam-svg-host svg {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 240px;
+}
+
+.sp-exam-svg-host--compact svg {
+  max-height: 195px;
+}
+
+.sp-exam-figcaption {
+  margin-top: 0.25rem;
+  font-size: 8.5pt;
+  color: #374151;
+}
+
+.sp-exam-question,
+.sp-exam-stem-block,
+.sp-exam-subpart,
+.sp-exam-bubble-sheet {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.sp-exam-bubble-sheet {
+  margin-top: 1.5rem;
+  border: 1.5px solid #111111;
+  padding: 0.85rem 1rem;
+  background: #ffffff;
+}
+
+.sp-exam-answer-lines {
+  margin-top: 0.45rem;
+  margin-bottom: 0.2rem;
+}
+
+.sp-exam-answer-line {
+  height: 23px;
+  border-bottom: 1px dotted #9ca3af;
+}
+
+.sp-exam-sheet--compact .sp-exam-answer-line {
+  height: 18px;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 14mm 14mm 15mm 14mm;
+}
+
+@media print {
+  html,
+  html.dark,
+  body {
+    background: #ffffff !important;
+    color: #111111 !important;
+    color-scheme: light !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: auto !important;
+  }
+
+  .sp-app-shell,
+  .skip-link,
+  [role='dialog'] {
+    display: none !important;
+  }
+
+  .sp-print-portal {
+    display: block !important;
+    width: 100% !important;
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+
+  .sp-exam-sheet h2,
+  .sp-exam-sheet h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .sp-exam-cover {
+    min-height: 256mm;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .sp-exam-sheet--letter .sp-exam-cover {
+    min-height: 240mm;
+  }
+
+  .sp-exam-formula-page {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .sp-exam-section--break,
+  .sp-exam-markscheme--break {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .sp-exam-bubble-sheet {
+    break-before: auto;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .sp-exam-svg-host svg {
+    max-height: 62mm;
+  }
+
+  .sp-exam-svg-host--compact svg {
+    max-height: 50mm;
+  }
+
+  .sp-exam-answer-line {
+    height: 7.4mm;
+  }
+
+  .sp-exam-sheet--compact .sp-exam-answer-line {
+    height: 5.8mm;
+  }
+}

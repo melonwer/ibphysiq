@@ -171,6 +171,10 @@ export async function exportGithubPagesBundle(
       path.join(stageDir, "public"),
       "dir",
     );
+    const scriptsSrcDir = path.join(repoRoot, "scripts");
+    if (fs.existsSync(scriptsSrcDir)) {
+      fs.symlinkSync(scriptsSrcDir, path.join(stageDir, "scripts"), "dir");
+    }
 
     fs.writeFileSync(
       path.join(stageDir, "next.config.ts"),

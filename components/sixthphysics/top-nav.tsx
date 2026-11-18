@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { BookOpen, Moon, Sun, Target, Zap } from 'lucide-react';
+import { BookOpen, FileText, Moon, Sun, Target, Zap } from 'lucide-react';
 import type { SyllabusId, TopicMasteryStat } from '@/lib/sixthphysics-web/types';
 import { cn } from '@/lib/utils';
 
-export type WorkspaceMode = 'practice' | 'mock';
+export type WorkspaceMode = 'practice' | 'mock' | 'pdf';
 export type ThemeMode = 'light' | 'dark';
 
 export interface TopNavProps {
@@ -229,15 +229,31 @@ export function TopNav({
               type="button"
               aria-pressed={workspaceMode === 'mock'}
               onClick={() => onSelectWorkspaceMode('mock')}
-              className="sp-seg-item inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[13px] sm:px-3"
+              className="sp-seg-item inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[13px] whitespace-nowrap sm:px-3"
             >
-              <span>Mock exam</span>
+              <span>
+                Mock<span className="hidden sm:inline"> exam</span>
+              </span>
               {hasActiveMockSession && (
                 <span
                   aria-hidden="true"
                   className="h-2 w-2 rounded-full bg-[var(--sp-warn)]"
                 />
               )}
+            </button>
+            <button
+              type="button"
+              aria-pressed={workspaceMode === 'pdf'}
+              onClick={() => onSelectWorkspaceMode('pdf')}
+              className="sp-seg-item inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[13px] whitespace-nowrap sm:px-3"
+            >
+              <FileText
+                className="hidden h-3.5 w-3.5 text-[var(--sp-accent)] sm:inline"
+                aria-hidden="true"
+              />
+              <span>
+                PDF<span className="hidden sm:inline"> paper</span>
+              </span>
             </button>
           </div>
 

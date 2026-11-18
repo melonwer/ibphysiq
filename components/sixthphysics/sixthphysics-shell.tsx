@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { FormulaDrawer } from '@/components/sixthphysics/formula-drawer';
 import { MockExamView } from '@/components/sixthphysics/mock-exam-view';
+import { PdfPaperStudio } from '@/components/sixthphysics/pdf-paper-studio';
 import { QuestionCard } from '@/components/sixthphysics/question-card';
 import {
   TopNav,
@@ -35,6 +36,7 @@ import {
   setLastQuestionForSyllabus,
   toggleBookmark,
   updateActiveFilters,
+  type MockPaperSession,
   type PublicBankItem,
   type PublicBankManifest,
   type QuestionAttemptInput,
@@ -82,9 +84,11 @@ function parseUrlQueryState(search: string): ParsedUrlState {
   const mode: WorkspaceMode | undefined =
     rawMode === 'mock'
       ? 'mock'
-      : rawMode === 'practice'
-        ? 'practice'
-        : undefined;
+      : rawMode === 'pdf'
+        ? 'pdf'
+        : rawMode === 'practice'
+          ? 'practice'
+          : undefined;
   if (mode) {
     hasUrlOverrides = true;
   }
@@ -171,6 +175,8 @@ export function SixthPhysicsShell() {
   const [formulaDrawerOpen, setFormulaDrawerOpen] = useState(false);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
   const [hasActiveMockSession, setHasActiveMockSession] = useState(false);
+  const [pdfImportedSession, setPdfImportedSession] =
+    useState<MockPaperSession | null>(null);
   const [theme, setTheme] = useState<ThemeMode>('light');
   const [hydrated, setHydrated] = useState(false);
 
@@ -328,6 +334,8 @@ export function SixthPhysicsShell() {
 
     if (workspaceMode === 'mock') {
       params.set('mode', 'mock');
+    } else if (workspaceMode === 'pdf') {
+      params.set('mode', 'pdf');
     }
     if (activeFilters.level && activeFilters.level !== 'all') {
       params.set('level', activeFilters.level);
@@ -583,6 +591,18 @@ export function SixthPhysicsShell() {
     );
   }, [activeSyllabus, commitProgress]);
 
+  const handleOpenPdfStudio = useCallback((session?: MockPaperSession) => {
+    if (session) {
+      setPdfImportedSession(session);
+    } else {
+      setPdfImportedSession(null);
+    }
+    setWorkspaceMode('pdf');
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }, []);
+
   const activeItemForCard =
     loadedItem &&
     (!effectiveQuestionId || loadedItem.id === effectiveQuestionId)
@@ -607,7 +627,7 @@ export function SixthPhysicsShell() {
   const canNavigate = filteredRows.length > 1;
 
   return (
-    <div className="min-h-screen bg-[var(--sp-bg)] text-[var(--sp-ink)]">
+    <div className="sp-app-shell min-h-screen bg-[var(--sp-bg)] text-[var(--sp-ink)]">
       <TopNav
         activeSyllabus={activeSyllabus}
         activeLevel={activeFilters.level ?? 'all'}
@@ -628,7 +648,16 @@ export function SixthPhysicsShell() {
         id="main-content"
         className="mx-auto max-w-[1400px] px-3 py-3.5 sm:px-5 sm:py-5"
       >
-        {workspaceMode === 'mock' ? (
+        {workspaceMode === 'pdf' ? (
+          <PdfPaperStudio
+            manifest={manifest}
+            activeSyllabus={activeSyllabus}
+            activeLevel={activeFilters.level}
+            topics={topics}
+            importedMockSession={pdfImportedSession}
+            onClearImportedSession={() => setPdfImportedSession(null)}
+          />
+        ) : workspaceMode === 'mock' ? (
           <MockExamView
             manifest={manifest}
             activeSyllabus={activeSyllabus}
@@ -640,6 +669,7 @@ export function SixthPhysicsShell() {
             onRecordQuestionAttempt={handleRecordAttempt}
             onPracticeWeakTopics={handlePracticeWeakTopics}
             onSessionActiveChange={setHasActiveMockSession}
+            onOpenPdfStudio={handleOpenPdfStudio}
           />
         ) : (
           <div className="flex flex-col lg:flex-row lg:items-start lg:gap-6">
