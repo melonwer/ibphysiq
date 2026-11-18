@@ -1,3 +1,5 @@
+> **Moved:** This project has been rebranded and moved to **[sixthphysics/sixthphysics](https://github.com/sixthphysics/sixthphysics)** (live app: [sixthphysics.github.io](https://sixthphysics.github.io)). This repository is archived for historical reference.
+
 # SixthPhysics
 
 **Neuro-symbolic pre-university physics question engine, `Qwen/Qwen3.5-9B` LoRA adapter, and 7,643-question practice bank for IB Physics (2025), UK A-Level, and NCUK IFY.**
