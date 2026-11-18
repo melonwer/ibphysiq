@@ -1,10 +1,22 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* Palette tokens (H S L channels) */
+  /* SixthPhysics workbook tokens — crisp Light default */
+  --sp-bg: #F6F7FA;
+  --sp-surface: #FFFFFF;
+  --sp-surface-subtle: #F1F3F7;
+  --sp-border: #E2E6EE;
+  --sp-ink: #111827;
+  --sp-muted: #5B6472;
+  --sp-accent: #2563EB;
+
+  /* Font alias compatibility */
+  --font-inter: var(--font-jakarta);
+
+  /* Shadcn / review route H S L palette tokens (preserved intact) */
   --background: 0 0% 100%;
   --foreground: 222.2 15% 7%;
   --muted: 214 10% 96%;
@@ -25,7 +37,6 @@
   --warning: 42 90% 60%;
   --warning-foreground: 222.2 84% 4.9%;
 
-  /* Preserved existing tokens */
   --popover: 0 0% 100%;
   --popover-foreground: 222.2 84% 4.9%;
   --primary: 221.2 83.2% 53.3%;
@@ -36,15 +47,7 @@
   --ring: 221.2 83.2% 53.3%;
   --radius: 0.75rem;
 
-  /* Gradient variables for beautiful effects */
-  --gradient-primary: linear-gradient(135deg, hsl(221.2 83.2% 53.3%) 0%, hsl(262.1 83.3% 57.8%) 100%);
-  --gradient-secondary: linear-gradient(135deg, hsl(210 40% 96%) 0%, hsl(214.3 31.8% 91.4%) 100%);
-  --gradient-dark: linear-gradient(135deg, hsl(222.2 84% 4.9%) 0%, hsl(215.4 16.3% 25%) 100%);
-  /* Button gradient token (switches per theme) */
-  --gradient-button: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(0 0% 98%) 100%);
-  --gradient-button-foreground: 222.2 15% 7%;
-
-  /* Convenience mappings used by Tailwind / CSS */
+  /* Convenience mappings used by Tailwind / Shadcn UI */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
@@ -60,55 +63,56 @@
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
-}
 
-html, body {
-  background: hsl(var(--color-background));
-  color: hsl(var(--color-foreground));
-  min-height: 100vh;
+  color-scheme: light;
 }
 
 html.dark {
+  /* SixthPhysics workbook tokens — dark night-desk mode */
+  --sp-bg: #0C111B;
+  --sp-surface: #131B2B;
+  --sp-surface-subtle: #1B2538;
+  --sp-border: #263349;
+  --sp-ink: #F1F5F9;
+  --sp-muted: #94A3B8;
+  --sp-accent: #3B82F6;
+
+  /* Shadcn dark tokens */
   --background: 222.2 84% 4.9%;
   --foreground: 210 40% 98%;
   --muted: 222.2 84% 12%;
-  --muted-foreground: 222.2 84% 60%;
+  --muted-foreground: 215 20.2% 65.1%;
   --card: 222.2 84% 6.9%;
   --card-foreground: 210 40% 98%;
-  --border: 222.2 84% 10%;
+  --border: 217.2 32.6% 17.5%;
 
-  --accent: 222.2 89% 60%;
+  --accent: 217.2 91.2% 59.8%;
   --accent-foreground: 222.2 84% 4.9%;
 
   --destructive: 0 67% 50%;
   --destructive-foreground: 210 40% 98%;
 
-  /* success/warning remain but with dark-appropriate foregrounds */
   --success: 145 63% 35%;
   --success-foreground: 210 40% 98%;
   --warning: 42 90% 60%;
   --warning-foreground: 222.2 84% 4.9%;
 
-  --primary: 221.2 83.2% 66%;
+  --popover: 222.2 84% 6.9%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 217.2 91.2% 59.8%;
+  --primary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: 217.2 91.2% 59.8%;
 
-  /* Dark gradient variables - Less transparent, better readability */
-  --gradient-primary: linear-gradient(135deg, hsl(217.2 91.2% 66%) 0%, hsl(262.1 83.3% 64%) 100%);
-  --gradient-secondary: linear-gradient(135deg, hsl(217.2 32.6% 17.5%) 0%, hsl(222.2 84% 8%) 100%);
-  --gradient-dark: linear-gradient(135deg, hsl(222.2 84% 4.9%) 0%, hsl(217.2 32.6% 8%) 100%);
-  --gradient-card: linear-gradient(135deg, hsl(222.2 84% 10%) 0%, hsl(217.2 32.6% 18%) 100%);
-  --gradient-button: linear-gradient(135deg, hsl(217.2 91.2% 36%) 0%, hsl(262.1 83.3% 30%) 100%);
-  --gradient-button-foreground: 210 40% 98%;
-}
-/* Accessible fallback for gradient text in dark mode:
-   Provides a non-transparent text fill so automated contrast checks can measure a valid color.
-   Visually this will show the fallback color in dark mode; if you prefer keeping the visual
-   gradient while having an accessible fallback, we can implement a more complex pseudo-element solution later. */
-html.dark .bg-clip-text.text-transparent {
-  color: hsl(var(--color-foreground)) !important;
-  -webkit-text-fill-color: hsl(var(--color-foreground)) !important;
+  color-scheme: dark;
 }
 
 @theme inline {
+  --font-sans: var(--font-jakarta), "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -132,234 +136,72 @@ html.dark .bg-clip-text.text-transparent {
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-  
+
+  html,
   body {
-    @apply bg-background text-foreground font-sans antialiased;
-    background: hsl(var(--background));
-  }
-  
-  /* Beautiful gradient backgrounds */
-  .gradient-bg {
-    background: var(--gradient-dark);
-  }
-  
-  .gradient-card {
-    background: var(--gradient-card, var(--gradient-secondary));
-  }
-  
-  .gradient-primary {
-    background: var(--gradient-primary);
-  }
-
-  .gradient-button {
-    background: var(--gradient-button);
-    color: hsl(var(--gradient-button-foreground));
-    /* Keep button text readable and allow utility classes to override if necessary */
-  }
-  
-  /* Dark theme body with full coverage */
-  html.dark body {
-    background: hsl(222.2 84% 4.9%);
     min-height: 100vh;
-    position: relative;
-  }
-  
-  .dark body::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: 
-      radial-gradient(circle at 20% 80%, hsl(217.2 91.2% 59.8% / 0.03) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, hsl(262.1 83.3% 57.8% / 0.03) 0%, transparent 50%);
-    pointer-events: none;
-    z-index: -1;
-  }
-  
-  /* Light theme body with full coverage */
-  html:not(.dark) body {
-    background: hsl(0 0% 100%);
-    min-height: 100vh;
-    position: relative;
-  }
-  
-  body:not(.dark)::before {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: 
-      radial-gradient(circle at 20% 80%, hsl(221.2 83.2% 53.3% / 0.02) 0%, transparent 50%),
-      radial-gradient(circle at 80% 20%, hsl(262.1 83.3% 57.8% / 0.02) 0%, transparent 50%);
-    pointer-events: none;
-    z-index: -1;
-  }
-  
-  /* Enhanced card styling with better opacity */
-  .card-gradient {
-    background: var(--gradient-card, hsl(var(--card)));
-    border: 1px solid hsl(var(--border));
-    /* Removed backdrop-filter for better readability */
-  }
-  
-  /* Smooth transitions for theme switching */
-  * {
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
-  }
-  
-  /* Custom scrollbar for dark theme */
-  .dark ::-webkit-scrollbar {
-    width: 8px;
-  }
-  
-  .dark ::-webkit-scrollbar-track {
-    background: hsl(217.2 32.6% 17.5%);
-  }
-  
-  .dark ::-webkit-scrollbar-thumb {
-    background: hsl(217.2 91.2% 59.8%);
-    border-radius: 4px;
-  }
-  
-  .dark ::-webkit-scrollbar-thumb:hover {
-    background: hsl(217.2 91.2% 69.8%);
-  }
-  
-  /* Beautiful hover effects */
-  .hover-lift {
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    background-color: var(--sp-bg);
+    color: var(--sp-ink);
   }
 
-  .hover-lift:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 25px -5px hsl(var(--primary) / 0.2);
+  body {
+    @apply font-sans antialiased;
   }
 
-  /* Enhanced focus states for accessibility */
-  .focus-visible-ring:focus-visible {
-    outline: 2px solid hsl(var(--primary));
-    outline-offset: 2px;
-    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.1);
-  }
-
-  /* Button focus states */
-  button:focus-visible {
-    outline: 2px solid hsl(var(--primary));
-    outline-offset: 2px;
-    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.1);
-  }
-
-  /* Input focus states */
+  button:focus-visible,
+  a:focus-visible,
   input:focus-visible,
   textarea:focus-visible,
   select:focus-visible {
-    outline: 2px solid hsl(var(--primary));
+    outline: 2px solid var(--sp-accent);
     outline-offset: 2px;
-    box-shadow: 0 0 0 4px hsl(var(--primary) / 0.1);
   }
 
-  /* Skip link for screen readers */
   .skip-link {
     position: absolute;
-    top: -40px;
-    left: 6px;
-    background: hsl(var(--primary));
-    color: hsl(var(--primary-foreground));
-    padding: 8px;
+    top: -48px;
+    left: 12px;
+    background: var(--sp-accent);
+    color: #ffffff;
+    padding: 8px 12px;
+    font-size: 0.875rem;
+    font-weight: 600;
     text-decoration: none;
-    border-radius: 4px;
+    border-radius: 8px;
     z-index: 1000;
-    transition: top 0.3s;
+    transition: top 0.15s ease;
   }
 
   .skip-link:focus {
-    top: 6px;
+    top: 10px;
   }
-  
-  /* Animated gradient text */
-  .gradient-text {
-    background: linear-gradient(45deg, hsl(var(--primary)), hsl(var(--primary) / 0.7));
-    background-size: 200% 200%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: gradient-shift 3s ease infinite;
+
+  /* Keep display math contained within narrow mobile viewports */
+  .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    max-width: 100%;
+    padding-block: 0.25rem;
   }
-  
-  /* Accessible gradient utility: renders visible gradient via a pseudo-element while keeping a real computed text color for accessibility */
-  .accessible-gradient {
-    position: relative;
-    display: inline-block;
-    color: hsl(var(--color-foreground));
-  }
-  .accessible-gradient::before {
-    content: attr(data-text);
-    position: absolute;
-    inset: 0;
-    display: inline-block;
-    background: var(--gradient-primary);
-    background-size: 200% 200%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-    white-space: pre-wrap;
-    pointer-events: none;
-  }
-  .accessible-gradient > svg {
-    position: relative;
-    z-index: 2;
-  }
-  
-  @keyframes gradient-shift {
-    0%, 100% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-  }
-  
-  /* Floating animation */
-  .float {
-    animation: float 6s ease-in-out infinite;
-  }
-  
-  @keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-  }
-  
-  /* Pulse glow effect */
-  .pulse-glow {
-    animation: pulse-glow 2s ease-in-out infinite alternate;
-  }
-  
-  @keyframes pulse-glow {
-    from { box-shadow: 0 0 20px hsl(var(--primary) / 0.3); }
-    to { box-shadow: 0 0 30px hsl(var(--primary) / 0.5); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
