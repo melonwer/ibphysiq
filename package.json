@@ -29,7 +29,8 @@
     "lint:fix": "npm run lint -- --fix",
     "type-check": "tsc --noEmit",
     "compile:bank-web": "npx tsx scripts/static-site/compile-public-bank.ts",
-    "build:pages": "npx tsx scripts/static-site/export-github-pages.ts"
+    "build:pages": "npx tsx scripts/static-site/export-github-pages.ts",
+    "generate:live": "npx tsx scripts/generate-with-model.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

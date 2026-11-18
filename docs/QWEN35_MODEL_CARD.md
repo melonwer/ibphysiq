@@ -62,7 +62,7 @@ model-index:
 
 # SixthPhysics-Qwen3.5-9B-LoRA (Neuro-Symbolic Pre-University Physics Author)
 
-**Live Practice App:** [sixthphysics.github.io](https://sixthphysics.github.io) · **Source Code:** [sixthphysics/sixthphysics](https://github.com/sixthphysics/sixthphysics) · **Model Repo:** [d4ydy/sixthphysics-qwen3.5-9b-lora](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) · **Dataset:** [d4ydy/sixthphysics-bench-and-bank](https://huggingface.co/datasets/d4ydy/sixthphysics-bench-and-bank)
+**Live Practice App:** [sixthphysics.github.io](https://sixthphysics.github.io) · **Source Code:** [sixthphysics/sixthphysics](https://github.com/sixthphysics/sixthphysics) · **LoRA Adapter (`bf16`):** [d4ydy/sixthphysics-qwen3.5-9b-lora](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) · **GGUF Quants (Ollama / `llama.cpp`):** [d4ydy/sixthphysics-qwen3.5-9b-GGUF](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF) · **Dataset:** [d4ydy/sixthphysics-bench-and-bank](https://huggingface.co/datasets/d4ydy/sixthphysics-bench-and-bank)
 
 ## Overview
 
@@ -193,23 +193,66 @@ Champion selection (`round1_sft_core`) was locked **strictly on held-out `val.js
 - **Round 2 (`round2_warm_polish`, Ablation):** Warm-started from `round1_sft_core/adapter`, `lr=3.5e-5` cosine, `60` optimizer steps (`960` examples seen from an error-targeted `1,600`-trace subset of `train_r2_expanded.jsonl`, loss `0.0585` -> `0.0410`).
 - **Zero Contamination Verified:** Programmatic audit verified **0 overlap** on `itemId`, `traceId`, and `familyGroupKey` between all training splits (`2,413` core / `6,412` expanded) and held-out `val.jsonl` (`645`, `31` groups), locked `test.jsonl` (`586`, `28` groups), and `Novel-1500` (`1,500`).
 
-## Usage (PEFT + Transformers)
+## Quantized GGUF Builds & Deployment Options
+
+Merged `bf16` champion weights (`round1_sft_core` merged into `Qwen/Qwen3.5-9B`, `760` tensors, `0` NaN/Inf) are published as ready-to-run GGUF quants at **[d4ydy/sixthphysics-qwen3.5-9b-GGUF](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF)** alongside a tuned Ollama [`Modelfile`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF/blob/main/Modelfile) (`enable_thinking=False`, `num_ctx 8192`, `temperature 0.0`). `Q4_K_M` was smoke-tested live with `llama-cli --reasoning off` and emitted valid Turn-1 `solve_and_render_scenario` JSON on the first pass (`IB HL` `projectile-kinematics`, `g = 9.8`).
+
+| Format / Quant | Artifact / Source | Verified Size | Est. Memory (8K ctx) | Hardware Fit |
+| --- | --- | ---: | --- | --- |
+| **GGUF `Q4_K_M`** *(recommended)* | [`sixthphysics-qwen3.5-9b-Q4_K_M.gguf`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF/blob/main/sixthphysics-qwen3.5-9b-Q4_K_M.gguf) | `5.68 GB` (`5.29 GiB`) | ~7.5 GB RAM/VRAM | 8 GB GPUs, Apple Silicon MacBooks, Ollama |
+| **GGUF `Q6_K`** | [`sixthphysics-qwen3.5-9b-Q6_K.gguf`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF/blob/main/sixthphysics-qwen3.5-9b-Q6_K.gguf) | `7.36 GB` (`6.85 GiB`) | ~9.5 GB RAM/VRAM | 10–12 GB GPUs, 16 GB MacBooks (near-lossless) |
+| **GGUF `Q8_0`** | [`sixthphysics-qwen3.5-9b-Q8_0.gguf`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF/blob/main/sixthphysics-qwen3.5-9b-Q8_0.gguf) | `9.53 GB` (`8.87 GiB`) | ~11.5 GB RAM/VRAM | 12–16 GB GPUs, 16+ GB RAM (max GGUF precision) |
+| **4-bit NF4 + LoRA** | [`d4ydy/sixthphysics-qwen3.5-9b-lora`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) (`bitsandbytes`) | `232.8 MB` adapter | ~6–7 GB VRAM | 8+ GB NVIDIA CUDA GPUs (`peft` + `bitsandbytes`) |
+| **`bf16` + LoRA** | [`d4ydy/sixthphysics-qwen3.5-9b-lora`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) (`vLLM` / `peft`) | `232.8 MB` adapter | ~19–22 GB VRAM | 24+ GB GPUs / H100 (exact benchmark precision) |
+
+## Usage: 1-Command Live Neuro-Symbolic Harness (`npm run generate:live`)
+
+Clone [`sixthphysics/sixthphysics`](https://github.com/sixthphysics/sixthphysics) (`npm ci`) to run the closed-loop 2-turn physics solver, non-leaking SVG renderer, and 3-syllabus verification gate directly from your terminal (works on fresh clones without downloading `dataset/`):
+
+```bash
+# 1. Fastest path: Ollama GGUF Q4_K_M (5.68 GB — MacBooks & 8 GB GPUs)
+ollama pull hf.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF:Q4_K_M
+npm run generate:live -- --syllabus ib --level HL --topic ib-theme-c --format mcq \
+  --backend ollama --model hf.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF:Q4_K_M --out ./generated
+
+# 2. OpenAI-compatible local servers (llama-server, LM Studio, vLLM)
+npm run generate:live -- --backend openai --base-url http://127.0.0.1:8080/v1 \
+  --model sixthphysics-qwen3.5-9b --syllabus alevel --domain circuits --format structured
+
+# 3. 4-bit NF4 QLoRA directly from Hugging Face (bitsandbytes + peft, ~6–7 GB VRAM)
+npm run generate:live -- --backend hf --adapter d4ydy/sixthphysics-qwen3.5-9b-lora \
+  --quant 4bit --syllabus ncuk --topic AC2 --format mcq
+```
+
+Pass `--list-topics` to inspect valid syllabus topics/domains and `--out <dir>` to save verified `.json`, `.svg`, and `.md` artifacts.
+
+## Usage: Direct Python (4-bit NF4 QLoRA & `bf16` PEFT)
+
+> **Critical:** Keep `enable_thinking=False` in `apply_chat_template(...)` so Qwen3.5 emits raw harness JSON matching `round1_sft_core` training. To run full `bf16` precision (exact benchmark setup, ~19–22 GB VRAM), omit `quantization_config` and pass `dtype=torch.bfloat16`.
 
 ```python
 import json
-import subprocess
 import torch
 from peft import PeftModel
-from transformers import AutoModelForImageTextToText, AutoTokenizer
+from transformers import AutoModelForImageTextToText, AutoTokenizer, BitsAndBytesConfig
 
 base_id = "Qwen/Qwen3.5-9B"
-adapter_dir = "d4ydy/sixthphysics-qwen3.5-9b-lora"  # or local "dataset/qwen35-9b-runs/champion-adapter"
+adapter_id = "d4ydy/sixthphysics-qwen3.5-9b-lora"
+
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_compute_dtype=torch.bfloat16,
+)
 
 tokenizer = AutoTokenizer.from_pretrained(base_id)
 base_model = AutoModelForImageTextToText.from_pretrained(
-    base_id, dtype=torch.bfloat16, device_map="auto"
+    base_id,
+    quantization_config=bnb_config,  # or omit and set dtype=torch.bfloat16 on 24+ GB GPUs
+    device_map="auto",
 )
-model = PeftModel.from_pretrained(base_model, adapter_dir)
+model = PeftModel.from_pretrained(base_model, adapter_id)
 model.eval()
 
 
@@ -218,7 +261,7 @@ def generate_turn(messages: list[dict[str, str]], max_new_tokens: int = 1200) ->
         messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
     )
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-    with torch.no_grad():
+    with torch.inference_mode():
         out = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
@@ -235,8 +278,8 @@ messages = [
 ]
 step1_json = generate_turn(messages, max_new_tokens=900)
 
-# Deterministic TypeScript physics solver + student SVG non-leakage check
-# (via scripts/benchmark/solve-step1-batch.ts) returns `tool_receipt_json`
+# Run deterministic TypeScript physics solver + SVG non-leakage guard
+# (automated by `npm run generate:live` or `scripts/benchmark/solve-step1-batch.ts`)
 messages.append({"role": "assistant", "content": step1_json})
 messages.append({"role": "tool", "content": tool_receipt_json})
 

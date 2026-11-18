@@ -2,7 +2,7 @@
 
 **Neuro-symbolic pre-university physics question engine, `Qwen/Qwen3.5-9B` LoRA adapter, and 7,643-question practice bank for IB Physics (2025), UK A-Level, and NCUK IFY.**
 
-[Live Practice App](https://sixthphysics.github.io) · [Hugging Face Model](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) · [Hugging Face Dataset](https://huggingface.co/datasets/d4ydy/sixthphysics-bench-and-bank) · [Model Card](docs/QWEN35_MODEL_CARD.md) · [Benchmark Report](docs/UCAS_AND_BENCHMARK_REPORT.md)
+[Live Practice App](https://sixthphysics.github.io) · [Hugging Face LoRA Model](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) · [Hugging Face GGUF Quants](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF) · [Hugging Face Dataset](https://huggingface.co/datasets/d4ydy/sixthphysics-bench-and-bank) · [Model Card](docs/QWEN35_MODEL_CARD.md) · [Benchmark Report](docs/UCAS_AND_BENCHMARK_REPORT.md)
 
 ![SixthPhysics light mode practice desk showing a banked-curve bobsleigh question with deterministic SVG physics diagram and KaTeX options](docs/assets/practice-light.png)
 
@@ -14,8 +14,8 @@ SixthPhysics separates **pedagogical authoring** from **exact physical computati
 
 Every verified trace feeds two outputs simultaneously:
 
-1. **Zero-API-key static study app ([sixthphysics.github.io](https://sixthphysics.github.io))** — `7,643` verified Paper 1 MCQs (`4,838`) and Paper 2 multipart structured questions (`2,805`) with deterministic SVGs, KaTeX typography, inline distractor trap callouts, interactive `M1`/`A1` self-marking chips, timed mock exams, and syllabus-specific formula sheets.
-2. **Distilled neuro-symbolic physics model ([d4ydy/sixthphysics-qwen3.5-9b-lora](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora))** — assistant-masked `bf16` LoRA (`r=32, alpha=64`, `58.2M` trainable parameters = `0.61%`, vision tower frozen) trained on contamination-free family-grouped harness traces on Modal `NVIDIA H100 80GB HBM3`.
+1. **Zero-API-key static study app ([sixthphysics.github.io](https://sixthphysics.github.io))** — `7,643` verified Paper 1 MCQs (`4,838`) and Paper 2 multipart structured questions (`2,805`) with deterministic SVGs, KaTeX typography, inline distractor trap callouts, interactive `M1`/`A1` self-marking chips, timed mock exams, printable PDF mock paper maker, and syllabus-specific formula sheets.
+2. **Distilled neuro-symbolic physics model ([LoRA](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) · [GGUF Quants](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF))** — assistant-masked `bf16` LoRA (`r=32, alpha=64`, `58.2M` trainable parameters = `0.61%`, vision tower frozen) trained on contamination-free family-grouped harness traces on Modal `NVIDIA H100 80GB HBM3`, plus merged `Q4_K_M` / `Q6_K` / `Q8_0` GGUF builds for local Ollama and `llama.cpp` inference.
 
 ## Practice Desk Preview
 
@@ -81,6 +81,39 @@ Multi-syllabus crosswalk items carry specification tags for every compatible cur
 
 **11 Physics Domains (`7,643` unique items):** `fields` (756) · `mechanics` (756) · `optics-shm` (756) · `thermal` (756) · `waves` (747) · `circuits` (745) · `graphs` (740) · `grav-astro` (626) · `quantum-nuclear` (626) · `pure-calculation` (606) · `em-induction` (529).
 
+## Generate New Questions with the Neuro-Symbolic Harness
+
+Run the closed-loop 2-turn generator (`propose_scenario` -> deterministic TS physics solver + SVG guard -> `author_package` -> 3-sig-fig & 3-syllabus gate) locally on a fresh clone (zero `dataset/` download needed). Add `--out ./generated` to export `.json`, `.svg`, and `.md` files, or run `npm run generate:live -- --list-topics` to browse valid syllabus topics.
+
+**1. Fastest path — Ollama GGUF `Q4_K_M` (`5.68 GB`, MacBooks & 8 GB GPUs):**
+
+```bash
+ollama pull hf.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF:Q4_K_M
+npm run generate:live -- --syllabus ib --level HL --topic ib-theme-c --format mcq --backend ollama --model hf.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF:Q4_K_M
+```
+
+**2. OpenAI-compatible local servers (`llama-server`, LM Studio, vLLM):**
+
+```bash
+npm run generate:live -- --backend openai --base-url http://127.0.0.1:8080/v1 --model sixthphysics-qwen3.5-9b --syllabus alevel --domain circuits --format structured
+```
+
+**3. 4-bit NF4 QLoRA directly from Hugging Face (`bitsandbytes` + `peft`, ~6–7 GB VRAM):**
+
+```bash
+npm run generate:live -- --backend hf --adapter d4ydy/sixthphysics-qwen3.5-9b-lora --quant 4bit --syllabus ncuk --topic AC2 --format mcq
+```
+
+**Model & Quantization Options** ([`d4ydy/sixthphysics-qwen3.5-9b-GGUF`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF) · [`d4ydy/sixthphysics-qwen3.5-9b-lora`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora)):
+
+| Option | Artifact | Verified Size | Est. Memory (8K ctx) | Best Hardware Fit |
+| --- | --- | ---: | --- | --- |
+| **`Q4_K_M`** *(default)* | [`sixthphysics-qwen3.5-9b-Q4_K_M.gguf`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF/blob/main/sixthphysics-qwen3.5-9b-Q4_K_M.gguf) | `5.68 GB` (`5.29 GiB`) | ~7.5 GB RAM/VRAM | 8 GB GPUs, Apple Silicon MacBooks, Ollama |
+| **`Q6_K`** | [`sixthphysics-qwen3.5-9b-Q6_K.gguf`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF/blob/main/sixthphysics-qwen3.5-9b-Q6_K.gguf) | `7.36 GB` (`6.85 GiB`) | ~9.5 GB RAM/VRAM | 10–12 GB GPUs, 16 GB MacBooks (near-lossless) |
+| **`Q8_0`** | [`sixthphysics-qwen3.5-9b-Q8_0.gguf`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-GGUF/blob/main/sixthphysics-qwen3.5-9b-Q8_0.gguf) | `9.53 GB` (`8.87 GiB`) | ~11.5 GB RAM/VRAM | 12–16 GB GPUs, 16+ GB RAM (max GGUF precision) |
+| **`4-bit NF4 + LoRA`** | [`d4ydy/sixthphysics-qwen3.5-9b-lora`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) | `232.8 MB` adapter | ~6–7 GB VRAM | 8+ GB NVIDIA CUDA GPUs (`bitsandbytes` + `peft`) |
+| **`bf16 + LoRA`** | [`d4ydy/sixthphysics-qwen3.5-9b-lora`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) | `232.8 MB` adapter | ~19–22 GB VRAM | 24+ GB GPUs / H100 (exact benchmark precision) |
+
 ## Quickstart
 
 Requires **Node.js 22+** and **npm 10+**.
@@ -96,7 +129,7 @@ npm run dev
 # Export the static GitHub Pages bundle (dist-pages/)
 npm run build:pages
 
-# Run lint, TypeScript type checks, and full Jest test suite (53 suites, 745 tests)
+# Run lint, TypeScript type checks, and full Jest test suite (56 suites, 772 tests)
 npm run lint && npm run type-check && npm test
 ```
 
@@ -109,10 +142,11 @@ npm run lint && npm run type-check && npm test
 | `app/`, `components/sixthphysics/`, `lib/sixthphysics-web/` | Next.js static practice desk, timed mock engine, KaTeX & SVG math renderer, and formula sheet |
 | `lib/visuals/` | Deterministic physics solvers and non-leaking SVG engines across 11 domains |
 | `lib/constants/syllabi/` | IB 2025, UK A-Level, and NCUK IFY catalogues, rules, and crosswalk definitions |
+| `lib/live-generator/`, `scripts/generate-with-model.ts` | 1-command closed-loop live question generator CLI (`ollama`, `openai`, `hf` NF4) |
 | `lib/bank-pipeline/`, `scripts/bank-generation/` | Multi-domain question generators, family-grouped split compiler, and schema exporter |
 | `lib/benchmark/`, `scripts/benchmark/` | SixthPhysics-Bench v1.0 Step 1 solver CLI, 3-sf rollout evaluator, and `Novel-1500` generator |
 | `scripts/static-site/` | Web chunk compiler (`compile:bank-web`) and GitHub Pages exporter (`build:pages`) |
-| `training/qwen35/` | Modal H100 `Qwen/Qwen3.5-9B` LoRA training, vLLM evaluation, and report pipeline |
+| `training/qwen35/` | Modal H100 LoRA training, Modal CPU GGUF quantizer, local NF4 bridge, and report pipeline |
 | `docs/QWEN35_MODEL_CARD.md`, `docs/UCAS_AND_BENCHMARK_REPORT.md` | Full Hugging Face model card, stratified CIs, ablation tables, and qualitative audit |
 
 ## License
