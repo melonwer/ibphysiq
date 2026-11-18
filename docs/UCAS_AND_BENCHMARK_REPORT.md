@@ -5,6 +5,7 @@
 - **Base Model:** `Qwen/Qwen3.5-9B` (`bfloat16`, vision tower frozen, `enable_thinking=False`, LoRA `r=32, alpha=64`, `58,195,968` trainable params = `0.6147%`)
 - **Verified Static Bank Size:** **`7,643` solver- & gate-verified items** (`4,838` Paper 1 MCQs + `2,805` Paper 2 structured; syllabus coverage: **IB Physics 2025: `6,448`**, **UK A-Level Physics: `6,604`**, **NCUK IFY Physics: `6,193`**; `6,412` `train` + `645` `val` + `586` locked `test`, `zeroContaminationVerified: true`)
 - **Selected Champion Checkpoint (strictly on `val.jsonl`):** `round1_sft_core` (`dataset/qwen35-9b-runs/champion-adapter/`)
+- **Live Public Releases:** [Live Practice App (`sixthphysics.github.io`)](https://sixthphysics.github.io) · [Source Code (`sixthphysics/sixthphysics`)](https://github.com/sixthphysics/sixthphysics) · [HF Model (`d4ydy/sixthphysics-qwen3.5-9b-lora`)](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) · [HF Dataset (`d4ydy/sixthphysics-bench-and-bank`)](https://huggingface.co/datasets/d4ydy/sixthphysics-bench-and-bank)
 
 ## Executive Headline Summary
 

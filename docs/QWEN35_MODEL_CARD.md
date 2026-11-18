@@ -1,5 +1,7 @@
 ---
 base_model: Qwen/Qwen3.5-9B
+datasets:
+  - d4ydy/sixthphysics-bench-and-bank
 library_name: peft
 license: apache-2.0
 language:
@@ -59,6 +61,8 @@ model-index:
 ---
 
 # SixthPhysics-Qwen3.5-9B-LoRA (Neuro-Symbolic Pre-University Physics Author)
+
+**Live Practice App:** [sixthphysics.github.io](https://sixthphysics.github.io) · **Source Code:** [sixthphysics/sixthphysics](https://github.com/sixthphysics/sixthphysics) · **Model Repo:** [d4ydy/sixthphysics-qwen3.5-9b-lora](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) · **Dataset:** [d4ydy/sixthphysics-bench-and-bank](https://huggingface.co/datasets/d4ydy/sixthphysics-bench-and-bank)
 
 ## Overview
 
@@ -199,7 +203,7 @@ from peft import PeftModel
 from transformers import AutoModelForImageTextToText, AutoTokenizer
 
 base_id = "Qwen/Qwen3.5-9B"
-adapter_dir = "dataset/qwen35-9b-runs/champion-adapter"  # or your Hugging Face Hub repo ID
+adapter_dir = "d4ydy/sixthphysics-qwen3.5-9b-lora"  # or local "dataset/qwen35-9b-runs/champion-adapter"
 
 tokenizer = AutoTokenizer.from_pretrained(base_id)
 base_model = AutoModelForImageTextToText.from_pretrained(

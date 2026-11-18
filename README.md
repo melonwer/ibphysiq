@@ -1,206 +1,120 @@
----
-title: IB Physics Practice Generator
-emoji: 🎓
-colorFrom: blue
-colorTo: green
-sdk: gradio
-sdk_version: 4.44.0
-app_file: app.py
-pinned: false
-license: mit
-short_description: IB-Styled Physics MCQ Generatoc
----
+# SixthPhysics
 
-# 🎓 IB Physics Practice Generator
+**Neuro-symbolic pre-university physics question engine, `Qwen/Qwen3.5-9B` LoRA adapter, and 7,643-question practice bank for IB Physics (2025), UK A-Level, and NCUK IFY.**
 
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](RELEASE_NOTES.md)
-[![Next.js](https://img.shields.io/badge/Next.js-15.5.2-black)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)](https://www.typescriptlang.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
+[Live Practice App](https://sixthphysics.github.io) · [Hugging Face Model](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) · [Hugging Face Dataset](https://huggingface.co/datasets/d4ydy/sixthphysics-bench-and-bank) · [Model Card](docs/QWEN35_MODEL_CARD.md) · [Benchmark Report](docs/UCAS_AND_BENCHMARK_REPORT.md)
 
-**Never run out of physics practice questions again!** 🚀
+![SixthPhysics light mode practice desk showing a banked-curve bobsleigh question with deterministic SVG physics diagram and KaTeX options](docs/assets/practice-light.png)
 
-This AI-powered tool creates unlimited, curriculum-aligned IB Physics questions instantly. Perfect for students cramming for exams, teachers preparing lessons, or anyone curious about educational AI.
+## Why SixthPhysics
 
-![pipeline](pipeline.png)
+General-purpose LLMs routinely hallucinate multi-step physics algebra, mix incompatible specification constants (`g = 9.8 m s^-2` on IB Physics vs `g = 9.81 m s^-2` on UK A-Level and NCUK IFY), or leak target answers inside diagrams.
 
-## ✨ What Makes This Special?
+SixthPhysics separates **pedagogical authoring** from **exact physical computation**. A fine-tuned [`Qwen/Qwen3.5-9B`](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora) LoRA proposes typed problem specifications, a deterministic TypeScript solver computes exact quantities and renders non-leaking SVG figures across 11 physics domains (`103` solver discriminators), and an automated verification gate enforces 3-significant-figure agreement, distractor uniqueness, mark-scheme balance, and three-syllabus compliance.
 
-### 🎯 **Built for IB Students**
-- **Covers all 24 IB Physics topics** - From kinematics to quantum physics
-- **Paper 1 style questions** - Multiple choice just like your exams
-- **Free to use** - No subscriptions, no limits (with basic setup)
-- **Works offline** - Demo mode needs no internet
-- **Mobile friendly** - Study anywhere, anytime
+Every verified trace feeds two outputs simultaneously:
 
-### 🤖 **Powered by Smart AI**
-- **Custom-trained model** - Learned from real IB Physics questions
-- **Quality checking** - AI reviews every question for accuracy
-- **Multiple AI options** - Free and premium choices available
-- **Always improving** - Gets smarter with community feedback
+1. **Zero-API-key static study app ([sixthphysics.github.io](https://sixthphysics.github.io))** — `7,643` verified Paper 1 MCQs (`4,838`) and Paper 2 multipart structured questions (`2,805`) with deterministic SVGs, KaTeX typography, inline distractor trap callouts, interactive `M1`/`A1` self-marking chips, timed mock exams, and syllabus-specific formula sheets.
+2. **Distilled neuro-symbolic physics model ([d4ydy/sixthphysics-qwen3.5-9b-lora](https://huggingface.co/d4ydy/sixthphysics-qwen3.5-9b-lora))** — assistant-masked `bf16` LoRA (`r=32, alpha=64`, `58.2M` trainable parameters = `0.61%`, vision tower frozen) trained on contamination-free family-grouped harness traces on Modal `NVIDIA H100 80GB HBM3`.
 
-### 🛠️ **Perfect for Learning**
-- **Open source** - See how it works, improve it yourself
-- **Modern tech stack** - Learn web development with Next.js
-- **Real-world project** - Great for portfolios and learning
-- **Welcoming community** - Help from students and educators
+## Practice Desk Preview
 
-## 📋 Table of Contents
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/mcq-trap-dark.png" alt="Dark mode MCQ feedback showing wrong answer common-trap callout, correct option, and KaTeX worked solution with A1 mark scheme" />
+      <br />
+      <sub><b>Dark mode & diagnostic feedback:</b> white studio SVG plate, inline <code>Common trap</code> distractor explanation, and collapsible KaTeX worked solution.</sub>
+    </td>
+    <td width="50%">
+      <img src="docs/assets/standing-wave-ib-light.png" alt="IB Physics 2025 mode showing 6,448 matching questions and a deterministic standing-wave harmonic SVG diagram" />
+      <br />
+      <sub><b>Multi-syllabus & SVG engine:</b> instant switching across IB Physics 2025, UK A-Level, and NCUK IFY with deterministic physics figures and topic filters.</sub>
+    </td>
+  </tr>
+</table>
 
-- [🚀 Quick Start](#-quick-start) - Get running in 5 minutes
-- [📦 Setup Guide](#-setup-guide) - Step-by-step installation
-- [💡 How to Use](#-how-to-use) - Generate your first question
-- [🤝 Join the Community](#-join-the-community) - Help make it better
-- [📚 Learn More](#-learn-more) - Detailed documentation
+## Neuro-Symbolic Architecture
 
-## 🚀 Quick Start
+```mermaid
+flowchart LR
+    P["Syllabus, Domain & Concept Prompt"] --> S1["Turn 1: propose_scenario (Qwen3.5-9B)"]
+    S1 --> H["TypeScript Physics Solver + SVG Guard"]
+    H --> R["Verified Receipt (exact & 3-sf quantities)"]
+    R --> S2["Turn 2: author_package (Qwen3.5-9B)"]
+    S2 --> G["3-Sig-Fig, Distractor & 3-Syllabus Gate"]
+    G --> Q["Verified Question + SVG + Mark Scheme"]
+```
 
-**Want to try it right now?** Here are your options:
+- **Turn 1 (`propose_scenario`):** Emits a typed `scenarioSpec`, student-hidden unknowns (`hiddenQuantities`), and a pre-solve `questionPlan`.
+- **Deterministic Solver & SVG Non-Leakage Guard:** Executes exact TypeScript physics solvers, renders student-safe SVGs guaranteed not to expose hidden unknowns, and returns `verifiedQuantities` + `formattedQuantities3sf`.
+- **Turn 2 (`author_package`) & Verification Gate:** Authors the MCQ or multipart structured package conditioned on the receipt, then validates 3-sig-fig numerical match, unique distractors, exact `M1`/`A1` mark totals, and syllabus/gravity rules.
 
-### 🎯 Option 1: Instant Demo (No Setup!)
-Just run the project - it includes demo questions to get you started:
+## Verified Benchmark Results (`Qwen/Qwen3.5-9B` LoRA)
+
+All splits are strictly **family-grouped** (`175` `familyGroupKey`s: `116` train / `31` val / `28` test; `0` overlap across `itemId`, `traceId`, and concept archetypes). Champion `round1_sft_core` (`2,413` core traces) was selected strictly on held-out `val.jsonl` (`N = 645`, `80.16%` 1-retry E2E) over a Round 2 warm-start ablation before locked evaluation on `test.jsonl` (`N = 586`) and out-of-sample `Novel-1500` (`500` IB 2025, `500` UK A-Level, `500` NCUK IFY, disjoint seeds). All 22 rollout files were independently re-scored locally with `0` discrepancies.
+
+| Benchmark & Protocol | Untuned `Qwen/Qwen3.5-9B` E2E | Champion LoRA E2E (95% Wilson CI) | Champion Syllabus Alignment (95% CI) | Gain |
+| --- | ---: | --- | --- | ---: |
+| **Locked `test.jsonl` — 0-Retry** (`N = 586`) | `0.00%` (`0/586`) | **`64.51%`** `[60.55%, 68.27%]` (`378/586`) | **`78.50%`** `[74.99%, 81.63%]` (`460/586`) | `+64.51 pp` |
+| **Locked `test.jsonl` — 1-Retry** (`N = 586`) | `0.34%` (`2/586`) | **`75.60%`** `[71.96%, 78.90%]` (`443/586`) | **`87.03%`** `[84.07%, 89.51%]` (`510/586`) | `+75.26 pp` |
+| **Locked `test.jsonl` — Teacher-Forced Step 2** (`N = 586`) | `0.68%` (`4/586`) | **`90.61%`** `[87.98%, 92.72%]` (`531/586`) | **`99.32%`** `[98.26%, 99.73%]` (`582/586`) | `+89.93 pp` |
+| **`Novel-1500` Overall — 0-Retry** (`N = 1,500`) | — | **`67.53%`** `[65.12%, 69.86%]` (`1,013/1,500`) | **`84.13%`** `[82.20%, 85.89%]` (`1,262/1,500`) | — |
+| **`Novel-1500` Overall — 1-Retry** (`N = 1,500`) | — | **`78.40%`** `[76.25%, 80.41%]` (`1,176/1,500`) | **`91.07%`** `[89.52%, 92.41%]` (`1,366/1,500`) | — |
+
+**`Novel-1500` by Syllabus (1-Retry Closed-Loop):**
+- **IB Physics 2025 (`N = 500`):** **`80.60%`** E2E · **`93.00%`** syllabus alignment
+- **UK A-Level Physics (`N = 500`):** **`81.00%`** E2E · **`90.00%`** syllabus alignment
+- **NCUK IFY Physics (`N = 500`):** **`73.60%`** E2E · **`90.20%`** syllabus alignment
+
+> **Verification scope & honest limitations:** Syllabus alignment conservatively counts any Step 1 validation failure as unaligned; conditioned on Step-1-solved items, syllabus compliance is **`100.00%`** on locked `test.jsonl` (`510/510`) and **`99.85%`** on `Novel-1500` (`1,366/1,368`). Automated gates verify mathematical, structural, and syllabus-rule consistency rather than human classroom endorsement. An independent 15-item manual qualitative audit (`5` IB, `5` A-Level, `5` NCUK) found **`12/15`** verified outputs classroom-sound and **`3/15`** with subtle prose-to-quantity misalignments that passed 3-sf numeric gates; residual failures concentrate in `quantum-nuclear`, `thermal`, `graphs`, and multi-part `structured` items. See full stratified tables and error taxonomy in [docs/UCAS_AND_BENCHMARK_REPORT.md](docs/UCAS_AND_BENCHMARK_REPORT.md) and [docs/QWEN35_MODEL_CARD.md](docs/QWEN35_MODEL_CARD.md).
+
+## Three-Syllabus Question Bank (`7,643` Verified Items)
+
+Multi-syllabus crosswalk items carry specification tags for every compatible curriculum (`4,838` Paper 1 MCQs + `2,805` Paper 2 multipart structured questions; `100%` solver-verified; published at [d4ydy/sixthphysics-bench-and-bank](https://huggingface.co/datasets/d4ydy/sixthphysics-bench-and-bank)):
+
+| Syllabus | Specification & Gravity | Tagged Items | Level & Format Breakdown | Scope |
+| --- | --- | ---: | --- | --- |
+| **IB Physics (2025)** | First Assessment 2025 (`g = 9.8 m s^-2`, retired 2016 options excluded) | **6,448** | `2,746` SL · `3,702` HL (`4,072` MCQ / `2,376` Structured) | Tools + Themes A–E |
+| **UK A-Level Physics** | DfE / AQA 7408 core (`g = 9.81 m s^-2`) | **6,604** | `1,863` Y12 · `4,741` Y13 (`4,068` MCQ / `2,536` Structured) | Sections 1–8 + Options 9–13 |
+| **NCUK IFY Physics** | `IFYPH005` (`g = 9.81 m s^-2`) | **6,193** | `2,876` IFY · `1,495` S1 · `1,822` S2 (`3,908` MCQ / `2,285` Structured) | Modules AC1–AC8 |
+
+**11 Physics Domains (`7,643` unique items):** `fields` (756) · `mechanics` (756) · `optics-shm` (756) · `thermal` (756) · `waves` (747) · `circuits` (745) · `graphs` (740) · `grav-astro` (626) · `quantum-nuclear` (626) · `pure-calculation` (606) · `em-induction` (529).
+
+## Quickstart
+
+Requires **Node.js 22+** and **npm 10+**.
+
 ```bash
-git clone https://github.com/melonwer/ibphysiq.git
-cd ibphysiq
-npm install
+git clone https://github.com/sixthphysics/sixthphysics.git
+cd sixthphysics
+npm ci
+
+# Start the local practice & mock exam UI (http://127.0.0.1:3000)
 npm run dev
-```
-Open [localhost:3000](http://localhost:3000) and start generating questions! 🎉
 
-### 🆓 Option 2: Free AI Power (Recommended)
-Get unlimited questions with free AI:
-1. Get a free OpenRouter API key at [openrouter.ai](https://openrouter.ai) 🆓
-2. Copy `.env.example` to `.env.local`
-3. Add your key: `OPENROUTER_API_KEY=sk-or-your-key-here`
-4. Start the app: `npm run dev`
+# Export the static GitHub Pages bundle (dist-pages/)
+npm run build:pages
 
-**That's it!** You now have unlimited, AI-generated IB Physics questions. 🤯
-
-### 👤 Option 3: Advanced Setup (Optional)
-For developers and advanced users who want more AI options:
-
-**Lightning AI (Custom Model)**
-- Get 15 free credits for our custom IB Physics model
-- More specialized for physics questions
-- See [Lightning AI Guide](docs/DEPLOYMENT.md) for setup
-
-**Google Gemini**
-- Premium quality AI refinement
-- Requires API key from [Google AI Studio](https://aistudio.google.com/)
-
-**Local Models**
-- Run everything on your computer
-- Perfect for offline use or customization
-- See our [Local Setup Notebook](notebooks/setup_local_model.ipynb) for details
-
-> 💡 **Pro tip**: Start with Option 2 (free OpenRouter) - it's perfect for most students!
-
----
-
-## 📦 Setup Guide
-
-### What You Need
-- **Node.js 20+** - [Download here](https://nodejs.org/)
-- **Git** - For downloading the project
-- **5 minutes** - That's it! ⏱️
-
-### Step-by-Step Setup
-
-```bash
-# 1. Download the project
-git clone https://github.com/melonwer/ibphysiq.git
-cd ibphysiq
-
-# 2. Install everything
-npm install
-
-# 3. Set up your environment (optional for demo)
-cp .env.example .env.local
-# Edit .env.local to add your API keys
-
-# 4. Start the magic! ✨
-npm run dev
+# Run lint, TypeScript type checks, and full Jest test suite (53 suites, 745 tests)
+npm run lint && npm run type-check && npm test
 ```
 
-**Open [localhost:3000](http://localhost:3000)** and you're ready to generate questions!
+> **Static bank data:** Compiled bank chunks (`public/sixthphysics-data/`) and raw dataset splits (`dataset/`) are gitignored to keep the source repository lightweight. Download the synthetic bank and splits from [d4ydy/sixthphysics-bench-and-bank](https://huggingface.co/datasets/d4ydy/sixthphysics-bench-and-bank) or regenerate them locally via `scripts/bank-generation/`, then run `npm run compile:bank-web`. For `Qwen/Qwen3.5-9B` PEFT inference and Modal H100 LoRA training, see [training/qwen35/README.md](training/qwen35/README.md) and [docs/QWEN35_MODEL_CARD.md](docs/QWEN35_MODEL_CARD.md).
 
-## 💡 How to Use
+## Repository Map
 
-### 🖥️ Web Interface (Easy!)
-1. **Open the app** at `localhost:3000`
-2. **Pick your topic** from the dropdown (like "Kinematics" or "Waves")
-3. **Choose difficulty** (Easy, Standard, or Hard)
-4. **Click "Generate Question"** 🎲
-5. **Study away!** Get explanations, try different topics
+| Directory / Document | Purpose |
+| --- | --- |
+| `app/`, `components/sixthphysics/`, `lib/sixthphysics-web/` | Next.js static practice desk, timed mock engine, KaTeX & SVG math renderer, and formula sheet |
+| `lib/visuals/` | Deterministic physics solvers and non-leaking SVG engines across 11 domains |
+| `lib/constants/syllabi/` | IB 2025, UK A-Level, and NCUK IFY catalogues, rules, and crosswalk definitions |
+| `lib/bank-pipeline/`, `scripts/bank-generation/` | Multi-domain question generators, family-grouped split compiler, and schema exporter |
+| `lib/benchmark/`, `scripts/benchmark/` | SixthPhysics-Bench v1.0 Step 1 solver CLI, 3-sf rollout evaluator, and `Novel-1500` generator |
+| `scripts/static-site/` | Web chunk compiler (`compile:bank-web`) and GitHub Pages exporter (`build:pages`) |
+| `training/qwen35/` | Modal H100 `Qwen/Qwen3.5-9B` LoRA training, vLLM evaluation, and report pipeline |
+| `docs/QWEN35_MODEL_CARD.md`, `docs/UCAS_AND_BENCHMARK_REPORT.md` | Full Hugging Face model card, stratified CIs, ablation tables, and qualitative audit |
 
-### ⚙️ Settings Panel
-Visit `/settings` to configure:
-- **OpenRouter** - Free AI (recommended!)
-- **Google Gemini** - Premium AI refinement
-- **Lightning AI** - Custom physics model
-- **Local Models** - Run on your computer
+## License
 
-### 🔧 For Developers
-```bash
-# Generate via API
-curl -X POST "http://localhost:3000/api/generate-question" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "topic": "kinematics",
-    "difficulty": "standard",
-    "openRouterApiKey": "your-key-here"
-  }'
-```
-
-## 🤝 Join the Community
-
-### 🌟 How to Contribute
-**Never contributed to open source?** Perfect! This is a great place to start:
-
-1. **🍴 Fork the project** on GitHub
-2. **🔧 Make improvements** (fix bugs, add features, improve docs)
-3. **📤 Submit a pull request** - we'll help you through the process!
-
-**Ideas for contributions:**
-- Add new physics topics
-- Improve question quality
-- Make the UI more beautiful
-- Write better documentation
-- Fix bugs and typos
-
-### 💬 Get Help & Connect
-- **💬 Questions?** [GitHub Discussions](https://github.com/melonwer/ibphysiq/discussions)
-- **🐛 Found a bug?** [Report it here](https://github.com/melonwer/ibphysiq/issues)
-- **💡 Have ideas?** Share them in discussions!
-
-## 📚 Learn More
-
-### 📖 Documentation
-- **[Getting Started Guide](docs/GETTING_STARTED.md)** - Friendly intro for newcomers
-- **[API Reference](docs/API.md)** - Technical details for developers
-- **[Deployment Guide](docs/DEPLOYMENT.md)** - How to deploy your own version
-- **[Contributing Guide](docs/CONTRIBUTING_RELEASES.md)** - How to help improve the project
-
-### 🛠️ Technical Details
-Built with modern technologies:
-- **Next.js 15** - React framework for web apps
-- **TypeScript** - Better JavaScript with types
-- **OpenRouter** - Free AI API access
-- **Lightning AI** - Custom model hosting
-
-## 📄 License
-
-This project is MIT licensed - use it for anything! See [LICENSE](LICENSE) for details.
-
-## 🙏 Acknowledgments
-
-Huge thanks to:
-- **OpenRouter** for free AI access 🆓❤️
-- **Lightning AI** for model hosting ⚡❤️
-- **IB Physics Community** for guidance and feedback 🎓❤️
-- **All contributors** who make this better every day 🤝❤️
-
----
-
-<p align="center">Made with ❤️ for IB Physics students and educators worldwide</p>
-<p align="center">🌟 <strong>Star us on GitHub if this helps your studies!</strong> 🌟</p>
+Code is released under the [MIT License](LICENSE.md). The `Qwen/Qwen3.5-9B` LoRA adapter inherits Apache-2.0 licensing from the base model.
