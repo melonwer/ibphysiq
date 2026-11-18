@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BookOpen,
   ChevronRight,
   Loader2,
   RefreshCw,
@@ -10,7 +9,6 @@ import {
   X,
 } from 'lucide-react';
 import { FormulaDrawer } from '@/components/sixthphysics/formula-drawer';
-import { MathText } from '@/components/sixthphysics/math-text';
 import { MockExamView } from '@/components/sixthphysics/mock-exam-view';
 import { QuestionCard } from '@/components/sixthphysics/question-card';
 import {
@@ -598,6 +596,16 @@ export function SixthPhysicsShell() {
     ? (progress.attempts[activeItemForCard.id] ?? null)
     : null;
 
+  const attemptedInSet = useMemo(
+    () => filteredRows.reduce((sum, row) => sum + (progress.attempts[row.id] ? 1 : 0), 0),
+    [filteredRows, progress.attempts]
+  );
+  const setProgressPct =
+    filteredRows.length > 0
+      ? Math.min(100, Math.round((attemptedInSet / filteredRows.length) * 100))
+      : 0;
+  const canNavigate = filteredRows.length > 1;
+
   return (
     <div className="min-h-screen bg-[var(--sp-bg)] text-[var(--sp-ink)]">
       <TopNav
@@ -618,7 +626,7 @@ export function SixthPhysicsShell() {
 
       <main
         id="main-content"
-        className="mx-auto max-w-[1400px] px-3 py-4 sm:px-5 sm:py-6"
+        className="mx-auto max-w-[1400px] px-3 py-3.5 sm:px-5 sm:py-5"
       >
         {workspaceMode === 'mock' ? (
           <MockExamView
@@ -650,73 +658,103 @@ export function SixthPhysicsShell() {
             />
 
             <div className="min-w-0 flex-1 space-y-3.5">
-              {/* Practice Desk Control Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] px-3.5 py-2.5 sm:px-4">
-                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              {/* Session desk: where am I, how far through, where next */}
+              <div className="sp-card flex flex-col gap-3 px-3.5 py-2.5 sm:px-4 md:flex-row md:items-center md:gap-4">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <span
+                    data-testid="practice-question-counter"
+                    className="shrink-0 text-[15px] font-extrabold tabular-nums text-[var(--sp-ink)]"
+                  >
+                    {filteredRows.length > 0 ? (
+                      <>
+                        Question {(effectiveQuestionIndex + 1).toLocaleString()}
+                        <span className="font-semibold text-[var(--sp-muted)]">
+                          {' '}
+                          of {filteredRows.length.toLocaleString()}
+                        </span>
+                      </>
+                    ) : (
+                      'No matches'
+                    )}
+                  </span>
+
+                  <div
+                    role="progressbar"
+                    aria-label="Questions attempted in this set"
+                    aria-valuemin={0}
+                    aria-valuemax={filteredRows.length}
+                    aria-valuenow={attemptedInSet}
+                    title={`${attemptedInSet.toLocaleString()} of ${filteredRows.length.toLocaleString()} attempted`}
+                    className="sp-progress min-w-[60px] flex-1"
+                  >
+                    <div
+                      className="sp-progress-fill"
+                      style={{
+                        width: `${Math.max(setProgressPct, attemptedInSet > 0 ? 4 : 0)}%`,
+                      }}
+                    />
+                  </div>
+
+                  <span className="hidden shrink-0 text-[12.5px] font-bold tabular-nums text-[var(--sp-muted)] sm:inline">
+                    {attemptedInSet.toLocaleString()} done
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    disabled={filteredRows.length <= 1}
+                    disabled={!canNavigate}
                     onClick={handlePreviousQuestion}
                     aria-label="Previous question"
                     className={cn(
-                      'inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors',
-                      filteredRows.length > 1
-                        ? 'cursor-pointer border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-ink)] hover:bg-[var(--sp-surface-subtle)]'
-                        : 'cursor-not-allowed border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)] opacity-60'
+                      'sp-key sp-key--sm inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+                      canNavigate ? 'sp-key--neutral' : 'sp-key--idle'
                     )}
                   >
                     <ChevronRight
-                      className="h-3.5 w-3.5 rotate-180"
+                      className="h-5 w-5 rotate-180"
+                      strokeWidth={2.75}
                       aria-hidden="true"
                     />
-                    <span className="hidden sm:inline">Previous</span>
                   </button>
-
-                  <span
-                    data-testid="practice-question-counter"
-                    className="px-1 font-mono text-xs font-medium tabular-nums text-[var(--sp-muted)]"
-                  >
-                    {filteredRows.length > 0
-                      ? `${effectiveQuestionIndex + 1} / ${filteredRows.length.toLocaleString()}`
-                      : '0 matching'}
-                  </span>
 
                   <button
                     type="button"
-                    disabled={filteredRows.length <= 1}
+                    disabled={!canNavigate}
+                    onClick={handleRandomUnseen}
+                    className={cn(
+                      'sp-key sp-key--sm inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl px-3 text-[13.5px] font-bold',
+                      canNavigate ? 'sp-key--neutral' : 'sp-key--idle'
+                    )}
+                  >
+                    <RefreshCw
+                      className="h-4 w-4 text-[var(--sp-accent)]"
+                      strokeWidth={2.5}
+                      aria-hidden="true"
+                    />
+                    <span className="hidden sm:inline">Random</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={!canNavigate}
                     onClick={handleNextQuestion}
                     aria-label="Next question"
                     className={cn(
-                      'inline-flex h-8 items-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors',
-                      filteredRows.length > 1
-                        ? 'cursor-pointer border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-ink)] hover:bg-[var(--sp-surface-subtle)]'
-                        : 'cursor-not-allowed border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)] opacity-60'
+                      'sp-key sp-key--sm inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
+                      canNavigate ? 'sp-key--neutral' : 'sp-key--idle'
                     )}
                   >
-                    <span className="hidden sm:inline">Next</span>
-                    <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                    <ChevronRight
+                      className="h-5 w-5"
+                      strokeWidth={2.75}
+                      aria-hidden="true"
+                    />
                   </button>
 
-                  <button
-                    type="button"
-                    disabled={filteredRows.length <= 1}
-                    onClick={handleRandomUnseen}
-                    className={cn(
-                      'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors',
-                      filteredRows.length > 1
-                        ? 'cursor-pointer border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-ink)] hover:border-[var(--sp-accent)]/45'
-                        : 'cursor-not-allowed border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)] opacity-60'
-                    )}
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>Random unseen</span>
-                  </button>
-                </div>
-
-                <div className="flex flex-1 items-center justify-end gap-2 sm:flex-initial">
-                  <div className="relative min-w-0 flex-1 sm:w-52 sm:flex-initial">
+                  <div className="relative min-w-0 flex-1 md:w-44 md:flex-initial xl:w-56">
                     <Search
-                      className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-[var(--sp-muted)]"
+                      className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[var(--sp-muted)]"
                       aria-hidden="true"
                     />
                     <input
@@ -725,62 +763,53 @@ export function SixthPhysicsShell() {
                       onChange={(event) =>
                         handleSearchChange(event.target.value)
                       }
-                      placeholder="Filter by concept or ID..."
+                      placeholder="Search concepts"
                       aria-label="Filter questions by concept or ID"
-                      className="h-8 w-full rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)]/80 pr-7 pl-8 text-xs text-[var(--sp-ink)] placeholder:text-[var(--sp-muted)]"
+                      className="h-10 w-full rounded-xl border-2 border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] pr-8 pl-9 text-[13.5px] font-medium text-[var(--sp-ink)] transition-colors placeholder:text-[var(--sp-muted)] focus:border-[var(--sp-accent)] focus:bg-[var(--sp-surface)] focus:outline-none"
                     />
                     {activeFilters.searchQuery && (
                       <button
                         type="button"
                         onClick={() => handleSearchChange('')}
                         aria-label="Clear concept filter"
-                        className="absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer text-[var(--sp-muted)] hover:text-[var(--sp-ink)]"
+                        className="absolute top-1/2 right-2.5 -translate-y-1/2 cursor-pointer rounded-md p-0.5 text-[var(--sp-muted)] hover:text-[var(--sp-ink)]"
                       >
-                        <X className="h-3.5 w-3.5" aria-hidden="true" />
+                        <X className="h-4 w-4" aria-hidden="true" />
                       </button>
                     )}
                   </div>
-
-                  {syllabusSummary?.gravityConvention && (
-                    <button
-                      type="button"
-                      onClick={() => setFormulaDrawerOpen(true)}
-                      title="Open syllabus constants and formula sheet"
-                      className="hidden h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-2.5 font-mono text-xs tabular-nums text-[var(--sp-muted)] transition-colors hover:border-[var(--sp-accent)]/45 hover:text-[var(--sp-ink)] xl:inline-flex"
-                    >
-                      <BookOpen
-                        className="h-3 w-3 text-[var(--sp-accent)]"
-                        aria-hidden="true"
-                      />
-                      <MathText text={syllabusSummary.gravityConvention} />
-                    </button>
-                  )}
                 </div>
               </div>
 
-              {/* Main Practice Question Card or Empty Filter Direction */}
+              {/* Main practice question card or empty-filter direction */}
               {filteredRows.length === 0 ? (
-                <div className="rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-8 text-center">
-                  <h2 className="text-base font-semibold text-[var(--sp-ink)]">
+                <div className="sp-card px-6 py-10 text-center">
+                  <span
+                    aria-hidden="true"
+                    className="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--sp-accent-tint)] text-[var(--sp-accent)] shadow-[0_3px_0_var(--sp-border)]"
+                  >
+                    <Search className="h-6 w-6" strokeWidth={2.5} />
+                  </span>
+                  <h2 className="text-[18px] font-extrabold text-[var(--sp-ink)]">
                     {activeFilters.status === 'saved'
                       ? 'No saved questions in this view yet'
                       : activeFilters.status === 'needs-review'
-                        ? 'No questions need review in this filter'
+                        ? 'Nothing needs review in this filter'
                         : activeFilters.status === 'unseen'
-                          ? 'Every question in this filter has been attempted'
+                          ? "You've tried every question in this filter"
                           : 'No questions match these filters'}
                   </h2>
-                  <p className="mx-auto mt-1.5 max-w-[48ch] text-sm text-[var(--sp-muted)]">
+                  <p className="mx-auto mt-1.5 max-w-[46ch] text-[14.5px] text-[var(--sp-muted)]">
                     {activeFilters.status === 'saved'
-                      ? 'Use Save on any question card to keep problems for revision.'
+                      ? 'Tap Save on any question to keep it here for revision.'
                       : activeFilters.status === 'needs-review'
-                        ? 'Missed multiple-choice questions and structured responses below 70% appear here automatically.'
-                        : 'Clear or broaden your active topic, difficulty, or status filters to continue practicing.'}
+                        ? 'Missed multiple-choice questions and written answers below 70% show up here automatically.'
+                        : 'Broaden the topic, difficulty or status filters to keep practising.'}
                   </p>
                   <button
                     type="button"
                     onClick={handleClearAllFilters}
-                    className="mt-4 inline-flex cursor-pointer items-center justify-center rounded-xl bg-[var(--sp-accent)] px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-95"
+                    className="sp-key sp-key--primary mt-5 inline-flex h-11 items-center justify-center rounded-2xl px-6 text-[15px] font-extrabold"
                   >
                     Show all {syllabusSummary?.shortLabel ?? 'syllabus'}{' '}
                     questions
@@ -800,19 +829,13 @@ export function SixthPhysicsShell() {
                     mode="practice"
                     activeSyllabus={activeSyllabus}
                     topics={topics}
-                    questionNumber={effectiveQuestionIndex + 1}
-                    totalQuestions={filteredRows.length}
                     isBookmarked={isBookmarked}
                     onToggleBookmark={handleToggleBookmark}
                     existingAttempt={existingAttempt}
                     onRecordAttempt={handleRecordAttempt}
-                    onNextQuestion={
-                      filteredRows.length > 1 ? handleNextQuestion : undefined
-                    }
+                    onNextQuestion={canNavigate ? handleNextQuestion : undefined}
                     onPreviousQuestion={
-                      filteredRows.length > 1
-                        ? handlePreviousQuestion
-                        : undefined
+                      canNavigate ? handlePreviousQuestion : undefined
                     }
                     enableKeyboardShortcuts={
                       !formulaDrawerOpen && !mobileRailOpen
@@ -820,52 +843,12 @@ export function SixthPhysicsShell() {
                   />
                 </div>
               ) : (
-                <div className="flex min-h-[300px] items-center justify-center rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-8 text-sm text-[var(--sp-muted)]">
+                <div className="sp-card flex min-h-[300px] items-center justify-center p-8 text-[14.5px] font-semibold text-[var(--sp-muted)]">
                   <Loader2
-                    className="mr-2 h-4 w-4 animate-spin text-[var(--sp-accent)]"
+                    className="mr-2 h-5 w-5 animate-spin text-[var(--sp-accent)]"
                     aria-hidden="true"
                   />
-                  Loading physics question...
-                </div>
-              )}
-
-              {/* Bottom Pager */}
-              {filteredRows.length > 1 && (
-                <div className="flex items-center justify-between gap-2 rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] px-3 py-2.5 sm:px-4 sm:py-3">
-                  <button
-                    type="button"
-                    onClick={handlePreviousQuestion}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface)] px-2.5 py-1.5 text-xs font-medium text-[var(--sp-ink)] transition-colors hover:bg-[var(--sp-surface-subtle)] sm:px-3"
-                  >
-                    <ChevronRight
-                      className="h-3.5 w-3.5 rotate-180"
-                      aria-hidden="true"
-                    />
-                    <span>
-                      Previous
-                      <span className="hidden sm:inline"> question</span>
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleRandomUnseen}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--sp-ink)] transition-colors hover:border-[var(--sp-accent)]/45 sm:px-3"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>Random unseen</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleNextQuestion}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--sp-ink)] px-2.5 py-1.5 text-xs font-semibold text-[var(--sp-surface)] transition-opacity hover:opacity-90 sm:px-3.5"
-                  >
-                    <span>
-                      Next<span className="hidden sm:inline"> question</span>
-                    </span>
-                    <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
+                  Loading question...
                 </div>
               )}
             </div>

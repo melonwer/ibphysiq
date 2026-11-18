@@ -1,7 +1,15 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Check, ChevronDown, RotateCcw } from 'lucide-react';
+import {
+  BookOpen,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Lightbulb,
+  RotateCcw,
+  X,
+} from 'lucide-react';
 import { MathText } from '@/components/sixthphysics/math-text';
 import type {
   McqOptionItem,
@@ -52,6 +60,31 @@ export interface McqShortcutInput {
 }
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D'] as const;
+
+const COMPACT_OPTION_MAX_CHARS = 42;
+
+/** Visible length of an option once LaTeX markup is stripped away. */
+export function measureOptionVisibleLength(text: string): number {
+  return text
+    .replace(/\\(?:text|mathrm|mathbf|operatorname)\s*\{([^}]*)\}/g, '$1')
+    .replace(/\\[a-zA-Z]+/g, ' ')
+    .replace(/[${}^_\\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim().length;
+}
+
+/** Short numeric answers read best as a punchy 2x2 grid of tiles. */
+export function shouldUseCompactOptionGrid(
+  options: ReadonlyArray<Pick<McqOptionItem, 'text'>>
+): boolean {
+  return (
+    options.length === 4 &&
+    options.every(
+      (option) =>
+        measureOptionVisibleLength(option.text) < COMPACT_OPTION_MAX_CHARS
+    )
+  );
+}
 
 export function resolveCorrectOptionIndex(
   item: Pick<PublicBankItem, 'options' | 'correctOptionIndex'>
@@ -413,20 +446,31 @@ export function McqInteraction({
     return null;
   }
 
+  const useCompactGrid = shouldUseCompactOptionGrid(options);
+  const showRevealedFeedback = mode !== 'mock-live' && effectiveChecked;
+  const hasPickedOption =
+    activeSelectedIndex !== null && activeSelectedIndex >= 0;
+  const pickedOption = hasPickedOption ? options[activeSelectedIndex] : null;
+  const pickedIsCorrect = hasPickedOption && activeSelectedIndex === correctIndex;
+  const correctLetter =
+    options[correctIndex]?.label || OPTION_LETTERS[correctIndex] || '';
+
   return (
-    <div className={cn('mt-5 space-y-4', className)}>
+    <div className={cn('mt-4 space-y-4', className)}>
       <div
         role="radiogroup"
         aria-label="Answer options"
-        className="space-y-2.5"
+        data-layout={useCompactGrid ? 'grid' : 'stack'}
+        className={cn(
+          'grid gap-3',
+          useCompactGrid ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'
+        )}
       >
         {options.map((option, index) => {
           const letter =
             option.label || OPTION_LETTERS[index] || String(index + 1);
           const isSelected = activeSelectedIndex === index;
           const isOptionCorrect = index === correctIndex;
-          const showRevealedFeedback =
-            mode !== 'mock-live' && effectiveChecked;
           const isChosenDistractor =
             showRevealedFeedback && isSelected && !isOptionCorrect;
           const isRevealedCorrect = showRevealedFeedback && isOptionCorrect;
@@ -436,174 +480,192 @@ export function McqInteraction({
             mode === 'mock-live' || (mode === 'practice' && !effectiveChecked);
 
           return (
-            <div
+            <button
               key={`${item.id}-opt-${letter}-${index}`}
+              type="button"
+              role="radio"
+              data-sp-mcq-option={letter}
+              aria-checked={isSelected}
+              disabled={!isInteractive}
+              onClick={() => handleSelect(index)}
               className={cn(
-                'rounded-xl border transition-colors',
+                'sp-key flex w-full items-center gap-3.5 rounded-2xl text-left',
+                useCompactGrid
+                  ? 'min-h-[62px] px-4 py-2.5'
+                  : 'min-h-[60px] px-4 py-3.5',
                 !showRevealedFeedback &&
-                  !isSelected &&
-                  'border-[var(--sp-border)] bg-[var(--sp-surface)] hover:border-[var(--sp-muted)]/50 hover:bg-[var(--sp-surface-subtle)]/55',
-                !showRevealedFeedback &&
+                  (isSelected ? 'sp-key--selected' : 'sp-key--neutral'),
+                isRevealedCorrect && 'sp-key--correct',
+                mode === 'practice' &&
+                  isRevealedCorrect &&
                   isSelected &&
-                  'border-[var(--sp-accent)] bg-blue-600/[0.06] dark:bg-blue-500/[0.12]',
-                isRevealedCorrect &&
-                  'border-emerald-600/60 bg-emerald-500/[0.07] dark:border-emerald-400/50 dark:bg-emerald-500/[0.11]',
-                isChosenDistractor &&
-                  'border-rose-600/55 bg-rose-500/[0.05] dark:border-rose-400/50 dark:bg-rose-500/[0.09]',
-                isMutedDistractor &&
-                  'border-[var(--sp-border)] bg-[var(--sp-surface)] opacity-75'
+                  'sp-anim-bump',
+                isChosenDistractor && 'sp-key--wrong',
+                isChosenDistractor && mode === 'practice' && 'sp-anim-shake',
+                isMutedDistractor && 'sp-key--settled'
               )}
             >
-              <button
-                type="button"
-                role="radio"
-                data-sp-mcq-option={letter}
-                aria-checked={isSelected}
-                disabled={!isInteractive}
-                onClick={() => handleSelect(index)}
+              <span
+                aria-hidden="true"
                 className={cn(
-                  'flex w-full items-start justify-between gap-3.5 px-4 py-3.5 text-left',
-                  isInteractive
-                    ? 'cursor-pointer active:translate-y-[0.5px]'
-                    : 'cursor-default'
+                  'sp-keycap',
+                  !showRevealedFeedback && isSelected && 'sp-keycap--selected',
+                  isRevealedCorrect && 'sp-keycap--correct',
+                  isChosenDistractor && 'sp-keycap--wrong'
                 )}
               >
-                <span className="flex min-w-0 items-start gap-3.5">
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      'mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border font-mono text-[13px] font-medium transition-colors',
-                      !showRevealedFeedback &&
-                        !isSelected &&
-                        'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-ink)]',
-                      !showRevealedFeedback &&
-                        isSelected &&
-                        'border-[var(--sp-accent)] bg-[var(--sp-accent)] text-white',
-                      isRevealedCorrect &&
-                        'border-emerald-600 bg-emerald-600 text-white dark:border-emerald-500 dark:bg-emerald-500 dark:text-slate-950',
-                      isChosenDistractor &&
-                        'border-rose-600 bg-rose-600 text-white dark:border-rose-500 dark:bg-rose-500 dark:text-white',
-                      isMutedDistractor &&
-                        'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)]'
-                    )}
-                  >
-                    {letter}
-                  </span>
+                {isRevealedCorrect ? (
+                  <Check className="h-4 w-4" strokeWidth={3.25} />
+                ) : isChosenDistractor ? (
+                  <X className="h-4 w-4" strokeWidth={3.25} />
+                ) : (
+                  letter
+                )}
+              </span>
 
-                  <MathText
-                    text={option.text}
-                    className="max-w-[68ch] pt-0.5 text-[15.5px] leading-[1.6] text-[var(--sp-ink)]"
-                  />
+              <MathText
+                text={option.text}
+                className={cn(
+                  'min-w-0 flex-1 text-[var(--sp-ink)]',
+                  useCompactGrid
+                    ? 'text-[16.5px] leading-snug font-semibold'
+                    : 'max-w-[68ch] text-[15.5px] leading-[1.55] font-medium'
+                )}
+              />
+
+              {isRevealedCorrect && (
+                <span className="sp-chip sp-chip--success shrink-0">
+                  {isSelected ? 'Your answer' : 'Correct answer'}
                 </span>
-
-                {isRevealedCorrect && (
-                  <span className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:text-emerald-300">
-                    <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>
-                      {isSelected ? 'Correct' : 'Correct answer'}
-                    </span>
-                  </span>
-                )}
-
-                {isChosenDistractor && (
-                  <span className="mt-0.5 inline-flex shrink-0 items-center rounded-md bg-rose-500/15 px-2 py-0.5 text-xs font-medium text-rose-800 dark:text-rose-300">
-                    Your choice
-                  </span>
-                )}
-              </button>
-
-              {isChosenDistractor && option.distractorRationale && (
-                <div className="px-4 pb-3.5 pt-0.5">
-                  <div className="rounded-lg border border-amber-500/35 bg-amber-500/[0.08] px-3.5 py-2.5 text-[14px] leading-[1.58] text-[var(--sp-ink)] dark:border-amber-400/30 dark:bg-amber-500/[0.12]">
-                    <span className="font-semibold text-amber-900 dark:text-amber-300">
-                      Common trap:{' '}
-                    </span>
-                    <MathText
-                      text={option.distractorRationale}
-                      className="text-[14px] leading-[1.58]"
-                    />
-                  </div>
-                </div>
               )}
-            </div>
+
+              {isChosenDistractor && (
+                <span className="sp-chip sp-chip--danger shrink-0">
+                  Your choice
+                </span>
+              )}
+            </button>
           );
         })}
       </div>
 
-      {mode === 'practice' && (
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          <div className="flex flex-wrap items-center gap-2.5">
-            {!effectiveChecked ? (
-              <button
-                type="button"
-                disabled={activeSelectedIndex === null}
-                onClick={handleCheck}
+      {showRevealedFeedback && hasPickedOption && (
+        <div
+          role="status"
+          className={cn(
+            'sp-banner sp-anim-pop flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5',
+            pickedIsCorrect ? 'sp-banner--success' : 'sp-banner--warn'
+          )}
+        >
+          <div className="flex min-w-0 items-start gap-3.5">
+            <span
+              aria-hidden="true"
+              className={cn(
+                'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white',
+                pickedIsCorrect
+                  ? 'bg-[#059669] shadow-[0_3px_0_#047857]'
+                  : 'bg-[var(--sp-warn)] shadow-[0_3px_0_var(--sp-warn-lip)]'
+              )}
+            >
+              {pickedIsCorrect ? (
+                <Check className="h-5 w-5" strokeWidth={3.25} />
+              ) : (
+                <Lightbulb className="h-5 w-5 text-[#451a03]" strokeWidth={2.5} />
+              )}
+            </span>
+
+            <div className="min-w-0 space-y-1">
+              <p
                 className={cn(
-                  'inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold transition-colors',
-                  activeSelectedIndex !== null
-                    ? 'cursor-pointer bg-[var(--sp-accent)] text-white hover:opacity-95'
-                    : 'cursor-not-allowed border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)]'
+                  'text-[17px] leading-tight font-extrabold',
+                  pickedIsCorrect
+                    ? 'text-[var(--sp-success-ink)]'
+                    : 'text-[var(--sp-warn-ink)]'
                 )}
               >
-                Check answer
-              </button>
-            ) : (
-              <>
-                {onNextQuestion && (
-                  <button
-                    type="button"
-                    onClick={onNextQuestion}
-                    className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-[var(--sp-accent)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-95"
-                  >
-                    Next question
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={handleRetry}
-                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface)] px-3 py-2 text-sm font-medium text-[var(--sp-ink)] transition-colors hover:bg-[var(--sp-surface-subtle)]"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>Try again</span>
-                </button>
-              </>
-            )}
+                {pickedIsCorrect
+                  ? 'Spot on!'
+                  : `Not quite. The answer is ${correctLetter}.`}
+              </p>
+              {pickedIsCorrect ? (
+                <p className="text-[14px] leading-snug text-[var(--sp-ink)]/80">
+                  +{totalMarks} {totalMarks === 1 ? 'mark' : 'marks'}. Check
+                  the worked solution to lock in the method.
+                </p>
+              ) : pickedOption?.distractorRationale ? (
+                <p className="text-[14.5px] leading-[1.55] text-[var(--sp-ink)]">
+                  <span className="font-bold">Common trap: </span>
+                  <MathText
+                    text={pickedOption.distractorRationale}
+                    className="text-[14.5px] leading-[1.55]"
+                  />
+                </p>
+              ) : (
+                <p className="text-[14px] leading-snug text-[var(--sp-ink)]/80">
+                  Compare your working with the worked solution below.
+                </p>
+              )}
+            </div>
           </div>
 
-          <div className="hidden items-center gap-2 text-xs text-[var(--sp-muted)] sm:flex">
-            {!effectiveChecked ? (
-              <>
-                <span>Select</span>
-                <kbd className="rounded border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--sp-ink)]">
-                  A–D
-                </kbd>
-                <span>or</span>
-                <kbd className="rounded border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--sp-ink)]">
-                  1–4
-                </kbd>
-                <span>then</span>
-                <kbd className="rounded border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--sp-ink)]">
-                  Enter
-                </kbd>
-              </>
-            ) : onNextQuestion ? (
-              <>
-                <span>Next</span>
-                <kbd className="rounded border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--sp-ink)]">
-                  N
-                </kbd>
-                <span>or</span>
-                <kbd className="rounded border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--sp-ink)]">
-                  →
-                </kbd>
-              </>
-            ) : null}
-          </div>
+          {mode === 'practice' && (
+            <div className="flex shrink-0 items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="sp-key sp-key--neutral sp-key--sm inline-flex h-11 items-center gap-1.5 rounded-xl px-3.5 text-[14px] font-bold"
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                <span>Try again</span>
+              </button>
+              {onNextQuestion && (
+                <button
+                  type="button"
+                  onClick={onNextQuestion}
+                  className={cn(
+                    'sp-key inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl px-5 text-[15px] font-extrabold sm:flex-initial',
+                    pickedIsCorrect ? 'sp-key--success' : 'sp-key--primary'
+                  )}
+                >
+                  Next question
+                  <ChevronRight strokeWidth={3} className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'practice' && !effectiveChecked && (
+        <div className="flex items-center justify-between gap-3 border-t-2 border-[var(--sp-border)] pt-4">
+          {onNextQuestion ? (
+            <button
+              type="button"
+              onClick={onNextQuestion}
+              className="sp-key sp-key--neutral sp-key--sm inline-flex h-12 items-center rounded-2xl px-5 text-[15px] font-bold text-[var(--sp-muted)]"
+            >
+              Skip
+            </button>
+          ) : (
+            <span />
+          )}
+
+          <button
+            type="button"
+            disabled={!hasPickedOption}
+            onClick={handleCheck}
+            className={cn(
+              'sp-key inline-flex h-12 min-w-[11rem] flex-1 items-center justify-center rounded-2xl px-7 text-[16px] font-extrabold sm:flex-initial',
+              hasPickedOption ? 'sp-key--primary' : 'sp-key--idle'
+            )}
+          >
+            Check answer
+          </button>
         </div>
       )}
 
       {mode === 'mock-review' && activeSelectedIndex === null && (
-        <p className="text-sm text-[var(--sp-muted)]">
+        <p className="sp-chip sp-chip--warn">
           No option was selected during the timed paper.
         </p>
       )}
@@ -611,51 +673,57 @@ export function McqInteraction({
       {mode !== 'mock-live' &&
         effectiveChecked &&
         (item.workedSolution || item.markScheme.length > 0) && (
-          <div className="rounded-xl border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)]/65">
+          <div className="sp-well overflow-hidden">
             <button
               type="button"
               aria-expanded={isSolutionOpen}
               onClick={toggleSolution}
-              className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left text-sm font-semibold text-[var(--sp-ink)] transition-colors hover:bg-[var(--sp-surface-subtle)]"
+              className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3.5 text-left text-[15px] font-bold text-[var(--sp-ink)] transition-colors hover:bg-[var(--sp-track)]/60 sm:px-5"
             >
-              <span>Worked solution &amp; mark scheme</span>
+              <span className="inline-flex items-center gap-2.5">
+                <BookOpen
+                  className="h-[18px] w-[18px] text-[var(--sp-accent)]"
+                  aria-hidden="true"
+                />
+                Worked solution &amp; mark scheme
+              </span>
               <ChevronDown
                 aria-hidden="true"
                 className={cn(
-                  'h-4 w-4 shrink-0 text-[var(--sp-muted)] transition-transform duration-150',
+                  'h-5 w-5 shrink-0 text-[var(--sp-muted)] transition-transform duration-150',
                   isSolutionOpen && 'rotate-180'
                 )}
               />
             </button>
 
             {isSolutionOpen && (
-              <div className="space-y-3.5 border-t border-[var(--sp-border)] px-4 py-3.5">
+              <div className="space-y-4 border-t-2 border-[var(--sp-border)] bg-[var(--sp-surface)] px-4 py-4 sm:px-5">
                 {item.workedSolution && (
                   <MathText
                     text={item.workedSolution}
                     block
-                    className="max-w-[72ch] text-[15px] leading-[1.68] text-[var(--sp-ink)]"
+                    className="max-w-[72ch] text-[15.5px] leading-[1.7] text-[var(--sp-ink)]"
                   />
                 )}
 
                 {item.markScheme.length > 0 && (
-                  <ul className="space-y-2 border-t border-[var(--sp-border)] pt-3">
+                  <ul className="space-y-2">
                     {item.markScheme.map((point, idx) => (
                       <li
                         key={`${item.id}-ms-${idx}-${point.code}`}
-                        className="flex items-start justify-between gap-3 text-[14px] leading-[1.55]"
+                        className="flex items-start justify-between gap-3 rounded-xl border-2 border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-3 py-2.5 text-[14.5px] leading-[1.55]"
                       >
-                        <div className="flex min-w-0 items-start gap-2.5">
-                          <span className="mt-0.5 inline-flex shrink-0 items-center rounded border border-[var(--sp-border)] bg-[var(--sp-surface)] px-1.5 py-0.5 font-mono text-[12px] font-medium text-[var(--sp-ink)]">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="inline-flex h-7 min-w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--sp-accent)] px-1.5 text-[12.5px] font-extrabold text-white shadow-[0_2px_0_var(--sp-accent-lip)]">
                             {point.code}
                           </span>
                           <MathText
                             text={point.criterion}
-                            className="max-w-[68ch] text-[var(--sp-ink)]"
+                            className="max-w-[68ch] pt-0.5 text-[var(--sp-ink)]"
                           />
                         </div>
-                        <span className="shrink-0 font-mono text-xs tabular-nums text-[var(--sp-muted)]">
-                          [{point.marks} {point.marks === 1 ? 'mark' : 'marks'}]
+                        <span className="shrink-0 pt-1 text-[13px] font-semibold tabular-nums text-[var(--sp-muted)]">
+                          {point.marks} {point.marks === 1 ? 'mark' : 'marks'}
                         </span>
                       </li>
                     ))}

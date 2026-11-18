@@ -1,7 +1,13 @@
 'use client';
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { Check, ChevronDown, RotateCcw } from 'lucide-react';
+import {
+  BookOpen,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  RotateCcw,
+} from 'lucide-react';
 import { MathText } from '@/components/sixthphysics/math-text';
 import type {
   MarkSchemePoint,
@@ -87,12 +93,12 @@ export function calculateRubricTally(
 function getCriterionBadgeStyle(code: string): string {
   const upper = code.toUpperCase();
   if (upper.startsWith('M')) {
-    return 'border-blue-500/35 bg-blue-500/10 text-blue-800 dark:border-blue-400/35 dark:bg-blue-500/15 dark:text-blue-300';
+    return 'bg-[var(--sp-accent)] text-white shadow-[0_2px_0_var(--sp-accent-lip)]';
   }
   if (upper.startsWith('A')) {
-    return 'border-emerald-600/35 bg-emerald-500/10 text-emerald-800 dark:border-emerald-400/35 dark:bg-emerald-500/15 dark:text-emerald-300';
+    return 'bg-[#059669] text-white shadow-[0_2px_0_#047857]';
   }
-  return 'border-violet-500/35 bg-violet-500/10 text-violet-800 dark:border-violet-400/35 dark:bg-violet-500/15 dark:text-violet-300';
+  return 'bg-violet-600 text-white shadow-[0_2px_0_#4c1d95]';
 }
 
 interface InternalStructuredState {
@@ -345,38 +351,50 @@ export function StructuredInteraction({
 
   const checkedSet = new Set(activeCheckedKeys);
 
+  const scorePct =
+    tally.totalMarks > 0
+      ? Math.round((tally.earnedMarks / tally.totalMarks) * 100)
+      : 0;
+  const isFullMarks =
+    tally.totalMarks > 0 && tally.earnedMarks === tally.totalMarks;
+  const hasScored = tally.earnedMarks > 0 || currentState.recordedZeroExplicitly;
+
   return (
-    <div className={cn('mt-5 space-y-6', className)}>
+    <div className={cn('mt-5 space-y-5', className)}>
       {parts.length > 0 && (
-        <div className="divide-y divide-[var(--sp-border)] border-t border-[var(--sp-border)]">
+        <div className="space-y-3">
           {parts.map((part) => {
             const noteValue = activePartNotes[part.partId] ?? '';
             const isReadOnlyScratchpad = mode === 'mock-review';
 
             return (
-              <div
+              <section
                 key={`${item.id}-part-${part.partId}`}
-                className="space-y-3 py-4 first:pt-4 last:pb-1"
+                aria-label={`Part (${part.partId})`}
+                className="space-y-3 rounded-2xl border-2 border-[var(--sp-border)] bg-[var(--sp-surface)] p-3.5 sm:p-4"
               >
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-start gap-3">
-                    <span className="mt-0.5 shrink-0 font-mono text-[14px] font-semibold text-[var(--sp-ink)]">
+                    <span
+                      aria-hidden="true"
+                      className="sp-keycap sp-keycap--selected w-auto min-w-[2.5rem] px-1.5 text-[13.5px]"
+                    >
                       ({part.partId})
                     </span>
                     <MathText
                       text={part.prompt}
-                      className="max-w-[70ch] text-[16px] leading-[1.66] text-[var(--sp-ink)]"
+                      className="max-w-[70ch] pt-1 text-[16px] leading-[1.6] text-[var(--sp-ink)]"
                     />
                   </div>
 
-                  <span className="mt-0.5 shrink-0 font-mono text-[13px] tabular-nums text-[var(--sp-muted)]">
-                    [{part.marks} {part.marks === 1 ? 'mark' : 'marks'}]
+                  <span className="sp-chip mt-1 shrink-0 font-bold tabular-nums">
+                    {part.marks} {part.marks === 1 ? 'mark' : 'marks'}
                   </span>
                 </div>
 
                 {showScratchpad &&
                   (mode !== 'mock-review' || noteValue.trim().length > 0) && (
-                    <div className="pl-0 sm:pl-8">
+                    <div className="sm:pl-[3.25rem]">
                       <label
                         htmlFor={`sp-scratchpad-${item.id}-${part.partId}`}
                         className="sr-only"
@@ -393,30 +411,35 @@ export function StructuredInteraction({
                         }
                         placeholder="Jot your working or value before marking..."
                         className={cn(
-                          'w-full rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)]/75 px-3.5 py-2.5 text-[14.5px] leading-[1.55] text-[var(--sp-ink)] placeholder:text-[var(--sp-muted)] transition-colors',
+                          'w-full resize-y rounded-xl border-2 border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-3.5 py-2.5 text-[15px] leading-[1.55] text-[var(--sp-ink)] transition-colors placeholder:text-[var(--sp-muted)]',
                           isReadOnlyScratchpad
-                            ? 'cursor-default opacity-90'
-                            : 'hover:border-[var(--sp-muted)]/45 focus:bg-[var(--sp-surface)]'
+                            ? 'cursor-default'
+                            : 'hover:border-[var(--sp-lip)] focus:border-[var(--sp-accent)] focus:bg-[var(--sp-surface)] focus:outline-none'
                         )}
                       />
                     </div>
                   )}
 
                 {effectiveRevealed && (
-                  <div className="pl-0 sm:pl-8">
-                    <div className="rounded-lg border border-emerald-600/30 bg-emerald-500/[0.06] px-3.5 py-2.5 dark:border-emerald-400/25 dark:bg-emerald-500/[0.09]">
+                  <div className="sm:pl-[3.25rem]">
+                    <div className="rounded-xl border-2 border-[var(--sp-success)]/45 bg-[var(--sp-success-tint)] px-3.5 py-2.5">
                       <div className="flex flex-wrap items-baseline gap-2">
-                        <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">
+                        <span className="inline-flex items-center gap-1 text-[13px] font-bold text-[var(--sp-success-ink)]">
+                          <Check
+                            className="h-3.5 w-3.5"
+                            strokeWidth={3}
+                            aria-hidden="true"
+                          />
                           Verified answer:
                         </span>
                         <MathText
                           text={part.expectedAnswer}
-                          className="font-medium text-[14.5px] text-[var(--sp-ink)]"
+                          className="text-[15px] font-semibold text-[var(--sp-ink)]"
                         />
                       </div>
 
                       {part.workingSteps && part.workingSteps.length > 0 && (
-                        <ul className="mt-2 space-y-1 border-t border-emerald-600/15 pt-2 text-[13.5px] leading-[1.55] text-[var(--sp-ink)]/90 dark:border-emerald-400/15">
+                        <ul className="mt-2 space-y-1 border-t-2 border-[var(--sp-success)]/20 pt-2 text-[14px] leading-[1.55] text-[var(--sp-ink)]/90">
                           {part.workingSteps.map((step, stepIdx) => (
                             <li key={`${part.partId}-step-${stepIdx}`}>
                               <MathText text={step} />
@@ -427,78 +450,80 @@ export function StructuredInteraction({
                     </div>
                   </div>
                 )}
-              </div>
+              </section>
             );
           })}
         </div>
       )}
 
       {mode === 'practice' && !effectiveRevealed && (
-        <div className="flex items-center justify-between gap-3 pt-1">
+        <div className="flex items-center justify-between gap-3 border-t-2 border-[var(--sp-border)] pt-4">
+          {onNextQuestion ? (
+            <button
+              type="button"
+              onClick={onNextQuestion}
+              className="sp-key sp-key--neutral sp-key--sm inline-flex h-12 items-center rounded-2xl px-5 text-[15px] font-bold text-[var(--sp-muted)]"
+            >
+              Skip
+            </button>
+          ) : (
+            <span />
+          )}
           <button
             type="button"
             onClick={handleReveal}
-            className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-[var(--sp-accent)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-95"
+            className="sp-key sp-key--primary inline-flex h-12 min-w-[11rem] flex-1 items-center justify-center rounded-2xl px-7 text-[16px] font-extrabold sm:flex-initial"
           >
             Mark my answer
           </button>
-          <span className="hidden text-xs text-[var(--sp-muted)] sm:inline">
-            Reveals verified answers and interactive examiner rubric
-          </span>
         </div>
       )}
 
       {effectiveRevealed && markScheme.length > 0 && (
-        <div className="rounded-xl border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)]/60">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--sp-border)] px-4 py-3">
-            <div>
-              <h3 className="text-sm font-semibold text-[var(--sp-ink)]">
-                Examiner mark scheme
-              </h3>
-              <p className="text-xs text-[var(--sp-muted)]">
-                Tick each mark-scheme point earned in your working
-              </p>
-            </div>
+        <div className="sp-well sp-anim-pop overflow-hidden">
+          <div className="space-y-3 px-4 pt-4 pb-3 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-[16px] font-extrabold text-[var(--sp-ink)]">
+                  Examiner mark scheme
+                </h3>
+                <p className="text-[13.5px] text-[var(--sp-muted)]">
+                  Tap each point your working earns.
+                </p>
+              </div>
 
-            <div className="flex flex-wrap items-center gap-2">
               <span
+                key={`score-${tally.earnedMarks}`}
                 data-testid="rubric-score-pill"
                 className={cn(
-                  'inline-flex items-center rounded-md border px-2.5 py-1 font-mono text-xs font-semibold tabular-nums',
-                  tally.earnedMarks === tally.totalMarks && tally.totalMarks > 0
-                    ? 'border-emerald-600/40 bg-emerald-500/15 text-emerald-800 dark:border-emerald-400/40 dark:text-emerald-300'
-                    : tally.earnedMarks > 0 ||
-                        currentState.recordedZeroExplicitly
-                      ? 'border-[var(--sp-accent)]/40 bg-blue-500/10 text-[var(--sp-ink)]'
-                      : 'border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-ink)]'
+                  'sp-anim-bump inline-flex h-10 items-center rounded-xl border-2 px-3.5 text-[15px] font-extrabold tabular-nums',
+                  isFullMarks
+                    ? 'border-[#059669] bg-[#059669] text-white shadow-[0_3px_0_#047857]'
+                    : hasScored
+                      ? 'border-[var(--sp-accent)] bg-[var(--sp-accent-tint)] text-[var(--sp-accent-ink)] shadow-[0_3px_0_var(--sp-accent-lip)]'
+                      : 'border-[var(--sp-border)] bg-[var(--sp-raised)] text-[var(--sp-ink)] shadow-[0_3px_0_var(--sp-lip)]'
                 )}
               >
                 {tally.earnedMarks} / {tally.totalMarks}{' '}
                 {tally.totalMarks === 1 ? 'mark' : 'marks'}
               </span>
+            </div>
 
-              <button
-                type="button"
-                onClick={handleAwardAll}
-                className="cursor-pointer rounded-md border border-[var(--sp-border)] bg-[var(--sp-surface)] px-2.5 py-1 text-xs font-medium text-[var(--sp-ink)] transition-colors hover:bg-[var(--sp-surface-subtle)]"
-              >
-                Award all
-              </button>
-
-              <button
-                type="button"
-                onClick={handleClearOrRecordZero}
-                className="cursor-pointer rounded-md border border-[var(--sp-border)] bg-[var(--sp-surface)] px-2.5 py-1 text-xs font-medium text-[var(--sp-muted)] transition-colors hover:text-[var(--sp-ink)]"
-              >
-                Zero marks
-              </button>
+            <div className="sp-progress sp-progress--sm" aria-hidden="true">
+              <div
+                className="sp-progress-fill"
+                style={{
+                  width: `${scorePct}%`,
+                  background: isFullMarks ? '#059669' : undefined,
+                }}
+              />
             </div>
           </div>
 
           <div
             role="group"
             aria-label="Examiner rubric criteria"
-            className="divide-y divide-[var(--sp-border)]"
+            className="space-y-2.5 px-4 pb-4 sm:px-5"
           >
             {markScheme.map((point, idx) => {
               const key = getMarkSchemeCriterionKey(point, idx);
@@ -513,29 +538,29 @@ export function StructuredInteraction({
                   aria-checked={isAwarded}
                   onClick={() => handleToggleCriterion(key)}
                   className={cn(
-                    'flex w-full cursor-pointer items-start justify-between gap-3.5 px-4 py-3 text-left transition-colors',
-                    isAwarded
-                      ? 'bg-emerald-500/[0.07] dark:bg-emerald-500/[0.11]'
-                      : 'bg-transparent hover:bg-[var(--sp-surface)]/70'
+                    'sp-key sp-key--sm flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left',
+                    isAwarded ? 'sp-key--correct' : 'sp-key--neutral'
                   )}
                 >
                   <span className="flex min-w-0 items-start gap-3">
                     <span
                       aria-hidden="true"
                       className={cn(
-                        'mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors',
+                        'mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border-2 transition-colors',
                         isAwarded
-                          ? 'border-emerald-600 bg-emerald-600 text-white dark:border-emerald-500 dark:bg-emerald-500 dark:text-slate-950'
-                          : 'border-[var(--sp-border)] bg-[var(--sp-surface)]'
+                          ? 'border-[#059669] bg-[#059669] text-white'
+                          : 'border-[var(--sp-lip)] bg-[var(--sp-surface)]'
                       )}
                     >
-                      {isAwarded && <Check className="h-3.5 w-3.5" />}
+                      {isAwarded && (
+                        <Check className="h-3.5 w-3.5" strokeWidth={3.5} />
+                      )}
                     </span>
 
-                    <span className="flex min-w-0 flex-wrap items-baseline gap-2">
+                    <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
                       <span
                         className={cn(
-                          'inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-mono text-[12px] font-semibold',
+                          'inline-flex h-6 min-w-8 shrink-0 items-center justify-center rounded-md px-1.5 text-[12.5px] font-extrabold',
                           getCriterionBadgeStyle(point.code)
                         )}
                       >
@@ -543,24 +568,24 @@ export function StructuredInteraction({
                       </span>
 
                       {point.partId && (
-                        <span className="shrink-0 font-mono text-xs text-[var(--sp-muted)]">
+                        <span className="shrink-0 text-[13px] font-semibold text-[var(--sp-muted)]">
                           ({point.partId})
                         </span>
                       )}
 
                       <MathText
                         text={point.criterion}
-                        className="max-w-[66ch] text-[14.5px] leading-[1.58] text-[var(--sp-ink)]"
+                        className="max-w-[66ch] text-[14.5px] leading-[1.55] text-[var(--sp-ink)]"
                       />
                     </span>
                   </span>
 
                   <span
                     className={cn(
-                      'mt-0.5 shrink-0 font-mono text-xs tabular-nums',
+                      'mt-0.5 shrink-0 text-[13px] tabular-nums',
                       isAwarded
-                        ? 'font-semibold text-emerald-700 dark:text-emerald-300'
-                        : 'text-[var(--sp-muted)]'
+                        ? 'font-extrabold text-[var(--sp-success-ink)]'
+                        : 'font-semibold text-[var(--sp-muted)]'
                     )}
                   >
                     +{pointMarks} {pointMarks === 1 ? 'mark' : 'marks'}
@@ -568,32 +593,56 @@ export function StructuredInteraction({
                 </button>
               );
             })}
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleAwardAll}
+                className="sp-key sp-key--neutral sp-key--sm inline-flex h-9 items-center gap-1.5 rounded-xl px-3 text-[13px] font-bold"
+              >
+                <Check className="h-3.5 w-3.5" strokeWidth={3} aria-hidden="true" />
+                Award all
+              </button>
+              <button
+                type="button"
+                onClick={handleClearOrRecordZero}
+                className="sp-key sp-key--neutral sp-key--sm inline-flex h-9 items-center rounded-xl px-3 text-[13px] font-bold text-[var(--sp-muted)]"
+              >
+                Zero marks
+              </button>
+            </div>
           </div>
 
           {item.workedSolution && (
-            <div className="border-t border-[var(--sp-border)]">
+            <div className="border-t-2 border-[var(--sp-border)]">
               <button
                 type="button"
                 aria-expanded={currentState.workedSolutionOpen}
                 onClick={toggleWorkedSolution}
-                className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-2.5 text-left text-xs font-semibold text-[var(--sp-muted)] transition-colors hover:text-[var(--sp-ink)]"
+                className="flex w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left text-[14.5px] font-bold text-[var(--sp-ink)] transition-colors hover:bg-[var(--sp-track)]/60 sm:px-5"
               >
-                <span>Full worked solution summary</span>
+                <span className="inline-flex items-center gap-2.5">
+                  <BookOpen
+                    className="h-[18px] w-[18px] text-[var(--sp-accent)]"
+                    aria-hidden="true"
+                  />
+                  Full worked solution
+                </span>
                 <ChevronDown
                   aria-hidden="true"
                   className={cn(
-                    'h-3.5 w-3.5 shrink-0 transition-transform duration-150',
+                    'h-5 w-5 shrink-0 text-[var(--sp-muted)] transition-transform duration-150',
                     currentState.workedSolutionOpen && 'rotate-180'
                   )}
                 />
               </button>
 
               {currentState.workedSolutionOpen && (
-                <div className="border-t border-[var(--sp-border)] bg-[var(--sp-surface)]/55 px-4 py-3">
+                <div className="border-t-2 border-[var(--sp-border)] bg-[var(--sp-surface)] px-4 py-4 sm:px-5">
                   <MathText
                     text={item.workedSolution}
                     block
-                    className="max-w-[72ch] text-[14.5px] leading-[1.66] text-[var(--sp-ink)]"
+                    className="max-w-[72ch] text-[15px] leading-[1.7] text-[var(--sp-ink)]"
                   />
                 </div>
               )}
@@ -603,24 +652,32 @@ export function StructuredInteraction({
       )}
 
       {mode === 'practice' && effectiveRevealed && (
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex items-center justify-between gap-2.5 border-t-2 border-[var(--sp-border)] pt-4">
+          <button
+            type="button"
+            onClick={handleResetPractice}
+            className="sp-key sp-key--neutral sp-key--sm inline-flex h-11 items-center gap-1.5 rounded-xl px-3.5 text-[14px] font-bold"
+          >
+            <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            <span>Reset working</span>
+          </button>
           {onNextQuestion && (
             <button
               type="button"
               onClick={onNextQuestion}
-              className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-[var(--sp-accent)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-95"
+              className={cn(
+                'sp-key inline-flex h-12 min-w-[11rem] items-center justify-center gap-1.5 rounded-2xl px-6 text-[16px] font-extrabold',
+                tally.isCorrect ? 'sp-key--success' : 'sp-key--primary'
+              )}
             >
               Next question
+              <ChevronRight
+                className="h-4 w-4"
+                strokeWidth={3}
+                aria-hidden="true"
+              />
             </button>
           )}
-          <button
-            type="button"
-            onClick={handleResetPractice}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface)] px-3 py-2 text-sm font-medium text-[var(--sp-ink)] transition-colors hover:bg-[var(--sp-surface-subtle)]"
-          >
-            <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>Reset working</span>
-          </button>
         </div>
       )}
     </div>

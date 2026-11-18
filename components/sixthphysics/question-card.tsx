@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback } from 'react';
-import { Bookmark, ChevronRight } from 'lucide-react';
+import { Bookmark, Check, RotateCcw } from 'lucide-react';
 import { MathText } from '@/components/sixthphysics/math-text';
 import {
   McqInteraction,
@@ -117,9 +117,73 @@ export function formatSyllabusBadgeLabel(tag: SyllabusTag): string {
 }
 
 export function formatDifficultyLabel(difficulty: QuestionDifficulty): string {
-  if (difficulty === 'foundation') return 'Foundation';
-  if (difficulty === 'higher') return 'Higher';
-  return 'Standard';
+  if (difficulty === 'foundation') return 'Easy';
+  if (difficulty === 'higher') return 'Hard';
+  return 'Medium';
+}
+
+export function formatMarksLabel(marks: number): string {
+  return `${marks} ${marks === 1 ? 'mark' : 'marks'}`;
+}
+
+const DIFFICULTY_DOT_CLASS: Record<QuestionDifficulty, string> = {
+  foundation: 'bg-emerald-500',
+  standard: 'bg-amber-500',
+  higher: 'bg-rose-500',
+};
+
+const LEADING_CODE_PATTERN =
+  /^(?:Section\s+\d+(?:\s*\([^)]*\))?|Theme\s+[A-E]|Tools|AC\d+(?:\.\d+)*|[A-E]\.\d+(?:\.\d+)*|T\.\d+(?:-T\.\d+)?|\d+(?:\.\d+)+(?:-\d+(?:\.\d+)+)?)\s*[:\s]\s*/i;
+
+/**
+ * Turns a syllabus heading like "3.6.1 Circular Motion, Simple Harmonic
+ * Motion, Resonance and Damping" into a short human pill label such as
+ * "Circular Motion & SHM". Spec codes never reach the student.
+ */
+export function formatFriendlyTopicLabel(rawLabel: string): string {
+  let label = rawLabel.trim().replace(LEADING_CODE_PATTERN, '').trim();
+
+  const colonIdx = label.indexOf(':');
+  if (colonIdx >= 8) {
+    label = label.slice(0, colonIdx);
+  }
+
+  label = label
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (label.length <= 30) {
+    return label;
+  }
+
+  const abbreviated = label.replace(/Simple Harmonic Motion/gi, 'SHM');
+  const segments = abbreviated
+    .split(/,\s*|\s+and\s+|\s*&\s*/i)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length >= 2) {
+    const pair = `${segments[0]} & ${segments[1]}`;
+    if (pair.length <= 34) {
+      return pair;
+    }
+  }
+
+  return segments[0] ?? abbreviated;
+}
+
+export function resolveFriendlyTopicLabel(
+  item: Pick<PublicBankItem, 'syllabi'>,
+  activeSyllabus?: SyllabusId,
+  topics?: PublicTopicSummary[]
+): { label: string; fullLabel: string } {
+  const breadcrumb = resolveQuestionBreadcrumb(item, activeSyllabus, topics);
+  const fullLabel = breadcrumb.subtopicLabel ?? breadcrumb.topicLabel;
+  return {
+    label: formatFriendlyTopicLabel(fullLabel),
+    fullLabel: fullLabel.replace(LEADING_CODE_PATTERN, '').trim(),
+  };
 }
 
 export function resolveQuestionBreadcrumb(
@@ -179,39 +243,6 @@ export function resolveQuestionBreadcrumb(
   };
 }
 
-function getUniqueSyllabusBadges(
-  syllabi: SyllabusTag[],
-  activeSyllabus?: SyllabusId
-): Array<{ key: string; label: string; isActiveSyllabus: boolean }> {
-  const seen = new Set<string>();
-  const ordered = [...syllabi].sort((a, b) => {
-    const aActive = a.syllabus === activeSyllabus ? 0 : 1;
-    const bActive = b.syllabus === activeSyllabus ? 0 : 1;
-    return aActive - bActive;
-  });
-
-  const badges: Array<{
-    key: string;
-    label: string;
-    isActiveSyllabus: boolean;
-  }> = [];
-
-  for (const tag of ordered) {
-    const label = formatSyllabusBadgeLabel(tag);
-    if (seen.has(label)) continue;
-    seen.add(label);
-    badges.push({
-      key: `${tag.syllabus}-${tag.level}`,
-      label,
-      isActiveSyllabus: Boolean(
-        activeSyllabus && tag.syllabus === activeSyllabus
-      ),
-    });
-  }
-
-  return badges;
-}
-
 export function QuestionCard({
   item,
   mode = 'practice',
@@ -237,9 +268,7 @@ export function QuestionCard({
   enableKeyboardShortcuts = true,
   className,
 }: QuestionCardProps) {
-  const breadcrumb = resolveQuestionBreadcrumb(item, activeSyllabus, topics);
-  const syllabusBadges = getUniqueSyllabusBadges(item.syllabi, activeSyllabus);
-  const formatLabel = item.format === 'mcq' ? 'MCQ' : 'Structured';
+  const topicLabel = resolveFriendlyTopicLabel(item, activeSyllabus, topics);
   const difficultyLabel = formatDifficultyLabel(item.difficulty);
 
   const effectiveSelectedOption =
@@ -288,136 +317,105 @@ export function QuestionCard({
     <article
       data-question-id={item.id}
       data-question-mode={mode}
-      className={cn(
-        'rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-ink)]',
-        className
-      )}
+      className={cn('sp-card text-[var(--sp-ink)]', className)}
     >
-      <header className="border-b border-[var(--sp-border)] px-5 py-4 sm:px-7">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 space-y-2">
-            <div className="flex flex-wrap items-center gap-1.5 text-[13px] leading-snug text-[var(--sp-muted)]">
-              {typeof questionNumber === 'number' && (
-                <>
-                  <span className="font-mono font-medium tabular-nums text-[var(--sp-ink)]">
-                    {typeof totalQuestions === 'number'
-                      ? `Q${questionNumber.toLocaleString()} of ${totalQuestions.toLocaleString()}`
-                      : `Q${questionNumber.toLocaleString()}`}
-                  </span>
-                  <ChevronRight
-                    className="h-3.5 w-3.5 shrink-0 opacity-65"
-                    aria-hidden="true"
-                  />
-                </>
-              )}
-              <span className="font-medium text-[var(--sp-ink)]/90">
-                {breadcrumb.topicLabel}
-              </span>
-              {breadcrumb.subtopicLabel && (
-                <>
-                  <ChevronRight
-                    className="h-3.5 w-3.5 shrink-0 opacity-65"
-                    aria-hidden="true"
-                  />
-                  <span className="truncate">{breadcrumb.subtopicLabel}</span>
-                </>
-              )}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              {syllabusBadges.map((badge) => (
-                <span
-                  key={badge.key}
-                  className={cn(
-                    'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium',
-                    badge.isActiveSyllabus
-                      ? 'border-[var(--sp-accent)]/40 bg-blue-500/[0.08] text-[var(--sp-ink)] dark:bg-blue-500/[0.15]'
-                      : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)]'
-                  )}
-                >
-                  {badge.label}
-                </span>
-              ))}
-
-              <span className="inline-flex items-center rounded-md border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-2 py-0.5 text-xs font-medium text-[var(--sp-ink)]">
-                {formatLabel}
-              </span>
-
-              <span
-                className={cn(
-                  'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium',
-                  item.difficulty === 'higher'
-                    ? 'border-amber-500/35 bg-amber-500/[0.08] text-amber-900 dark:text-amber-300'
-                    : item.difficulty === 'foundation'
-                      ? 'border-emerald-600/30 bg-emerald-500/[0.07] text-emerald-800 dark:text-emerald-300'
-                      : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)]'
-                )}
-              >
-                {difficultyLabel}
-              </span>
-
-              {mode === 'practice' && existingAttempt && (
-                <span
-                  className={cn(
-                    'inline-flex items-center rounded-md border px-2 py-0.5 font-mono text-xs tabular-nums',
-                    existingAttempt.isCorrect
-                      ? 'border-emerald-600/35 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300'
-                      : 'border-amber-500/35 bg-amber-500/10 text-amber-900 dark:text-amber-300'
-                  )}
-                >
-                  Last: {existingAttempt.earnedMarks}/
-                  {existingAttempt.totalMarks}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-2">
-            {onToggleBookmark && (
-              <button
-                type="button"
-                aria-pressed={isBookmarked}
-                aria-label={isBookmarked ? 'Remove bookmark' : 'Save question'}
-                onClick={() => onToggleBookmark(item.id)}
-                className={cn(
-                  'inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors',
-                  isBookmarked
-                    ? 'border-[var(--sp-accent)]/45 bg-blue-500/10 text-[var(--sp-accent)]'
-                    : 'border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-muted)] hover:bg-[var(--sp-surface-subtle)] hover:text-[var(--sp-ink)]'
-                )}
-              >
-                <Bookmark
-                  className={cn('h-3.5 w-3.5', isBookmarked && 'fill-current')}
-                  aria-hidden="true"
-                />
-                <span className="hidden sm:inline">
-                  {isBookmarked ? 'Saved' : 'Save'}
-                </span>
-              </button>
-            )}
-
+      <header className="flex items-start justify-between gap-3 px-4 pt-4 sm:items-center sm:px-7 sm:pt-5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          {typeof questionNumber === 'number' && (
             <span
-              data-testid="question-marks-badge"
-              className="inline-flex items-center rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-2.5 py-1.5 font-mono text-[13px] font-medium tabular-nums text-[var(--sp-ink)]"
+              aria-label={
+                typeof totalQuestions === 'number'
+                  ? `Question ${questionNumber.toLocaleString()} of ${totalQuestions.toLocaleString()}`
+                  : `Question ${questionNumber.toLocaleString()}`
+              }
+              className="inline-flex h-7 min-w-7 items-center justify-center rounded-lg bg-[var(--sp-ink)] px-2 text-[13px] font-extrabold tabular-nums text-[var(--sp-surface)]"
             >
-              [{item.totalMarks} {item.totalMarks === 1 ? 'mark' : 'marks'}]
+              Q{questionNumber}
             </span>
-          </div>
+          )}
+
+          <span
+            data-testid="question-topic-pill"
+            title={topicLabel.fullLabel}
+            className="sp-chip sp-chip--accent max-w-full min-w-0"
+          >
+            <span className="truncate">{topicLabel.label}</span>
+          </span>
+
+          <span data-testid="question-difficulty-pill" className="sp-chip">
+            <span
+              aria-hidden="true"
+              className={cn('sp-dot', DIFFICULTY_DOT_CLASS[item.difficulty])}
+            />
+            {difficultyLabel}
+          </span>
+
+          {mode === 'practice' && existingAttempt && (
+            <span
+              title={`Last try ${existingAttempt.earnedMarks}/${existingAttempt.totalMarks}`}
+              className={cn(
+                'sp-chip tabular-nums',
+                existingAttempt.isCorrect ? 'sp-chip--success' : 'sp-chip--warn'
+              )}
+            >
+              {existingAttempt.isCorrect ? (
+                <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              <span className="sr-only sm:not-sr-only">
+                Last try {existingAttempt.earnedMarks}/
+                {existingAttempt.totalMarks}
+              </span>
+            </span>
+          )}
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <span
+            data-testid="question-marks-badge"
+            className="sp-chip border-2 bg-[var(--sp-raised)] font-bold tabular-nums shadow-[0_2px_0_var(--sp-lip)]"
+          >
+            {formatMarksLabel(item.totalMarks)}
+          </span>
+
+          {onToggleBookmark && (
+            <button
+              type="button"
+              aria-pressed={isBookmarked}
+              aria-label={isBookmarked ? 'Remove bookmark' : 'Save question'}
+              onClick={() => onToggleBookmark(item.id)}
+              className={cn(
+                'sp-key sp-key--sm inline-flex h-9 items-center gap-1.5 rounded-xl px-2.5 text-[13px] font-bold sm:px-3',
+                isBookmarked
+                  ? 'sp-key--selected text-[var(--sp-accent-ink)]'
+                  : 'sp-key--neutral text-[var(--sp-muted)]'
+              )}
+            >
+              <Bookmark
+                className={cn('h-4 w-4', isBookmarked && 'fill-current')}
+                aria-hidden="true"
+              />
+              <span className="hidden sm:inline">
+                {isBookmarked ? 'Saved' : 'Save'}
+              </span>
+            </button>
+          )}
         </div>
       </header>
 
-      <div className="px-5 py-6 sm:px-7">
+      <div className="px-4 pt-3.5 pb-5 sm:px-7 sm:pb-6">
         <MathText
           text={item.stem}
           block
-          className="max-w-[74ch] text-[16.5px] leading-[1.68] text-[var(--sp-ink)]"
+          className="max-w-[70ch] text-[16.5px] leading-[1.65] text-[var(--sp-ink)] sm:text-[17px]"
         />
 
         {item.svgMarkup && item.svgMarkup.trim().length > 0 && (
           <SvgFigurePlate
             svgMarkup={item.svgMarkup}
             questionId={item.id}
-            className="my-5"
+            className="my-4"
           />
         )}
 

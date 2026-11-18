@@ -4,14 +4,36 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* SixthPhysics workbook tokens — crisp Light default */
-  --sp-bg: #F6F7FA;
+  /* SixthPhysics tactile study-desk tokens — warm-cloud Light default */
+  --sp-bg: #F4F6FB;
   --sp-surface: #FFFFFF;
-  --sp-surface-subtle: #F1F3F7;
-  --sp-border: #E2E6EE;
-  --sp-ink: #111827;
-  --sp-muted: #5B6472;
-  --sp-accent: #2563EB;
+  --sp-surface-subtle: #F1F4F9;
+  --sp-border: #E2E8F0;
+  --sp-lip: #CBD5E1;
+  --sp-ink: #0F172A;
+  --sp-muted: #64748B;
+  --sp-accent: #4F46E5;
+  --sp-accent-lip: #3730A3;
+  --sp-accent-tint: #EEF2FF;
+  --sp-accent-ink: #3730A3;
+
+  --sp-success: #10B981;
+  --sp-success-lip: #059669;
+  --sp-success-tint: #ECFDF5;
+  --sp-success-ink: #047857;
+
+  --sp-warn: #F59E0B;
+  --sp-warn-lip: #D97706;
+  --sp-warn-tint: #FFFBEB;
+  --sp-warn-ink: #92400E;
+
+  --sp-danger: #EF4444;
+  --sp-danger-lip: #B91C1C;
+  --sp-danger-tint: #FEF2F2;
+  --sp-danger-ink: #B91C1C;
+
+  --sp-track: #E8ECF4;
+  --sp-raised: #FFFFFF;
 
   /* Font alias compatibility */
   --font-inter: var(--font-jakarta);
@@ -68,14 +90,36 @@
 }
 
 html.dark {
-  /* SixthPhysics workbook tokens — dark night-desk mode */
-  --sp-bg: #0C111B;
-  --sp-surface: #131B2B;
-  --sp-surface-subtle: #1B2538;
-  --sp-border: #263349;
+  /* SixthPhysics tactile study-desk tokens — night-desk mode */
+  --sp-bg: #0F1420;
+  --sp-surface: #171F30;
+  --sp-surface-subtle: #1D2639;
+  --sp-border: #28354E;
+  --sp-lip: #0B101B;
   --sp-ink: #F1F5F9;
   --sp-muted: #94A3B8;
-  --sp-accent: #3B82F6;
+  --sp-accent: #6366F1;
+  --sp-accent-lip: #3730A3;
+  --sp-accent-tint: rgba(99, 102, 241, 0.16);
+  --sp-accent-ink: #C7D2FE;
+
+  --sp-success: #10B981;
+  --sp-success-lip: #047857;
+  --sp-success-tint: rgba(16, 185, 129, 0.14);
+  --sp-success-ink: #6EE7B7;
+
+  --sp-warn: #F59E0B;
+  --sp-warn-lip: #B45309;
+  --sp-warn-tint: rgba(245, 158, 11, 0.13);
+  --sp-warn-ink: #FCD34D;
+
+  --sp-danger: #F87171;
+  --sp-danger-lip: #991B1B;
+  --sp-danger-tint: rgba(239, 68, 68, 0.14);
+  --sp-danger-ink: #FCA5A5;
+
+  --sp-track: #232E44;
+  --sp-raised: #243049;
 
   /* Shadcn dark tokens */
   --background: 222.2 84% 4.9%;
@@ -163,8 +207,12 @@ html.dark {
   input:focus-visible,
   textarea:focus-visible,
   select:focus-visible {
-    outline: 2px solid var(--sp-accent);
+    outline: 3px solid color-mix(in srgb, var(--sp-accent) 55%, transparent);
     outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--sp-accent) 22%, transparent);
   }
 
   .skip-link {
@@ -203,5 +251,370 @@ html.dark {
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+  }
+}
+
+/* ------------------------------------------------------------------
+   SixthPhysics tactile system
+   Every pressable thing is a keycap: 2px rim + solid lip underneath.
+   The lip is a box-shadow so pressing never reflows the page.
+   ------------------------------------------------------------------ */
+@layer components {
+  /* Static elevated study card */
+  .sp-card {
+    background: var(--sp-surface);
+    border: 2px solid var(--sp-border);
+    border-radius: 1.25rem;
+    box-shadow: 0 4px 0 var(--sp-lip);
+  }
+
+  /* Recessed inset well (scratchpads, worked solutions, tracks) */
+  .sp-well {
+    background: var(--sp-surface-subtle);
+    border: 2px solid var(--sp-border);
+    border-radius: 1rem;
+  }
+
+  /* Pressable keycap base */
+  .sp-key {
+    --k-bg: var(--sp-raised);
+    --k-border: var(--sp-border);
+    --k-lip: var(--sp-lip);
+    --k-fg: var(--sp-ink);
+    --k-depth: 4px;
+    position: relative;
+    background: var(--k-bg);
+    color: var(--k-fg);
+    border: 2px solid var(--k-border);
+    box-shadow: 0 var(--k-depth) 0 var(--k-lip);
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      transform 110ms cubic-bezier(0.3, 0.7, 0.4, 1.4),
+      box-shadow 110ms ease-out,
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease;
+  }
+
+  .sp-key:hover:not(:disabled):not([aria-disabled='true']) {
+    transform: translateY(-1px);
+    box-shadow: 0 calc(var(--k-depth) + 1px) 0 var(--k-lip);
+  }
+
+  .sp-key:active:not(:disabled):not([aria-disabled='true']) {
+    transform: translateY(calc(var(--k-depth) - 1px));
+    box-shadow: 0 1px 0 var(--k-lip);
+    transition-duration: 40ms;
+  }
+
+  .sp-key:disabled,
+  .sp-key[aria-disabled='true'] {
+    cursor: default;
+  }
+
+  .sp-key--sm {
+    --k-depth: 3px;
+  }
+
+  .sp-key--neutral:hover:not(:disabled):not([aria-disabled='true']) {
+    --k-border: color-mix(in srgb, var(--sp-accent) 35%, var(--sp-border));
+  }
+
+  .sp-key--primary {
+    --k-bg: var(--sp-accent);
+    --k-border: var(--sp-accent);
+    --k-lip: var(--sp-accent-lip);
+    --k-fg: #ffffff;
+  }
+
+  .sp-key--success {
+    --k-bg: #059669;
+    --k-border: #059669;
+    --k-lip: #047857;
+    --k-fg: #ffffff;
+  }
+
+  .sp-key--warn {
+    --k-bg: var(--sp-warn);
+    --k-border: var(--sp-warn);
+    --k-lip: var(--sp-warn-lip);
+    --k-fg: #451a03;
+  }
+
+  /* Waiting state: visibly a button, plainly not ready */
+  .sp-key--idle {
+    --k-bg: var(--sp-surface-subtle);
+    --k-border: var(--sp-border);
+    --k-lip: var(--sp-border);
+    --k-fg: var(--sp-muted);
+  }
+
+  .sp-key--selected {
+    --k-bg: var(--sp-accent-tint);
+    --k-border: var(--sp-accent);
+    --k-lip: var(--sp-accent-lip);
+  }
+
+  .sp-key--correct {
+    --k-bg: var(--sp-success-tint);
+    --k-border: var(--sp-success);
+    --k-lip: var(--sp-success-lip);
+  }
+
+  .sp-key--wrong {
+    --k-bg: var(--sp-danger-tint);
+    --k-border: var(--sp-danger);
+    --k-lip: var(--sp-danger-lip);
+  }
+
+  /* Answered tiles settle into the desk */
+  .sp-key--settled {
+    --k-depth: 2px;
+    opacity: 0.62;
+  }
+
+  /* Squircle letter keycap inside option tiles */
+  .sp-keycap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.125rem;
+    height: 2.125rem;
+    border-radius: 0.7rem;
+    border: 2px solid var(--sp-border);
+    background: var(--sp-surface);
+    color: var(--sp-muted);
+    box-shadow: 0 3px 0 var(--sp-border);
+    font-weight: 800;
+    font-size: 0.875rem;
+    line-height: 1;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease,
+      box-shadow 140ms ease;
+  }
+
+  .sp-keycap--selected {
+    background: var(--sp-accent);
+    border-color: var(--sp-accent);
+    color: #ffffff;
+    box-shadow: 0 3px 0 var(--sp-accent-lip);
+  }
+
+  .sp-keycap--correct {
+    background: #059669;
+    border-color: #059669;
+    color: #ffffff;
+    box-shadow: 0 3px 0 #047857;
+  }
+
+  .sp-keycap--wrong {
+    background: var(--sp-danger);
+    border-color: var(--sp-danger);
+    color: #ffffff;
+    box-shadow: 0 3px 0 var(--sp-danger-lip);
+  }
+
+  /* Segmented switcher: sunken track, raised selected keycap */
+  .sp-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 0.95rem;
+    background: var(--sp-track);
+    box-shadow: inset 0 2px 0 color-mix(in srgb, var(--sp-lip) 55%, transparent);
+  }
+
+  .sp-seg-item {
+    border: 2px solid transparent;
+    border-radius: 0.75rem;
+    color: var(--sp-muted);
+    font-weight: 650;
+    cursor: pointer;
+    transition:
+      color 120ms ease,
+      background-color 120ms ease,
+      box-shadow 120ms ease,
+      transform 90ms ease-out;
+  }
+
+  .sp-seg-item:hover {
+    color: var(--sp-ink);
+  }
+
+  .sp-seg-item[aria-selected='true'],
+  .sp-seg-item[aria-pressed='true'] {
+    background: var(--sp-raised);
+    border-color: var(--sp-border);
+    color: var(--sp-ink);
+    font-weight: 750;
+    box-shadow: 0 2px 0 var(--sp-lip);
+  }
+
+  .sp-seg-item:active {
+    transform: translateY(1px);
+  }
+
+  /* Static information chip */
+  .sp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 9999px;
+    border: 1.5px solid var(--sp-border);
+    background: var(--sp-surface-subtle);
+    color: var(--sp-ink);
+    padding: 0.2rem 0.65rem;
+    font-size: 0.78rem;
+    font-weight: 650;
+    line-height: 1.35;
+    white-space: nowrap;
+  }
+
+  .sp-chip--accent {
+    border-color: color-mix(in srgb, var(--sp-accent) 30%, transparent);
+    background: var(--sp-accent-tint);
+    color: var(--sp-accent-ink);
+  }
+
+  .sp-chip--success {
+    border-color: color-mix(in srgb, var(--sp-success) 35%, transparent);
+    background: var(--sp-success-tint);
+    color: var(--sp-success-ink);
+  }
+
+  .sp-chip--warn {
+    border-color: color-mix(in srgb, var(--sp-warn) 40%, transparent);
+    background: var(--sp-warn-tint);
+    color: var(--sp-warn-ink);
+  }
+
+  .sp-chip--danger {
+    border-color: color-mix(in srgb, var(--sp-danger) 35%, transparent);
+    background: var(--sp-danger-tint);
+    color: var(--sp-danger-ink);
+  }
+
+  .sp-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    flex-shrink: 0;
+  }
+
+  /* Chunky progress bar with a glossy highlight band */
+  .sp-progress {
+    position: relative;
+    height: 0.75rem;
+    border-radius: 9999px;
+    background: var(--sp-track);
+    overflow: hidden;
+  }
+
+  .sp-progress-fill {
+    position: relative;
+    height: 100%;
+    border-radius: 9999px;
+    background: var(--sp-accent);
+    transition: width 420ms cubic-bezier(0.3, 0.7, 0.4, 1);
+  }
+
+  .sp-progress-fill::after {
+    content: '';
+    position: absolute;
+    left: 0.4rem;
+    right: 0.4rem;
+    top: 0.18rem;
+    height: 0.18rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.38);
+  }
+
+  .sp-progress--sm {
+    height: 0.4rem;
+  }
+
+  .sp-progress--sm .sp-progress-fill::after {
+    display: none;
+  }
+
+  /* Feedback banners */
+  .sp-banner {
+    border-radius: 1.1rem;
+    border: 2px solid var(--b-border);
+    background: var(--b-bg);
+    box-shadow: 0 4px 0 var(--b-lip);
+  }
+
+  .sp-banner--success {
+    --b-border: var(--sp-success);
+    --b-bg: var(--sp-success-tint);
+    --b-lip: var(--sp-success-lip);
+  }
+
+  .sp-banner--warn {
+    --b-border: var(--sp-warn);
+    --b-bg: var(--sp-warn-tint);
+    --b-lip: var(--sp-warn-lip);
+  }
+
+  /* Reaction motion: only fires in answer to the student's action */
+  .sp-anim-pop {
+    animation: sp-pop 320ms cubic-bezier(0.3, 0.7, 0.4, 1.4) both;
+  }
+
+  .sp-anim-shake {
+    animation: sp-shake 360ms ease-in-out both;
+  }
+
+  .sp-anim-bump {
+    animation: sp-bump 360ms cubic-bezier(0.3, 0.7, 0.4, 1.5) both;
+  }
+}
+
+@keyframes sp-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sp-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-5px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes sp-bump {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
   }
 }

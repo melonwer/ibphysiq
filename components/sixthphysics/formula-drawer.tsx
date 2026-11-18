@@ -532,111 +532,102 @@ export function FormulaDrawer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-[1px]"
+      className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-[2px]"
       role="dialog"
       aria-modal="true"
       aria-label={`${SYLLABUS_SHORT_LABELS[selectedSyllabus]} data booklet and formula sheet`}
       onClick={onClose}
     >
       <aside
-        className="flex h-full w-full max-w-[560px] flex-col border-l border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface,#FFFFFF)] text-[var(--sp-ink,#111827)] shadow-2xl"
+        className="sp-card flex h-full w-full max-w-[560px] flex-col overflow-hidden rounded-none text-[var(--sp-ink)] sm:m-3 sm:h-[calc(100%-1.5rem)] sm:rounded-[1.25rem]"
         onClick={(event) => event.stopPropagation()}
       >
-        {/* Sticky Header & Controls */}
-        <div className="border-b border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface,#FFFFFF)] px-4 py-3.5 sm:px-5">
+        {/* Header & controls */}
+        <div className="border-b-2 border-[var(--sp-border)] bg-[var(--sp-surface)] px-4 pt-4 pb-3.5 sm:px-5">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <BookOpen
-                  className="h-4 w-4 shrink-0 text-[var(--sp-accent,#2563EB)]"
-                  aria-hidden="true"
-                />
-                <h2 className="text-base font-semibold tracking-tight text-[var(--sp-ink,#111827)]">
-                  Data booklet &amp; formula sheet
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="sp-keycap sp-keycap--selected" aria-hidden="true">
+                <BookOpen className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-[17px] font-extrabold tracking-tight text-[var(--sp-ink)]">
+                  Data booklet &amp; formulas
                 </h2>
+                <p className="mt-0.5 truncate text-[13px] text-[var(--sp-muted)]">
+                  {catalogue.title} ·{' '}
+                  <span className="font-semibold tabular-nums">
+                    {totalMatchingEquations}{' '}
+                    {totalMatchingEquations === 1 ? 'equation' : 'equations'}
+                  </span>
+                </p>
               </div>
-              <p className="mt-0.5 text-xs text-[var(--sp-muted,#5B6472)]">
-                {catalogue.title} ·{' '}
-                <span className="tabular-nums font-medium">
-                  {totalMatchingEquations}{' '}
-                  {totalMatchingEquations === 1 ? 'equation' : 'equations'}
-                </span>
-              </p>
             </div>
 
             <button
               type="button"
               onClick={onClose}
               aria-label="Close data booklet"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface-subtle,#F1F3F7)] px-2.5 py-1.5 text-xs font-medium text-[var(--sp-ink,#111827)] transition-colors hover:opacity-90"
+              className="sp-key sp-key--neutral sp-key--sm inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
             >
-              <span>Close</span>
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
+              <X className="h-4 w-4" aria-hidden="true" strokeWidth={2.75} />
             </button>
           </div>
 
-          {/* Syllabus & Level Switchers */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <div
-              className="inline-flex rounded-lg border border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface-subtle,#F1F3F7)] p-0.5"
-              role="tablist"
-              aria-label="Select syllabus booklet"
-            >
-              {(['ib', 'alevel', 'ncuk'] as const).map((syl) => {
-                const isActive = selectedSyllabus === syl;
-                return (
-                  <button
-                    key={syl}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    onClick={() => {
-                      setSelectedSyllabus(syl);
-                      setLevelFilter('ALL');
-                    }}
-                    className={cn(
-                      'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                      isActive
-                        ? 'bg-[var(--sp-surface,#FFFFFF)] text-[var(--sp-ink,#111827)] shadow-xs'
-                        : 'text-[var(--sp-muted,#5B6472)] hover:text-[var(--sp-ink,#111827)]'
-                    )}
-                  >
-                    {syl === 'ib'
-                      ? 'IB Physics'
-                      : syl === 'alevel'
-                        ? 'UK A-Level'
-                        : 'NCUK IFY'}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="inline-flex flex-wrap items-center gap-1">
-              {levelPills.map((pill) => {
-                const active = levelFilter === pill.id;
-                return (
-                  <button
-                    key={pill.id}
-                    type="button"
-                    onClick={() => setLevelFilter(pill.id)}
-                    className={cn(
-                      'rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors',
-                      active
-                        ? 'border-[var(--sp-accent,#2563EB)] bg-[var(--sp-accent,#2563EB)]/10 text-[var(--sp-accent,#2563EB)]'
-                        : 'border-[var(--sp-border,#E5E7EB)] bg-transparent text-[var(--sp-muted,#5B6472)] hover:text-[var(--sp-ink,#111827)]'
-                    )}
-                  >
-                    {pill.label}
-                  </button>
-                );
-              })}
-            </div>
+          {/* Syllabus tabs */}
+          <div
+            className="sp-seg mt-4 flex w-full"
+            role="tablist"
+            aria-label="Select syllabus booklet"
+          >
+            {(['ib', 'alevel', 'ncuk'] as const).map((syl) => {
+              const isActive = selectedSyllabus === syl;
+              return (
+                <button
+                  key={syl}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => {
+                    setSelectedSyllabus(syl);
+                    setLevelFilter('ALL');
+                  }}
+                  className="sp-seg-item flex-1 px-3 py-2 text-[13px]"
+                >
+                  {syl === 'ib'
+                    ? 'IB Physics'
+                    : syl === 'alevel'
+                      ? 'A-Level'
+                      : 'NCUK'}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Search Input */}
-          <div className="relative mt-3">
+          {/* Level filter */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+            {levelPills.map((pill) => {
+              const active = levelFilter === pill.id;
+              return (
+                <button
+                  key={pill.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setLevelFilter(pill.id)}
+                  className={cn(
+                    'sp-key sp-key--sm rounded-full px-3 py-1 text-[12.5px] font-bold',
+                    active ? 'sp-key--selected' : 'sp-key--neutral text-[var(--sp-muted)]'
+                  )}
+                >
+                  {pill.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Search */}
+          <div className="relative mt-3.5">
             <Search
-              className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[var(--sp-muted,#5B6472)]"
+              className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-[var(--sp-muted)]"
               aria-hidden="true"
             />
             <input
@@ -644,88 +635,87 @@ export function FormulaDrawer({
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search formulas, symbols, or units..."
+              placeholder="Search formulas, symbols or units"
               aria-label="Search formulas, symbols, or units"
-              className="w-full rounded-lg border border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface-subtle,#F1F3F7)] py-2 pr-8 pl-9 text-sm text-[var(--sp-ink,#111827)] placeholder:text-[var(--sp-muted,#5B6472)]"
+              className="sp-well w-full rounded-2xl py-2.5 pr-10 pl-10 text-sm font-medium text-[var(--sp-ink)] placeholder:text-[var(--sp-muted)] focus:border-[var(--sp-accent)] focus:outline-none"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
                 aria-label="Clear formula search"
-                className="absolute top-1/2 right-2.5 -translate-y-1/2 rounded p-0.5 text-[var(--sp-muted,#5B6472)] hover:text-[var(--sp-ink,#111827)]"
+                className="absolute top-1/2 right-2.5 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--sp-track)] text-[var(--sp-muted)] transition-colors hover:text-[var(--sp-ink)]"
               >
-                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                <X className="h-3.5 w-3.5" aria-hidden="true" strokeWidth={2.75} />
               </button>
             )}
           </div>
 
-          {/* Syllabus Gravity & Sign Convention Callout */}
-          <div className="mt-3 rounded-lg border border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface-subtle,#F1F3F7)] px-3 py-2 text-xs">
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span className="font-semibold tabular-nums text-[var(--sp-accent,#2563EB)]">
-                <MathText text={gravityInfo.badge} />
-              </span>
-              <span className="text-[var(--sp-muted,#5B6472)]">
-                <MathText text={gravityInfo.detail} />
-              </span>
-            </div>
+          {/* Gravity & sign convention */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[12.5px]">
+            <span className="sp-chip sp-chip--accent tabular-nums">
+              <MathText text={gravityInfo.badge} />
+            </span>
+            <span className="leading-snug text-[var(--sp-muted)]">
+              <MathText text={gravityInfo.detail} />
+            </span>
           </div>
         </div>
 
-        {/* Scrollable Booklet Content */}
-        <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4 sm:px-5">
-          {/* Fundamental Constants Section */}
+        {/* Scrollable booklet content */}
+        <div className="flex-1 space-y-6 overflow-y-auto bg-[var(--sp-bg)] px-4 py-5 sm:px-5">
+          {/* Fundamental constants */}
           {filteredConstants.length > 0 && (
-            <section className="rounded-xl border border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface,#FFFFFF)]">
+            <section className="sp-card overflow-hidden rounded-2xl">
               <button
                 type="button"
                 onClick={() => setConstantsExpanded((prev) => !prev)}
                 aria-expanded={showConstantsBody}
-                className="flex w-full items-center justify-between px-3.5 py-2.5 text-left"
+                className="flex w-full cursor-pointer items-center justify-between gap-2 px-4 py-3 text-left transition-colors hover:bg-[var(--sp-surface-subtle)]"
               >
-                <span className="text-sm font-semibold text-[var(--sp-ink,#111827)]">
-                  Fundamental constants{' '}
-                  <span className="ml-1 text-xs font-normal tabular-nums text-[var(--sp-muted,#5B6472)]">
-                    ({filteredConstants.length})
+                <span className="flex items-center gap-2 text-[15px] font-extrabold text-[var(--sp-ink)]">
+                  Fundamental constants
+                  <span className="sp-chip tabular-nums text-[var(--sp-muted)]">
+                    {filteredConstants.length}
                   </span>
                 </span>
                 {showConstantsBody ? (
                   <ChevronDown
-                    className="h-4 w-4 text-[var(--sp-muted,#5B6472)]"
+                    className="h-5 w-5 text-[var(--sp-muted)]"
                     aria-hidden="true"
+                    strokeWidth={2.5}
                   />
                 ) : (
                   <ChevronRight
-                    className="h-4 w-4 text-[var(--sp-muted,#5B6472)]"
+                    className="h-5 w-5 text-[var(--sp-muted)]"
                     aria-hidden="true"
+                    strokeWidth={2.5}
                   />
                 )}
               </button>
 
               {showConstantsBody && (
-                <div className="divide-y divide-[var(--sp-border,#E5E7EB)] border-t border-[var(--sp-border,#E5E7EB)]">
+                <div className="divide-y-2 divide-[var(--sp-surface-subtle)] border-t-2 border-[var(--sp-border)]">
                   {filteredConstants.map((constant) => (
                     <div
                       key={`${selectedSyllabus}-${constant.symbolLatex}-${constant.name}`}
                       className={cn(
-                        'grid grid-cols-[60px_1fr_auto] items-center gap-2 px-3.5 py-2 text-xs',
-                        constant.highlight &&
-                          'bg-[var(--sp-accent,#2563EB)]/[0.06]'
+                        'grid grid-cols-[52px_1fr_auto] items-center gap-2.5 px-4 py-2.5 text-[13px]',
+                        constant.highlight && 'bg-[var(--sp-accent-tint)]'
                       )}
                     >
                       <span
-                        className="font-medium text-[var(--sp-ink,#111827)]"
+                        className="font-semibold text-[var(--sp-ink)]"
                         dangerouslySetInnerHTML={{
                           __html: renderLatexToHtml(constant.symbolLatex, {
                             displayMode: false,
                           }),
                         }}
                       />
-                      <span className="text-[var(--sp-muted,#5B6472)]">
+                      <span className="text-[var(--sp-muted)]">
                         {constant.name}
                       </span>
-                      <span className="text-right font-medium tabular-nums text-[var(--sp-ink,#111827)]">
+                      <span className="text-right font-bold tabular-nums text-[var(--sp-ink)]">
                         <MathText
                           text={`${constant.valueText} ${constant.siUnit}`.trim()}
                         />
@@ -737,21 +727,20 @@ export function FormulaDrawer({
             </section>
           )}
 
-          {/* Topic & Subtopic Equations */}
+          {/* Topic & subtopic equations */}
           {filteredTopics.length === 0 ? (
-            <div className="rounded-xl border border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface-subtle,#F1F3F7)] p-6 text-center">
-              <p className="text-sm font-medium text-[var(--sp-ink,#111827)]">
+            <div className="sp-well p-7 text-center">
+              <p className="text-[15px] font-extrabold text-[var(--sp-ink)]">
                 No formulas match &ldquo;{searchQuery.trim()}&rdquo;
               </p>
-              <p className="mt-1 text-xs text-[var(--sp-muted,#5B6472)]">
-                Try searching by variable symbol (such as λ or E_k), topic code,
-                or unit.
+              <p className="mx-auto mt-1.5 max-w-[40ch] text-[13px] text-[var(--sp-muted)]">
+                Try a symbol like λ or E_k, a topic code, or a unit.
               </p>
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
-                  className="mt-3 inline-flex items-center rounded-lg border border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface,#FFFFFF)] px-3 py-1.5 text-xs font-medium text-[var(--sp-ink,#111827)] hover:opacity-90"
+                  className="sp-key sp-key--neutral mt-4 inline-flex items-center rounded-xl px-4 py-2 text-[13px] font-extrabold"
                 >
                   Clear search
                 </button>
@@ -760,50 +749,52 @@ export function FormulaDrawer({
           ) : (
             filteredTopics.map((topic) => (
               <section key={topic.topicId} className="space-y-3">
-                <div className="flex items-baseline justify-between gap-2 border-b border-[var(--sp-border,#E5E7EB)] pb-1.5">
-                  <h3 className="text-sm font-semibold text-[var(--sp-ink,#111827)]">
-                    <span className="mr-1.5 font-mono text-xs text-[var(--sp-accent,#2563EB)]">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="flex min-w-0 items-center gap-2 text-[15px] font-extrabold text-[var(--sp-ink)]">
+                    <span className="sp-chip sp-chip--accent shrink-0 tabular-nums">
                       {formatCompactTopicCode(topic.topicCode)}
                     </span>
-                    {formatCompactTopicTitle(topic.topicTitle)}
+                    <span className="truncate">
+                      {formatCompactTopicTitle(topic.topicTitle)}
+                    </span>
                   </h3>
                   {topic.isOption && (
-                    <span className="shrink-0 rounded border border-[var(--sp-border,#E5E7EB)] px-1.5 py-0.5 text-[11px] text-[var(--sp-muted,#5B6472)]">
+                    <span className="sp-chip shrink-0 text-[var(--sp-muted)]">
                       Option
                     </span>
                   )}
                 </div>
 
-                <div className="space-y-3.5">
+                <div className="space-y-4">
                   {topic.subtopics.map((sub) => (
-                    <div key={sub.subtopicId} className="space-y-2">
-                      <h4 className="text-xs font-medium text-[var(--sp-muted,#5B6472)]">
-                        <span className="mr-1.5 font-mono text-[11px] text-[var(--sp-ink,#111827)]">
+                    <div key={sub.subtopicId} className="space-y-2.5">
+                      <h4 className="pl-1 text-[13px] font-semibold text-[var(--sp-muted)]">
+                        <span className="mr-1.5 font-bold tabular-nums text-[var(--sp-ink)]">
                           {sub.subtopicCode}
                         </span>
                         {sub.subtopicTitle}
                       </h4>
 
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         {sub.equations.map((eq) => (
                           <article
                             key={eq.id}
-                            className="rounded-xl border border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface,#FFFFFF)] p-3"
+                            className="sp-card rounded-2xl p-3.5"
                           >
                             <div className="flex items-start justify-between gap-2">
-                              <p className="text-xs font-medium text-[var(--sp-ink,#111827)]">
+                              <p className="text-[14px] font-bold text-[var(--sp-ink)]">
                                 {eq.label}
                               </p>
-                              <div className="flex shrink-0 items-center gap-1">
-                                <span className="rounded bg-[var(--sp-surface-subtle,#F1F3F7)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--sp-ink,#111827)]">
+                              <div className="flex shrink-0 items-center gap-1.5">
+                                <span className="sp-chip text-[11.5px]">
                                   {eq.level}
                                 </span>
                                 <span
                                   className={cn(
-                                    'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                                    'sp-chip text-[11.5px]',
                                     eq.inDataBooklet
-                                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-                                      : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                                      ? 'sp-chip--success'
+                                      : 'sp-chip--warn'
                                   )}
                                 >
                                   {eq.inDataBooklet
@@ -814,7 +805,7 @@ export function FormulaDrawer({
                             </div>
 
                             <div
-                              className="my-2 overflow-x-auto rounded-lg border border-[var(--sp-border,#E5E7EB)] bg-[var(--sp-surface-subtle,#F1F3F7)] px-3 py-2 text-sm text-[var(--sp-ink,#111827)]"
+                              className="sp-well my-2.5 overflow-x-auto rounded-xl px-3 py-2 text-sm text-[var(--sp-ink)]"
                               dangerouslySetInnerHTML={{
                                 __html: renderLatexToHtml(eq.latex, {
                                   displayMode: true,
@@ -823,7 +814,7 @@ export function FormulaDrawer({
                             />
 
                             {eq.variables && eq.variables.length > 0 ? (
-                              <ul className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[var(--sp-muted,#5B6472)]">
+                              <ul className="mt-1.5 flex flex-wrap gap-x-3.5 gap-y-1 text-[12px] text-[var(--sp-muted)]">
                                 {eq.variables.map((v) => (
                                   <li key={`${eq.id}-${v.symbol}`}>
                                     <MathText
@@ -833,13 +824,13 @@ export function FormulaDrawer({
                                 ))}
                               </ul>
                             ) : (
-                              <p className="text-[11px] text-[var(--sp-muted,#5B6472)]">
+                              <p className="text-[12px] text-[var(--sp-muted)]">
                                 <MathText text={eq.siUnitsSummary} />
                               </p>
                             )}
 
                             {eq.notes && (
-                              <p className="mt-1 text-[11px] text-[var(--sp-muted,#5B6472)]">
+                              <p className="mt-1.5 text-[12px] text-[var(--sp-muted)]">
                                 <MathText text={eq.notes} />
                               </p>
                             )}

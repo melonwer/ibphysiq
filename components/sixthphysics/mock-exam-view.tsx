@@ -65,11 +65,12 @@ const CUSTOM_DURATION_OPTIONS = [15, 25, 30, 40, 60] as const;
 const CUSTOM_DIFFICULTY_OPTIONS: ReadonlyArray<{
   value: QuestionDifficulty | 'all';
   label: string;
+  dotClass?: string;
 }> = [
-  { value: 'all', label: 'All levels' },
-  { value: 'foundation', label: 'Foundation' },
-  { value: 'standard', label: 'Standard' },
-  { value: 'higher', label: 'Higher' },
+  { value: 'all', label: 'All' },
+  { value: 'foundation', label: 'Easy', dotClass: 'bg-emerald-500' },
+  { value: 'standard', label: 'Medium', dotClass: 'bg-amber-500' },
+  { value: 'higher', label: 'Hard', dotClass: 'bg-rose-500' },
 ];
 
 type ReviewFilterTab = 'all' | 'unmarked' | 'missed';
@@ -585,50 +586,62 @@ export function MockExamView({
   // STAGE 1: SETUP VIEW (Presets + Custom Builder)
   // =========================================================================
   if (!session) {
+    const canStartCustom = eligibleCustomPool.length > 0;
     return (
-      <div className="mx-auto max-w-[1060px] space-y-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="space-y-1">
-            <h1 className="text-xl font-semibold tracking-tight text-[var(--sp-ink)] sm:text-2xl">
+      <div className="mx-auto max-w-[1060px] space-y-7">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="space-y-1.5">
+            <h1 className="text-2xl font-extrabold tracking-tight text-[var(--sp-ink)] sm:text-[28px]">
               Timed mock exam
             </h1>
-            <p className="max-w-[68ch] text-sm text-[var(--sp-muted)]">
-              Choose an official exam-style paper for{' '}
-              <span className="font-medium text-[var(--sp-ink)]">
+            <p className="max-w-[62ch] text-[15px] leading-relaxed text-[var(--sp-muted)]">
+              Pick an exam-style paper for{' '}
+              <span className="font-bold text-[var(--sp-ink)]">
                 {syllabusMeta?.shortLabel ?? 'your syllabus'}
               </span>{' '}
-              or configure a custom timed set. Every paper draws at most one
-              question from each physics problem family.
+              or build your own. Each paper uses at most one question from
+              every problem family.
             </p>
           </div>
 
-          {syllabusMeta?.gravityConvention && (
-            <span className="inline-flex items-center rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface)] px-3 py-1.5 font-mono text-xs font-medium tabular-nums text-[var(--sp-muted)]">
-              <MathText text={syllabusMeta.gravityConvention} />
-            </span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {syllabusMeta?.shortLabel && (
+              <span className="sp-chip sp-chip--accent">
+                <span
+                  className="sp-dot bg-[var(--sp-accent)]"
+                  aria-hidden="true"
+                />
+                {syllabusMeta.shortLabel}
+              </span>
+            )}
+            {syllabusMeta?.gravityConvention && (
+              <span className="sp-chip tabular-nums text-[var(--sp-muted)]">
+                <MathText text={syllabusMeta.gravityConvention} />
+              </span>
+            )}
+          </div>
         </div>
 
-        {/* Official Syllabus Presets */}
-        <section aria-label="Recommended mock presets" className="space-y-3">
-          <h2 className="text-sm font-semibold text-[var(--sp-ink)]">
-            Exam-format presets
+        {/* Exam-format presets */}
+        <section aria-label="Recommended mock presets" className="space-y-3.5">
+          <h2 className="text-[17px] font-extrabold text-[var(--sp-ink)]">
+            Exam-style papers
           </h2>
 
-          <div className="grid gap-3.5 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3">
             {presets.map((preset) => {
               const heading = cleanPresetHeading(preset.title);
               return (
                 <article
                   key={preset.id}
-                  className="flex flex-col justify-between rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-5 transition-colors hover:border-[var(--sp-accent)]/45"
+                  className="sp-card flex flex-col justify-between p-5"
                 >
-                  <div className="space-y-2.5">
+                  <div className="space-y-3">
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <h3 className="text-[15.5px] font-semibold leading-snug text-[var(--sp-ink)]">
+                      <h3 className="text-[16px] font-extrabold leading-snug text-[var(--sp-ink)]">
                         {heading}
                       </h3>
-                      <span className="shrink-0 rounded-md border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-2 py-0.5 font-mono text-[11px] font-medium tabular-nums text-[var(--sp-ink)]">
+                      <span className="sp-chip sp-chip--accent shrink-0 tabular-nums">
                         {preset.badgeLabel}
                       </span>
                     </div>
@@ -636,18 +649,21 @@ export function MockExamView({
                     <MathText
                       text={preset.subtitle}
                       block
-                      className="text-[13.5px] leading-[1.58] text-[var(--sp-muted)]"
+                      className="text-[14px] leading-[1.6] text-[var(--sp-muted)]"
                     />
                   </div>
 
-                  <div className="mt-5 pt-1">
+                  <div className="mt-5">
                     <button
                       type="button"
                       onClick={() => handleStartPreset(preset)}
-                      className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-[var(--sp-accent)] px-4 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-95"
+                      className="sp-key sp-key--primary inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-[15px] font-extrabold"
                     >
-                      <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                      <span>Start timed paper</span>
+                      <Play
+                        className="h-4 w-4 fill-current"
+                        aria-hidden="true"
+                      />
+                      <span>Start mock</span>
                     </button>
                   </div>
                 </article>
@@ -656,62 +672,84 @@ export function MockExamView({
           </div>
         </section>
 
-        {/* Compact Custom Paper Builder */}
+        {/* Custom paper builder */}
         <section
           aria-label="Custom mock paper builder"
-          className="rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-5 sm:p-6"
+          className="sp-card p-5 sm:p-7"
         >
-          <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--sp-border)] pb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-[var(--sp-ink)]">
-                Custom paper builder
+              <h2 className="text-[19px] font-extrabold text-[var(--sp-ink)]">
+                Build your own paper
               </h2>
-              <p className="mt-0.5 text-xs text-[var(--sp-muted)]">
-                Tailor question format, length, timer, and topic scope
+              <p className="mt-0.5 text-[14px] text-[var(--sp-muted)]">
+                Choose the format, length, timer and topics.
               </p>
             </div>
 
-            <span className="font-mono text-xs tabular-nums text-[var(--sp-muted)]">
-              {eligibleCustomPool.length.toLocaleString()} matching questions in
-              pool
+            <span
+              className={cn(
+                'sp-chip tabular-nums',
+                canStartCustom ? 'sp-chip--success' : 'sp-chip--warn'
+              )}
+            >
+              {eligibleCustomPool.length.toLocaleString()} questions available
             </span>
           </div>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-6 grid gap-5 md:grid-cols-2">
             {/* Format */}
-            <div className="space-y-1.5">
-              <span className="block text-xs font-medium text-[var(--sp-muted)]">
-                Paper format
+            <div className="space-y-2">
+              <span className="block text-[14px] font-bold text-[var(--sp-ink)]">
+                Format
               </span>
-              <div className="flex flex-wrap gap-1">
-                {CUSTOM_FORMAT_OPTIONS.map((opt) => {
-                  const active = customFormat === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => setCustomFormat(opt.value)}
-                      className={cn(
-                        'cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs transition-colors',
-                        active
-                          ? 'border-[var(--sp-accent)]/45 bg-blue-500/10 font-semibold text-[var(--sp-ink)] dark:bg-blue-500/15'
-                          : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] font-medium text-[var(--sp-muted)] hover:text-[var(--sp-ink)]'
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
+              <div className="sp-seg flex w-full">
+                {CUSTOM_FORMAT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    aria-pressed={customFormat === opt.value}
+                    onClick={() => setCustomFormat(opt.value)}
+                    className="sp-seg-item flex-1 px-2.5 py-2 text-[13.5px]"
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Difficulty */}
+            <div className="space-y-2">
+              <span className="block text-[14px] font-bold text-[var(--sp-ink)]">
+                Difficulty
+              </span>
+              <div className="sp-seg flex w-full">
+                {CUSTOM_DIFFICULTY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    aria-pressed={customDifficulty === opt.value}
+                    onClick={() => setCustomDifficulty(opt.value)}
+                    className="sp-seg-item inline-flex flex-1 items-center justify-center gap-1.5 px-2.5 py-2 text-[13.5px]"
+                  >
+                    {opt.dotClass && (
+                      <span
+                        className={cn('sp-dot', opt.dotClass)}
+                        aria-hidden="true"
+                      />
+                    )}
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
 
             {/* Question count */}
-            <div className="space-y-1.5">
-              <span className="block text-xs font-medium text-[var(--sp-muted)]">
-                Questions
+            <div className="space-y-2">
+              <span className="block text-[14px] font-bold text-[var(--sp-ink)]">
+                Length
               </span>
-              <div className="flex flex-wrap gap-1">
+              <div className="grid grid-cols-5 gap-2">
                 {CUSTOM_COUNT_OPTIONS.map((count) => {
                   const active = customCount === count;
                   return (
@@ -721,13 +759,16 @@ export function MockExamView({
                       aria-pressed={active}
                       onClick={() => setCustomCount(count)}
                       className={cn(
-                        'cursor-pointer rounded-lg border px-2.5 py-1.5 font-mono text-xs tabular-nums transition-colors',
-                        active
-                          ? 'border-[var(--sp-accent)]/45 bg-blue-500/10 font-semibold text-[var(--sp-ink)] dark:bg-blue-500/15'
-                          : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] font-medium text-[var(--sp-muted)] hover:text-[var(--sp-ink)]'
+                        'sp-key sp-key--sm flex flex-col items-center rounded-2xl px-2 py-2.5',
+                        active ? 'sp-key--selected' : 'sp-key--neutral'
                       )}
                     >
-                      {count}
+                      <span className="text-[18px] leading-none font-extrabold tabular-nums">
+                        {count}
+                      </span>
+                      <span className="mt-1 text-[11.5px] font-semibold text-[var(--sp-muted)]">
+                        questions
+                      </span>
                     </button>
                   );
                 })}
@@ -735,11 +776,11 @@ export function MockExamView({
             </div>
 
             {/* Duration */}
-            <div className="space-y-1.5">
-              <span className="block text-xs font-medium text-[var(--sp-muted)]">
-                Duration
+            <div className="space-y-2">
+              <span className="block text-[14px] font-bold text-[var(--sp-ink)]">
+                Timer
               </span>
-              <div className="flex flex-wrap gap-1">
+              <div className="grid grid-cols-5 gap-2">
                 {CUSTOM_DURATION_OPTIONS.map((mins) => {
                   const active = customDuration === mins;
                   return (
@@ -749,41 +790,16 @@ export function MockExamView({
                       aria-pressed={active}
                       onClick={() => setCustomDuration(mins)}
                       className={cn(
-                        'cursor-pointer rounded-lg border px-2.5 py-1.5 font-mono text-xs tabular-nums transition-colors',
-                        active
-                          ? 'border-[var(--sp-accent)]/45 bg-blue-500/10 font-semibold text-[var(--sp-ink)] dark:bg-blue-500/15'
-                          : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] font-medium text-[var(--sp-muted)] hover:text-[var(--sp-ink)]'
+                        'sp-key sp-key--sm flex flex-col items-center rounded-2xl px-2 py-2.5',
+                        active ? 'sp-key--selected' : 'sp-key--neutral'
                       )}
                     >
-                      {mins}m
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Difficulty */}
-            <div className="space-y-1.5">
-              <span className="block text-xs font-medium text-[var(--sp-muted)]">
-                Difficulty
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {CUSTOM_DIFFICULTY_OPTIONS.map((opt) => {
-                  const active = customDifficulty === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => setCustomDifficulty(opt.value)}
-                      className={cn(
-                        'cursor-pointer rounded-lg border px-2.5 py-1.5 text-xs transition-colors',
-                        active
-                          ? 'border-[var(--sp-accent)]/45 bg-blue-500/10 font-semibold text-[var(--sp-ink)] dark:bg-blue-500/15'
-                          : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] font-medium text-[var(--sp-muted)] hover:text-[var(--sp-ink)]'
-                      )}
-                    >
-                      {opt.label}
+                      <span className="text-[18px] leading-none font-extrabold tabular-nums">
+                        {mins}
+                      </span>
+                      <span className="mt-1 text-[11.5px] font-semibold text-[var(--sp-muted)]">
+                        min
+                      </span>
                     </button>
                   );
                 })}
@@ -793,27 +809,29 @@ export function MockExamView({
 
           {/* Optional topic scope selector */}
           {topics.length > 0 && (
-            <div className="mt-4 space-y-2 border-t border-[var(--sp-border)] pt-4">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium text-[var(--sp-muted)]">
-                  Topics included (
-                  {effectiveCustomTopicIds.length === 0
-                    ? 'All topics'
-                    : `${effectiveCustomTopicIds.length} selected`}
-                  )
+            <div className="mt-6 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[14px] font-bold text-[var(--sp-ink)]">
+                  Topics{' '}
+                  <span className="font-semibold text-[var(--sp-muted)]">
+                    ·{' '}
+                    {effectiveCustomTopicIds.length === 0
+                      ? 'All topics'
+                      : `${effectiveCustomTopicIds.length} selected`}
+                  </span>
                 </span>
                 {effectiveCustomTopicIds.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setCustomTopicIds([])}
-                    className="cursor-pointer text-xs font-medium text-[var(--sp-accent)] hover:underline"
+                    className="cursor-pointer text-[13px] font-bold text-[var(--sp-accent)] hover:underline"
                   >
                     Include all topics
                   </button>
                 )}
               </div>
 
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 {topics.map((topic) => {
                   const selected = effectiveCustomTopicIds.includes(topic.id);
                   return (
@@ -823,13 +841,18 @@ export function MockExamView({
                       aria-pressed={selected}
                       onClick={() => handleToggleCustomTopic(topic.id)}
                       className={cn(
-                        'cursor-pointer rounded-lg border px-2.5 py-1 text-xs transition-colors',
-                        selected
-                          ? 'border-[var(--sp-accent)] bg-blue-500/10 font-semibold text-[var(--sp-ink)] dark:bg-blue-500/15'
-                          : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)]/70 font-medium text-[var(--sp-muted)] hover:text-[var(--sp-ink)]'
+                        'sp-key sp-key--sm inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[13px] font-semibold',
+                        selected ? 'sp-key--selected' : 'sp-key--neutral'
                       )}
                     >
-                      <span className="mr-1 font-mono text-[11px] text-[var(--sp-accent)]">
+                      <span
+                        className={cn(
+                          'font-extrabold tabular-nums',
+                          selected
+                            ? 'text-[var(--sp-accent-ink)]'
+                            : 'text-[var(--sp-accent)]'
+                        )}
+                      >
                         {formatCompactTopicCode(topic.code)}
                       </span>
                       {formatCompactTopicTitle(topic.title)}
@@ -840,26 +863,24 @@ export function MockExamView({
             </div>
           )}
 
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--sp-border)] pt-4">
-            <p className="text-xs text-[var(--sp-muted)]">
-              {eligibleCustomPool.length === 0
-                ? 'No questions match this filter combination. Broaden the difficulty, format, or level above.'
-                : 'Answers and mark schemes stay hidden until you finish the paper.'}
+          <div className="mt-7 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[13.5px] text-[var(--sp-muted)]">
+              {canStartCustom
+                ? 'Answers and mark schemes stay hidden until you finish.'
+                : 'No questions match these choices. Try a wider difficulty, format or topic range.'}
             </p>
 
             <button
               type="button"
-              disabled={eligibleCustomPool.length === 0}
+              disabled={!canStartCustom}
               onClick={handleStartCustomPaper}
               className={cn(
-                'inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-opacity',
-                eligibleCustomPool.length > 0
-                  ? 'cursor-pointer bg-[var(--sp-ink)] text-[var(--sp-surface)] hover:opacity-90'
-                  : 'cursor-not-allowed border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)]'
+                'sp-key inline-flex shrink-0 items-center justify-center gap-2 rounded-2xl px-7 py-3.5 text-[16px] font-extrabold',
+                canStartCustom ? 'sp-key--primary' : 'sp-key--idle'
               )}
             >
-              <Play className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>Start custom paper</span>
+              <Play className="h-4 w-4 fill-current" aria-hidden="true" />
+              <span>Start mock</span>
             </button>
           </div>
         </section>
@@ -894,58 +915,66 @@ export function MockExamView({
     const isLowTime = session.remainingSeconds <= 300;
     const isCriticalTime = session.remainingSeconds <= 60;
 
+    const answeredPercent =
+      session.questionRows.length > 0
+        ? Math.round((answeredSoFar / session.questionRows.length) * 100)
+        : 0;
+
     return (
-      <div className="mx-auto max-w-[1160px] space-y-4">
-        {/* Sticky Exam Control Bar */}
+      <div className="mx-auto max-w-[1160px] space-y-5">
+        {/* Sticky exam control bar */}
         <div
           style={{ top: 'calc(var(--sp-topnav-h, 57px) + 8px)' }}
-          className="sticky z-20 rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)]/95 px-4 py-3 shadow-xs backdrop-blur-xs"
+          className="sp-card sticky z-20 px-4 py-3.5 sm:px-5"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-[var(--sp-ink)]">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2.5">
+            <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
+              <p className="truncate text-[16px] font-extrabold text-[var(--sp-ink)]">
                 {cleanPresetHeading(session.config.title)}
               </p>
-              <p className="mt-0.5 font-mono text-xs tabular-nums text-[var(--sp-muted)]">
+              <p className="mt-0.5 text-[13px] font-medium tabular-nums text-[var(--sp-muted)]">
                 {answeredSoFar} of {session.questionRows.length} answered ·{' '}
                 {session.totalMarks} marks
                 {flaggedSoFar > 0 ? ` · ${flaggedSoFar} flagged` : ''}
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex w-full flex-nowrap items-center gap-2 sm:w-auto sm:gap-2.5">
               <div
                 data-testid="mock-countdown-timer"
                 aria-live="off"
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 font-mono text-sm font-semibold tabular-nums',
-                  session.status === 'paused'
-                    ? 'border-amber-500/45 bg-amber-500/10 text-amber-900 dark:text-amber-300'
+                  'inline-flex shrink-0 items-center gap-2 rounded-2xl border-2 px-3 py-2 text-[16px] font-extrabold tabular-nums sm:px-3.5 sm:text-[17px]',
+                  session.status === 'paused' || (isLowTime && !isCriticalTime)
+                    ? 'border-[var(--sp-warn)] bg-[var(--sp-warn-tint)] text-[var(--sp-warn-ink)] shadow-[0_3px_0_var(--sp-warn-lip)]'
                     : isCriticalTime
-                      ? 'border-rose-600/50 bg-rose-500/10 text-rose-800 dark:text-rose-300'
-                      : isLowTime
-                        ? 'border-amber-500/45 bg-amber-500/10 text-amber-900 dark:text-amber-300'
-                        : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-ink)]'
+                      ? 'sp-anim-bump border-[var(--sp-danger)] bg-[var(--sp-danger-tint)] text-[var(--sp-danger-ink)] shadow-[0_3px_0_var(--sp-danger-lip)]'
+                      : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-ink)] shadow-[0_3px_0_var(--sp-lip)]'
                 )}
               >
-                <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <Clock
+                  className="h-[18px] w-[18px] shrink-0"
+                  aria-hidden="true"
+                  strokeWidth={2.5}
+                />
                 <span>{formatMockCountdown(session.remainingSeconds)}</span>
               </div>
 
               <button
                 type="button"
                 onClick={handleTogglePause}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-[var(--sp-border)] bg-[var(--sp-surface)] px-3 py-1.5 text-xs font-medium text-[var(--sp-ink)] transition-colors hover:bg-[var(--sp-surface-subtle)]"
+                aria-label={session.status === 'paused' ? 'Resume' : 'Pause'}
+                className="sp-key sp-key--neutral inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-2xl px-3 text-[14px] font-extrabold sm:px-3.5"
               >
                 {session.status === 'paused' ? (
                   <>
-                    <Play className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>Resume</span>
+                    <Play className="h-4 w-4 fill-current" aria-hidden="true" />
+                    <span className="hidden sm:inline">Resume</span>
                   </>
                 ) : (
                   <>
-                    <Pause className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>Pause</span>
+                    <Pause className="h-4 w-4 fill-current" aria-hidden="true" />
+                    <span className="hidden sm:inline">Pause</span>
                   </>
                 )}
               </button>
@@ -954,36 +983,59 @@ export function MockExamView({
                 type="button"
                 disabled={loadingPaper}
                 onClick={() => void finalizeSessionToReview(session)}
-                className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-[var(--sp-accent)] px-3.5 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-95"
+                className={cn(
+                  'sp-key ml-auto inline-flex h-11 shrink-0 items-center justify-center rounded-2xl px-3.5 text-[14px] font-extrabold whitespace-nowrap sm:ml-0 sm:px-4',
+                  loadingPaper ? 'sp-key--idle' : 'sp-key--primary'
+                )}
               >
-                Finish &amp; mark paper
+                Finish and mark
               </button>
             </div>
           </div>
+
+          <div
+            className="sp-progress mt-3"
+            role="progressbar"
+            aria-label="Questions answered"
+            aria-valuemin={0}
+            aria-valuemax={session.questionRows.length}
+            aria-valuenow={answeredSoFar}
+          >
+            <div
+              className="sp-progress-fill"
+              style={{ width: `${answeredPercent}%` }}
+            />
+          </div>
         </div>
 
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_264px]">
-          {/* Active Question or Paused Veil */}
-          <div className="min-w-0 space-y-3">
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_272px]">
+          {/* Active question or paused veil */}
+          <div className="min-w-0 space-y-4">
             {session.status === 'paused' ? (
-              <div className="rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-8 text-center">
-                <p className="text-base font-semibold text-[var(--sp-ink)]">
-                  Timer paused at{' '}
-                  <span className="font-mono tabular-nums">
+              <div className="sp-card p-10 text-center">
+                <span
+                  className="sp-keycap mx-auto h-14 w-14 rounded-2xl"
+                  aria-hidden="true"
+                >
+                  <Pause className="h-6 w-6 fill-current" />
+                </span>
+                <p className="mt-4 text-[19px] font-extrabold text-[var(--sp-ink)]">
+                  Paused at{' '}
+                  <span className="tabular-nums">
                     {formatMockCountdown(session.remainingSeconds)}
                   </span>
                 </p>
-                <p className="mx-auto mt-1.5 max-w-[46ch] text-sm text-[var(--sp-muted)]">
-                  Questions are hidden while the clock is stopped. Resume the
-                  timer whenever you are ready to continue.
+                <p className="mx-auto mt-1.5 max-w-[44ch] text-[15px] text-[var(--sp-muted)]">
+                  Questions stay hidden while the clock is stopped. Carry on
+                  when you&apos;re ready.
                 </p>
                 <button
                   type="button"
                   onClick={handleTogglePause}
-                  className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-[var(--sp-accent)] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-95"
+                  className="sp-key sp-key--primary mt-6 inline-flex items-center gap-2 rounded-2xl px-6 py-3 text-[15px] font-extrabold"
                 >
-                  <Play className="h-4 w-4" aria-hidden="true" />
-                  <span>Resume paper</span>
+                  <Play className="h-4 w-4 fill-current" aria-hidden="true" />
+                  <span>Resume mock</span>
                 </button>
               </div>
             ) : currentItem ? (
@@ -1005,54 +1057,56 @@ export function MockExamView({
                 onChangePartNotes={handleLivePartNotes}
               />
             ) : (
-              <div className="flex min-h-[260px] items-center justify-center rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-8 text-sm text-[var(--sp-muted)]">
+              <div className="sp-card flex min-h-[260px] items-center justify-center p-8 text-[15px] font-semibold text-[var(--sp-muted)]">
                 <Loader2
-                  className="mr-2 h-4 w-4 animate-spin text-[var(--sp-accent)]"
+                  className="mr-2 h-5 w-5 animate-spin text-[var(--sp-accent)]"
                   aria-hidden="true"
                 />
-                Loading question {session.currentIndex + 1}...
+                Loading question {session.currentIndex + 1}…
               </div>
             )}
 
-            {/* Live Bottom Navigation Strip */}
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] px-4 py-3">
+            {/* Live bottom navigation */}
+            <div className="sp-card flex flex-nowrap items-center justify-between gap-2 px-3 py-3 sm:gap-2.5 sm:px-4 sm:py-3.5">
               <button
                 type="button"
                 disabled={session.currentIndex === 0}
                 onClick={() => handleJumpToIndex(session.currentIndex - 1)}
+                aria-label="Previous question"
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
-                  session.currentIndex > 0
-                    ? 'cursor-pointer border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-ink)] hover:bg-[var(--sp-surface-subtle)]'
-                    : 'cursor-not-allowed border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)] opacity-60'
+                  'sp-key inline-flex h-11 shrink-0 items-center gap-1.5 rounded-2xl px-3 text-[14px] font-extrabold sm:px-4',
+                  session.currentIndex > 0 ? 'sp-key--neutral' : 'sp-key--idle'
                 )}
               >
                 <ChevronRight
-                  className="h-3.5 w-3.5 rotate-180"
+                  className="h-4 w-4 rotate-180"
                   aria-hidden="true"
+                  strokeWidth={2.75}
                 />
-                <span>Previous</span>
+                <span className="hidden sm:inline">Previous</span>
               </button>
 
               <button
                 type="button"
                 aria-pressed={Boolean(currentResponse?.flagged)}
+                aria-label={currentResponse?.flagged ? 'Flagged' : 'Flag for review'}
                 onClick={handleToggleFlagCurrent}
                 className={cn(
-                  'inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+                  'sp-key inline-flex h-11 shrink-0 items-center gap-1.5 rounded-2xl px-3 text-[14px] font-extrabold sm:px-4',
                   currentResponse?.flagged
-                    ? 'border-amber-500/50 bg-amber-500/12 text-amber-900 dark:text-amber-300'
-                    : 'border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-muted)] hover:bg-[var(--sp-surface-subtle)] hover:text-[var(--sp-ink)]'
+                    ? 'sp-key--warn sp-anim-bump'
+                    : 'sp-key--neutral text-[var(--sp-muted)]'
                 )}
               >
                 <Flag
                   className={cn(
-                    'h-3.5 w-3.5',
+                    'h-4 w-4',
                     currentResponse?.flagged && 'fill-current'
                   )}
                   aria-hidden="true"
+                  strokeWidth={2.5}
                 />
-                <span>
+                <span className="hidden sm:inline">
                   {currentResponse?.flagged ? 'Flagged' : 'Flag for review'}
                 </span>
               </button>
@@ -1061,39 +1115,48 @@ export function MockExamView({
                 <button
                   type="button"
                   onClick={() => handleJumpToIndex(session.currentIndex + 1)}
-                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--sp-ink)] px-3.5 py-1.5 text-xs font-semibold text-[var(--sp-surface)] transition-opacity hover:opacity-90"
+                  className="sp-key sp-key--primary inline-flex h-11 shrink-0 items-center gap-1.5 rounded-2xl px-5 text-[14px] font-extrabold"
                 >
                   <span>Next</span>
-                  <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                  <ChevronRight
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                    strokeWidth={2.75}
+                  />
                 </button>
               ) : (
                 <button
                   type="button"
                   onClick={() => void finalizeSessionToReview(session)}
-                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-[var(--sp-accent)] px-3.5 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-95"
+                  className="sp-key sp-key--success inline-flex h-11 shrink-0 items-center gap-1.5 rounded-2xl px-4 text-[14px] font-extrabold whitespace-nowrap sm:px-5"
                 >
-                  <span>Finish &amp; mark paper</span>
+                  <Check
+                    className="h-4 w-4"
+                    aria-hidden="true"
+                    strokeWidth={3}
+                  />
+                  <span>Finish and mark</span>
                 </button>
               )}
             </div>
           </div>
 
-          {/* Question Palette (1..N) */}
+          {/* Question navigator (1..N) */}
           <aside
             aria-label="Exam question palette"
-            style={{ top: 'calc(var(--sp-topnav-h, 57px) + 84px)' }}
-            className="rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-4 lg:sticky"
+            style={{ top: 'calc(var(--sp-topnav-h, 57px) + 116px)' }}
+            className="sp-card p-4 lg:sticky"
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-semibold text-[var(--sp-ink)]">
-                Question palette
+              <h2 className="text-[15px] font-extrabold text-[var(--sp-ink)]">
+                Questions
               </h2>
-              <span className="font-mono text-[11px] tabular-nums text-[var(--sp-muted)]">
+              <span className="sp-chip sp-chip--accent tabular-nums">
                 {answeredSoFar}/{session.questionRows.length}
               </span>
             </div>
 
-            <div className="mt-3 grid grid-cols-5 gap-1.5 sm:grid-cols-8 lg:grid-cols-5">
+            <div className="mt-3.5 grid grid-cols-5 gap-2 sm:grid-cols-8 lg:grid-cols-5">
               {session.questionRows.map((row, idx) => {
                 const resp = session.responses[row.id];
                 const isCurrent = idx === session.currentIndex;
@@ -1108,74 +1171,70 @@ export function MockExamView({
                     aria-current={isCurrent ? 'step' : undefined}
                     onClick={() => handleJumpToIndex(idx)}
                     className={cn(
-                      'relative inline-flex h-9 cursor-pointer items-center justify-center rounded-lg border font-mono text-xs font-semibold tabular-nums transition-colors',
-                      isCurrent
-                        ? 'border-[var(--sp-accent)] bg-[var(--sp-accent)] text-white'
-                        : flagged
-                          ? 'border-amber-500/60 bg-amber-500/12 text-amber-900 dark:text-amber-300'
-                          : answered
-                            ? 'border-blue-500/40 bg-blue-500/10 text-[var(--sp-ink)] dark:bg-blue-500/15'
-                            : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)] hover:text-[var(--sp-ink)]'
+                      'sp-key sp-key--sm relative inline-flex h-10 items-center justify-center rounded-xl text-[14px] font-extrabold tabular-nums',
+                      flagged
+                        ? 'sp-key--warn'
+                        : answered
+                          ? 'sp-key--selected text-[var(--sp-accent-ink)]'
+                          : 'sp-key--neutral text-[var(--sp-muted)]',
+                      isCurrent &&
+                        'ring-[3px] ring-[var(--sp-accent)] ring-offset-2 ring-offset-[var(--sp-surface)]'
                     )}
                   >
                     {idx + 1}
-                    {flagged && !isCurrent && (
-                      <span
-                        aria-hidden="true"
-                        className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-amber-500"
-                      />
-                    )}
                   </button>
                 );
               })}
             </div>
 
-            <div className="mt-3.5 flex flex-wrap gap-x-3 gap-y-1 border-t border-[var(--sp-border)] pt-3 text-[11px] text-[var(--sp-muted)]">
+            <div className="mt-4 flex flex-wrap gap-x-3.5 gap-y-1.5 text-[12.5px] font-semibold text-[var(--sp-muted)]">
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-xs bg-[var(--sp-accent)]" />
-                Current
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-xs bg-blue-500/45" />
+                <span
+                  className="sp-dot bg-[var(--sp-accent)]"
+                  aria-hidden="true"
+                />
                 Answered
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-xs bg-amber-500" />
+                <span
+                  className="sp-dot bg-[var(--sp-warn)]"
+                  aria-hidden="true"
+                />
                 Flagged
               </span>
             </div>
 
-            <div className="mt-4 border-t border-[var(--sp-border)] pt-3">
+            <div className="mt-4 border-t-2 border-[var(--sp-surface-subtle)] pt-4">
               {!confirmExitOpen ? (
                 <button
                   type="button"
                   onClick={() => setConfirmExitOpen(true)}
-                  className="w-full cursor-pointer rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--sp-muted)] transition-colors hover:text-[var(--sp-ink)]"
+                  className="w-full cursor-pointer rounded-xl px-3 py-2 text-[13px] font-bold text-[var(--sp-muted)] transition-colors hover:bg-[var(--sp-surface-subtle)] hover:text-[var(--sp-danger-ink)]"
                 >
-                  Discard &amp; exit paper
+                  Quit without saving
                 </button>
               ) : (
-                <div className="space-y-2 rounded-lg border border-rose-500/35 bg-rose-500/[0.06] p-2.5">
-                  <p className="text-xs font-medium text-[var(--sp-ink)]">
-                    Discard this mock paper without saving?
+                <div className="sp-well space-y-2.5 border-[var(--sp-danger)] bg-[var(--sp-danger-tint)] p-3">
+                  <p className="text-[13.5px] font-bold text-[var(--sp-ink)]">
+                    Quit this mock? Your answers won&apos;t be saved.
                   </p>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => {
                         setSession(null);
                         setConfirmExitOpen(false);
                       }}
-                      className="flex-1 cursor-pointer rounded-md bg-rose-600 px-2.5 py-1 text-xs font-semibold text-white"
+                      className="sp-key sp-key--sm sp-key--wrong flex-1 rounded-xl px-2.5 py-1.5 text-[13px] font-extrabold text-[var(--sp-danger-ink)]"
                     >
-                      Discard
+                      Quit
                     </button>
                     <button
                       type="button"
                       onClick={() => setConfirmExitOpen(false)}
-                      className="flex-1 cursor-pointer rounded-md border border-[var(--sp-border)] bg-[var(--sp-surface)] px-2.5 py-1 text-xs font-medium text-[var(--sp-ink)]"
+                      className="sp-key sp-key--sm sp-key--neutral flex-1 rounded-xl px-2.5 py-1.5 text-[13px] font-extrabold"
                     >
-                      Keep working
+                      Keep going
                     </button>
                   </div>
                 </div>
@@ -1263,25 +1322,65 @@ export function MockExamView({
     session.durationSeconds - session.remainingSeconds
   );
 
+  const isStrongResult = summary.percentage >= 70;
+
   return (
     <div className="mx-auto max-w-[1160px] space-y-6">
-      {/* Score Summary Card */}
+      {/* Score summary card */}
       <section
         aria-label="Mock exam score summary"
-        className="rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-5 sm:p-6"
+        className={cn(
+          'sp-banner sp-anim-pop p-5 sm:p-7',
+          isStrongResult ? 'sp-banner--success' : 'sp-banner--warn'
+        )}
       >
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-1.5">
-            <h1 className="text-xl font-semibold tracking-tight text-[var(--sp-ink)] sm:text-2xl">
-              {cleanPresetHeading(session.config.title)} results
-            </h1>
-            <p className="font-mono text-xs tabular-nums text-[var(--sp-muted)]">
-              Completed in {formatMockCountdown(elapsedSeconds)} ·{' '}
-              {summary.answeredCount} of {summary.totalQuestions} answered
-            </p>
+        <div className="flex flex-wrap items-center justify-between gap-5">
+          <div className="flex min-w-0 items-center gap-5">
+            <div
+              className={cn(
+                'flex h-24 w-24 shrink-0 flex-col items-center justify-center rounded-[1.5rem] border-2 bg-[var(--sp-surface)] sm:h-28 sm:w-28',
+                isStrongResult
+                  ? 'border-[var(--sp-success)] shadow-[0_4px_0_var(--sp-success-lip)]'
+                  : 'border-[var(--sp-warn)] shadow-[0_4px_0_var(--sp-warn-lip)]'
+              )}
+            >
+              <span
+                className={cn(
+                  'text-[32px] leading-none font-black tabular-nums sm:text-[38px]',
+                  isStrongResult
+                    ? 'text-[var(--sp-success-ink)]'
+                    : 'text-[var(--sp-warn-ink)]'
+                )}
+              >
+                {summary.percentage}%
+              </span>
+              <span className="mt-1.5 text-[12.5px] font-bold tabular-nums text-[var(--sp-muted)]">
+                {summary.earnedMarks} / {summary.totalMarks} marks
+              </span>
+            </div>
+
+            <div className="min-w-0 space-y-1.5">
+              <p
+                className={cn(
+                  'text-[14px] font-extrabold',
+                  isStrongResult
+                    ? 'text-[var(--sp-success-ink)]'
+                    : 'text-[var(--sp-warn-ink)]'
+                )}
+              >
+                {isStrongResult ? 'Great work!' : 'Good effort, keep going'}
+              </p>
+              <h1 className="text-[22px] font-extrabold tracking-tight text-[var(--sp-ink)] sm:text-[26px]">
+                {cleanPresetHeading(session.config.title)} results
+              </h1>
+              <p className="text-[14px] font-medium tabular-nums text-[var(--sp-muted)]">
+                Finished in {formatMockCountdown(elapsedSeconds)} ·{' '}
+                {summary.answeredCount} of {summary.totalQuestions} answered
+              </p>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2.5">
             {summary.weakTopicIds.length > 0 && (
               <button
                 type="button"
@@ -1291,9 +1390,9 @@ export function MockExamView({
                     session.config.syllabus
                   )
                 }
-                className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-[var(--sp-accent)] px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-95"
+                className="sp-key sp-key--primary inline-flex items-center justify-center rounded-2xl px-5 py-3 text-[15px] font-extrabold"
               >
-                Practice weak topics
+                Practise weak topics
               </button>
             )}
 
@@ -1303,45 +1402,49 @@ export function MockExamView({
                 setSession(null);
                 setConfirmExitOpen(false);
               }}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-3.5 py-2 text-xs font-medium text-[var(--sp-ink)] transition-colors hover:opacity-90"
+              className="sp-key sp-key--neutral inline-flex items-center gap-1.5 rounded-2xl px-4 py-3 text-[15px] font-extrabold"
             >
-              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>New mock paper</span>
+              <RotateCcw
+                className="h-4 w-4"
+                aria-hidden="true"
+                strokeWidth={2.5}
+              />
+              <span>New mock</span>
             </button>
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)]/70 p-4">
-            <span className="block text-xs font-medium text-[var(--sp-muted)]">
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <div className="sp-card rounded-2xl p-4">
+            <span className="block text-[13px] font-bold text-[var(--sp-muted)]">
               Total score
             </span>
-            <div className="mt-1 flex items-baseline gap-2 font-mono tabular-nums">
-              <span className="text-2xl font-semibold text-[var(--sp-ink)]">
+            <div className="mt-1 flex items-baseline gap-2 tabular-nums">
+              <span className="text-[22px] font-extrabold text-[var(--sp-ink)]">
                 {summary.earnedMarks} / {summary.totalMarks}
               </span>
-              <span className="text-sm font-medium text-[var(--sp-accent)]">
-                ({summary.percentage}%)
+              <span className="text-[14px] font-bold text-[var(--sp-accent)]">
+                {summary.percentage}%
               </span>
             </div>
           </div>
 
-          <div className="rounded-xl border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)]/70 p-4">
-            <span className="block text-xs font-medium text-[var(--sp-muted)]">
+          <div className="sp-card rounded-2xl p-4">
+            <span className="block text-[13px] font-bold text-[var(--sp-muted)]">
               Multiple choice
             </span>
-            <div className="mt-1 font-mono text-xl font-semibold tabular-nums text-[var(--sp-ink)]">
+            <div className="mt-1 text-[20px] font-extrabold tabular-nums text-[var(--sp-ink)]">
               {summary.mcqTotal > 0
                 ? `${summary.mcqCorrect} / ${summary.mcqTotal} correct`
                 : 'None in paper'}
             </div>
           </div>
 
-          <div className="rounded-xl border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)]/70 p-4">
-            <span className="block text-xs font-medium text-[var(--sp-muted)]">
-              Structured rubric marks
+          <div className="sp-card rounded-2xl p-4">
+            <span className="block text-[13px] font-bold text-[var(--sp-muted)]">
+              Written answers
             </span>
-            <div className="mt-1 font-mono text-xl font-semibold tabular-nums text-[var(--sp-ink)]">
+            <div className="mt-1 text-[20px] font-extrabold tabular-nums text-[var(--sp-ink)]">
               {summary.structuredTotalMarks > 0
                 ? `${summary.structuredEarnedMarks} / ${summary.structuredTotalMarks} marks`
                 : 'None in paper'}
@@ -1350,17 +1453,18 @@ export function MockExamView({
         </div>
 
         {summary.unmarkedStructuredCount > 0 && (
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3">
-            <p className="text-xs font-medium text-amber-950 dark:text-amber-200">
-              <span className="font-mono font-semibold tabular-nums">
+          <div className="sp-card mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3.5">
+            <p className="flex items-center gap-2 text-[14px] font-semibold text-[var(--sp-ink)]">
+              <span className="sp-chip sp-chip--warn tabular-nums">
                 {summary.unmarkedStructuredCount}
-              </span>{' '}
-              structured{' '}
-              {summary.unmarkedStructuredCount === 1
-                ? 'question needs'
-                : 'questions need'}{' '}
-              self-marking against the examiner rubric below to finalize your
-              score.
+              </span>
+              <span>
+                written{' '}
+                {summary.unmarkedStructuredCount === 1
+                  ? 'answer needs'
+                  : 'answers need'}{' '}
+                marking against the mark scheme to finish your score.
+              </span>
             </p>
             <button
               type="button"
@@ -1370,62 +1474,68 @@ export function MockExamView({
                   handleJumpToIndex(unmarkedEntries[0].idx);
                 }
               }}
-              className="cursor-pointer rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95"
+              className="sp-key sp-key--warn rounded-2xl px-4 py-2.5 text-[14px] font-extrabold"
             >
-              Mark structured answers
+              Mark my answers
             </button>
           </div>
         )}
       </section>
 
-      {/* Topic Breakdown */}
+      {/* Topic breakdown */}
       {summary.topicBreakdown.length > 0 && (
-        <section
-          aria-label="Topic breakdown"
-          className="rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-5 sm:p-6"
-        >
-          <div className="flex items-baseline justify-between gap-2">
-            <h2 className="text-base font-semibold text-[var(--sp-ink)]">
-              Topic breakdown
+        <section aria-label="Topic breakdown" className="sp-card p-5 sm:p-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-[18px] font-extrabold text-[var(--sp-ink)]">
+              How you did by topic
             </h2>
-            <span className="text-xs text-[var(--sp-muted)]">
-              Ordered from lowest to highest score
+            <span className="text-[13px] font-medium text-[var(--sp-muted)]">
+              Weakest first
             </span>
           </div>
 
-          <div className="mt-4 divide-y divide-[var(--sp-border)]">
+          <div className="mt-4 space-y-2.5">
             {summary.topicBreakdown.map((topic) => {
               const isWeak = topic.accuracyPercent < 70;
               return (
                 <div
                   key={topic.topicId}
-                  className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-1 last:pb-1"
+                  className="sp-well flex flex-wrap items-center justify-between gap-3 px-4 py-3"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="font-mono text-xs font-semibold text-[var(--sp-accent)]">
+                    <div className="flex items-center gap-2">
+                      <span className="sp-chip sp-chip--accent shrink-0 tabular-nums">
                         {formatCompactTopicCode(topic.topicCode)}
                       </span>
-                      <span className="truncate text-sm font-medium text-[var(--sp-ink)]">
+                      <span className="truncate text-[14.5px] font-bold text-[var(--sp-ink)]">
                         {formatCompactTopicTitle(topic.topicTitle)}
                       </span>
                     </div>
 
-                    <div className="mt-1.5 flex max-w-md items-center gap-2.5">
-                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--sp-surface-subtle)]">
+                    <div className="mt-2.5 flex max-w-md items-center gap-3">
+                      <div className="sp-progress sp-progress--sm flex-1">
                         <div
                           className={cn(
-                            'h-full rounded-full transition-all',
+                            'sp-progress-fill',
                             isWeak
-                              ? 'bg-amber-500'
-                              : 'bg-emerald-600 dark:bg-emerald-400'
+                              ? 'bg-[var(--sp-warn)]'
+                              : 'bg-[var(--sp-success)]'
                           )}
                           style={{ width: `${topic.accuracyPercent}%` }}
                         />
                       </div>
-                      <span className="font-mono text-xs tabular-nums text-[var(--sp-muted)]">
-                        {topic.earnedMarks}/{topic.totalMarks} marks (
-                        {topic.accuracyPercent}%)
+                      <span className="shrink-0 text-[13px] font-semibold tabular-nums text-[var(--sp-muted)]">
+                        {topic.earnedMarks}/{topic.totalMarks} marks ·{' '}
+                        <span
+                          className={cn(
+                            'font-extrabold',
+                            isWeak
+                              ? 'text-[var(--sp-warn-ink)]'
+                              : 'text-[var(--sp-success-ink)]'
+                          )}
+                        >
+                          {topic.accuracyPercent}%
+                        </span>
                       </span>
                     </div>
                   </div>
@@ -1438,9 +1548,9 @@ export function MockExamView({
                         session.config.syllabus
                       )
                     }
-                    className="shrink-0 cursor-pointer rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--sp-ink)] transition-colors hover:border-[var(--sp-accent)]/45"
+                    className="sp-key sp-key--sm sp-key--neutral shrink-0 rounded-xl px-3.5 py-2 text-[13px] font-extrabold"
                   >
-                    Practice topic
+                    Practise topic
                   </button>
                 </div>
               );
@@ -1449,22 +1559,17 @@ export function MockExamView({
         </section>
       )}
 
-      {/* Question Review & Paper 2 Self-Marking Queue */}
-      <section aria-label="Question review and marking" className="space-y-3.5">
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-4">
-          <div className="flex flex-wrap items-center gap-1.5">
+      {/* Question review & self-marking queue */}
+      <section aria-label="Question review and marking" className="space-y-4">
+        <div className="sp-card flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="sp-seg flex-wrap">
             <button
               type="button"
               aria-pressed={reviewTab === 'all'}
               onClick={() => setReviewTab('all')}
-              className={cn(
-                'cursor-pointer rounded-lg border px-3 py-1.5 text-xs transition-colors',
-                reviewTab === 'all'
-                  ? 'border-[var(--sp-accent)]/45 bg-blue-500/10 font-semibold text-[var(--sp-ink)] dark:bg-blue-500/15'
-                  : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] font-medium text-[var(--sp-muted)] hover:text-[var(--sp-ink)]'
-              )}
+              className="sp-seg-item px-3 py-1.5 text-[13.5px]"
             >
-              All questions ({reviewIndices.length})
+              All <span className="tabular-nums">({reviewIndices.length})</span>
             </button>
 
             {summary.structuredTotalMarks > 0 && (
@@ -1477,14 +1582,10 @@ export function MockExamView({
                     handleJumpToIndex(unmarkedEntries[0].idx);
                   }
                 }}
-                className={cn(
-                  'cursor-pointer rounded-lg border px-3 py-1.5 text-xs transition-colors',
-                  reviewTab === 'unmarked'
-                    ? 'border-amber-500/50 bg-amber-500/12 font-semibold text-amber-950 dark:text-amber-200'
-                    : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] font-medium text-[var(--sp-muted)] hover:text-[var(--sp-ink)]'
-                )}
+                className="sp-seg-item px-3 py-1.5 text-[13.5px]"
               >
-                Unmarked structured ({unmarkedEntries.length})
+                To mark{' '}
+                <span className="tabular-nums">({unmarkedEntries.length})</span>
               </button>
             )}
 
@@ -1497,18 +1598,14 @@ export function MockExamView({
                   handleJumpToIndex(missedEntries[0].idx);
                 }
               }}
-              className={cn(
-                'cursor-pointer rounded-lg border px-3 py-1.5 text-xs transition-colors',
-                reviewTab === 'missed'
-                  ? 'border-rose-500/45 bg-rose-500/10 font-semibold text-rose-900 dark:text-rose-300'
-                  : 'border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] font-medium text-[var(--sp-muted)] hover:text-[var(--sp-ink)]'
-              )}
+              className="sp-seg-item px-3 py-1.5 text-[13.5px]"
             >
-              Missed or partial ({missedEntries.length})
+              Missed or partial{' '}
+              <span className="tabular-nums">({missedEntries.length})</span>
             </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1.5">
             {reviewIndices.map((entry) => {
               const isSelected = entry.idx === activeReviewIndex;
               return (
@@ -1518,13 +1615,14 @@ export function MockExamView({
                   onClick={() => handleJumpToIndex(entry.idx)}
                   aria-label={`Review question ${entry.idx + 1}`}
                   className={cn(
-                    'inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border font-mono text-xs font-semibold tabular-nums transition-colors',
-                    isSelected && 'ring-2 ring-[var(--sp-accent)] ring-offset-1',
+                    'sp-key sp-key--sm inline-flex h-8 w-8 items-center justify-center rounded-lg text-[13px] font-extrabold tabular-nums',
                     entry.unmarkedStructured
-                      ? 'border-amber-500/55 bg-amber-500/15 text-amber-900 dark:text-amber-300'
+                      ? 'sp-key--warn'
                       : entry.isFullMarks
-                        ? 'border-emerald-600/50 bg-emerald-500/15 text-emerald-900 dark:text-emerald-300'
-                        : 'border-rose-500/50 bg-rose-500/12 text-rose-900 dark:text-rose-300'
+                        ? 'sp-key--correct text-[var(--sp-success-ink)]'
+                        : 'sp-key--wrong text-[var(--sp-danger-ink)]',
+                    isSelected &&
+                      'ring-[3px] ring-[var(--sp-accent)] ring-offset-2 ring-offset-[var(--sp-surface)]'
                   )}
                 >
                   {entry.idx + 1}
@@ -1535,23 +1633,23 @@ export function MockExamView({
         </div>
 
         {visibleEntries.length === 0 ? (
-          <div className="rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-8 text-center">
-            <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--sp-ink)]">
-              <Check
-                className="h-4 w-4 text-emerald-600 dark:text-emerald-400"
-                aria-hidden="true"
-              />
-              <span>
-                {reviewTab === 'unmarked'
-                  ? 'All structured questions in this paper have been marked'
-                  : 'Full marks across every marked question in this paper'}
-              </span>
+          <div className="sp-card p-9 text-center">
+            <span
+              className="sp-keycap sp-keycap--correct sp-anim-pop mx-auto h-12 w-12 rounded-2xl"
+              aria-hidden="true"
+            >
+              <Check className="h-6 w-6" strokeWidth={3} />
+            </span>
+            <p className="mt-3.5 text-[16px] font-extrabold text-[var(--sp-ink)]">
+              {reviewTab === 'unmarked'
+                ? 'All written answers are marked'
+                : 'Full marks on every marked question'}
             </p>
-            <div className="mt-3">
+            <div className="mt-4">
               <button
                 type="button"
                 onClick={() => setReviewTab('all')}
-                className="cursor-pointer rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-3 py-1.5 text-xs font-medium text-[var(--sp-ink)]"
+                className="sp-key sp-key--neutral rounded-2xl px-4 py-2.5 text-[14px] font-extrabold"
               >
                 Show all questions
               </button>
@@ -1579,21 +1677,20 @@ export function MockExamView({
               }
             />
 
-            <div className="flex items-center justify-between gap-2 rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] px-3 py-2.5 sm:px-4 sm:py-3">
+            <div className="sp-card flex items-center justify-between gap-2 px-3 py-3 sm:px-4">
               <button
                 type="button"
                 disabled={activeReviewIndex === 0}
                 onClick={() => handleJumpToIndex(activeReviewIndex - 1)}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium sm:px-3',
-                  activeReviewIndex > 0
-                    ? 'cursor-pointer border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-ink)] hover:bg-[var(--sp-surface-subtle)]'
-                    : 'cursor-not-allowed border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)] opacity-60'
+                  'sp-key inline-flex items-center gap-1.5 rounded-2xl px-3 py-2.5 text-[14px] font-extrabold sm:px-4',
+                  activeReviewIndex > 0 ? 'sp-key--neutral' : 'sp-key--idle'
                 )}
               >
                 <ChevronRight
-                  className="h-3.5 w-3.5 rotate-180"
+                  className="h-4 w-4 rotate-180"
                   aria-hidden="true"
+                  strokeWidth={2.75}
                 />
                 <span>
                   Previous
@@ -1601,7 +1698,7 @@ export function MockExamView({
                 </span>
               </button>
 
-              <span className="font-mono text-xs tabular-nums text-[var(--sp-muted)]">
+              <span className="text-[13.5px] font-semibold tabular-nums text-[var(--sp-muted)]">
                 <span className="hidden sm:inline">Question </span>
                 {activeReviewIndex + 1} of {session.questionIds.length}
               </span>
@@ -1611,16 +1708,20 @@ export function MockExamView({
                 disabled={activeReviewIndex >= session.questionIds.length - 1}
                 onClick={() => handleJumpToIndex(activeReviewIndex + 1)}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium sm:px-3',
+                  'sp-key inline-flex items-center gap-1.5 rounded-2xl px-3 py-2.5 text-[14px] font-extrabold sm:px-4',
                   activeReviewIndex < session.questionIds.length - 1
-                    ? 'cursor-pointer border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-ink)] hover:bg-[var(--sp-surface-subtle)]'
-                    : 'cursor-not-allowed border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] text-[var(--sp-muted)] opacity-60'
+                    ? 'sp-key--primary'
+                    : 'sp-key--idle'
                 )}
               >
                 <span>
                   Next<span className="hidden sm:inline"> question</span>
                 </span>
-                <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                <ChevronRight
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                  strokeWidth={2.75}
+                />
               </button>
             </div>
           </>

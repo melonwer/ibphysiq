@@ -5,9 +5,12 @@ import {
   McqInteraction,
   resolveCorrectOptionIndex,
   resolveMcqShortcutAction,
+  shouldUseCompactOptionGrid,
 } from '@/components/sixthphysics/mcq-interaction';
 import {
   formatDifficultyLabel,
+  formatFriendlyTopicLabel,
+  formatMarksLabel,
   formatSyllabusBadgeLabel,
   QuestionCard,
   resolveQuestionBreadcrumb,
@@ -319,10 +322,10 @@ describe('TopicRail & filter helpers', () => {
 
     expect(html).toContain('Filter questions');
     expect(html).toContain('MCQ');
-    expect(html).toContain('Structured');
-    expect(html).toContain('Foundation');
-    expect(html).toContain('Standard');
-    expect(html).toContain('Higher');
+    expect(html).toContain('Written');
+    expect(html).toContain('Easy');
+    expect(html).toContain('Medium');
+    expect(html).toContain('Hard');
     expect(html).toContain('Unseen');
     expect(html).toContain('Needs review');
     expect(html).toContain('Saved');
@@ -440,6 +443,56 @@ describe('McqInteraction & shortcut mechanics', () => {
     expect(html).toContain('Your choice');
     expect(html).toContain('Worked solution &amp; mark scheme');
     expect(html).toContain('Next question');
+    expect(html).toContain('Not quite. The answer is D.');
+    expect(html).toContain('data-layout="grid"');
+    expect(html).not.toContain('Select');
+  });
+
+  it('celebrates a correct pick and uses a 2x2 grid only for compact options', () => {
+    const html = renderToStaticMarkup(
+      <McqInteraction
+        item={SAMPLE_MCQ_ITEM}
+        mode="practice"
+        defaultSelectedOptionIndex={3}
+        defaultChecked={true}
+      />
+    );
+    expect(html).toContain('Spot on!');
+    expect(html).toContain('Your answer');
+    expect(html).not.toContain('Common trap');
+
+    expect(shouldUseCompactOptionGrid(SAMPLE_MCQ_ITEM.options ?? [])).toBe(true);
+    expect(
+      shouldUseCompactOptionGrid([
+        { text: '$4.03 \\times 10^{3}\\,\\text{N}$' },
+        { text: '7.82 × 10³ N' },
+        { text: '8.63 × 10³ N' },
+        { text: '9.53 × 10³ N' },
+      ])
+    ).toBe(true);
+    expect(
+      shouldUseCompactOptionGrid([
+        { text: 'The tension exceeds the weight because the bob accelerates upward' },
+        { text: 'B' },
+        { text: 'C' },
+        { text: 'D' },
+      ])
+    ).toBe(false);
+  });
+
+  it('offers a primary Check answer only once an option is picked, with no shortcut legend', () => {
+    const idleHtml = renderToStaticMarkup(
+      <McqInteraction item={SAMPLE_MCQ_ITEM} mode="practice" onNextQuestion={() => undefined} />
+    );
+    expect(idleHtml).toContain('Check answer');
+    expect(idleHtml).toContain('Skip');
+    expect(idleHtml).toContain('sp-key--idle');
+    expect(idleHtml).not.toContain('Enter');
+
+    const readyHtml = renderToStaticMarkup(
+      <McqInteraction item={SAMPLE_MCQ_ITEM} mode="practice" defaultSelectedOptionIndex={1} />
+    );
+    expect(readyHtml).toContain('sp-key--primary');
   });
 
   it('leaks zero answer, trap, or mark scheme details in mock-live mode', () => {
@@ -504,7 +557,8 @@ describe('StructuredInteraction & Examiner Rubric Checklist', () => {
     expect(practiceBeforeHtml).toContain('(a)');
     expect(practiceBeforeHtml).toContain('(b)');
     expect(practiceBeforeHtml).toContain('(c)');
-    expect(practiceBeforeHtml).toContain('[3 marks]');
+    expect(practiceBeforeHtml).toContain('3 marks');
+    expect(practiceBeforeHtml).not.toContain('[3 marks]');
     expect(practiceBeforeHtml).toContain(
       'Jot your working or value before marking...'
     );
@@ -572,7 +626,22 @@ describe('QuestionCard exam sheet integration', () => {
         topicId: 'ncuk-ac6',
       })
     ).toBe('NCUK IFY');
-    expect(formatDifficultyLabel('higher')).toBe('Higher');
+    expect(formatDifficultyLabel('higher')).toBe('Hard');
+    expect(formatDifficultyLabel('standard')).toBe('Medium');
+    expect(formatDifficultyLabel('foundation')).toBe('Easy');
+    expect(formatMarksLabel(1)).toBe('1 mark');
+    expect(formatMarksLabel(4)).toBe('4 marks');
+    expect(
+      formatFriendlyTopicLabel(
+        '3.6.1 Circular Motion, Simple Harmonic Motion, Resonance and Damping'
+      )
+    ).toBe('Circular Motion & SHM');
+    expect(formatFriendlyTopicLabel('C.3 Wave phenomena')).toBe('Wave phenomena');
+    expect(
+      formatFriendlyTopicLabel(
+        'Special Relativity: Lorentz Transformations, Time Dilation, Length Contraction and Spacetime'
+      )
+    ).toBe('Special Relativity');
 
     const bc = resolveQuestionBreadcrumb(SAMPLE_MCQ_ITEM, 'ib');
     expect(bc.topicLabel).toContain('Theme C');
@@ -632,11 +701,13 @@ describe('QuestionCard exam sheet integration', () => {
       />
     );
 
-    expect(html).toContain('Q1 of 6,448');
-    expect(html).toContain('IB HL');
-    expect(html).toContain('A-Level Y13');
-    expect(html).toContain('NCUK IFY');
-    expect(html).toContain('[1 mark]');
+    expect(html).toContain('Question 1 of 6,448');
+    expect(html).toContain('Wave phenomena');
+    expect(html).toContain('Medium');
+    expect(html).toContain('1 mark');
+    expect(html).not.toContain('[1 mark]');
+    expect(html).not.toContain('NCUK IFY');
+    expect(html).not.toContain('C.3 Wave');
     expect(html).toContain('Saved');
     expect(html).toContain('Expand diagram');
     expect(html).toContain('sp-fig-waves-diffraction-grating-mcq-185');

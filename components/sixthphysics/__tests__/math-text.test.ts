@@ -4,7 +4,9 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   MathText,
+  polishPhysicsProse,
   renderLatexToHtml,
+  segmentPlainPhysics,
 } from '@/components/sixthphysics/math-text';
 import {
   SvgFigurePlate,
@@ -76,43 +78,85 @@ describe('SixthPhysics <MathText />, <SvgFigurePlate />, and <FormulaDrawer />',
     });
   });
 
-  describe('Non-LaTeX physics typography & prose preservation', () => {
-    it('typesets scientific notation, inline subscripts, and Unicode SI units cleanly', () => {
+  describe('Plain-text physics through real KaTeX', () => {
+    it('typesets scientific notation, units, and exponents as KaTeX with an accessible source label', () => {
+      const option = renderMath('4.03 × 10³ N');
+      expect(option).toContain('class="katex"');
+      expect(option).toContain('role="math"');
+      expect(option).toContain('aria-label="4.03 × 10³ N"');
+      expect(option).toContain('whitespace-nowrap');
+      expect(option).not.toContain('<sup');
+      expect(option).not.toContain('katex-error');
+
       const sci = renderMath('Grating spacing d = 2.50 × 10⁻⁶ m and 10⁻³ m.');
-      expect(sci).toContain('2.50 × 10<sup');
-      expect(sci).toContain('>−6</sup>');
-      expect(sci).toContain('10<sup');
-      expect(sci).toContain('>−3</sup>');
+      expect(sci).toContain('aria-label="d = 2.50 × 10⁻⁶ m"');
+      expect(sci).toContain('aria-label="10⁻³ m"');
+      expect(sci.match(/class="katex"/g)).toHaveLength(2);
 
-      const subs = renderMath(
-        'Compare v_rms, E_p, V_s, f_0, λ_max, and E_k,max.'
-      );
-      expect(subs).toContain('v<sub');
-      expect(subs).toContain('>rms</sub>');
-      expect(subs).toContain('E<sub');
-      expect(subs).toContain('>p</sub>');
-      expect(subs).toContain('V<sub');
-      expect(subs).toContain('>s</sub>');
-      expect(subs).toContain('f<sub');
-      expect(subs).toContain('>0</sub>');
-      expect(subs).toContain('λ<sub');
-      expect(subs).toContain('>max</sub>');
-      expect(subs).toContain('>k,max</sub>');
+      const units = renderMath('Take g = 9.8 m s⁻² and grating ruling 400 lines mm⁻¹.');
+      expect(units).toContain('aria-label="g = 9.8 m s⁻²"');
+      expect(units).toContain('aria-label="mm⁻¹"');
+      expect(units).toContain('Take ');
+      expect(units).toContain(' and grating ruling 400 lines ');
+    });
 
-      const units = renderMath(
-        'Take g = 9.8 m s⁻² and grating ruling 400 lines mm⁻¹.'
+    it('renders equations, radicals, functions, and subscripts as whole KaTeX runs', () => {
+      const ws = renderMath(
+        'Because the circular path lies in a horizontal plane, vertical acceleration is zero: N cos θ = mg, so N = (880 × 9.81) / cos 25° = 9.53 × 10³ N.'
       );
-      expect(units).toContain('m s<sup');
-      expect(units).toContain('>−2</sup>');
-      expect(units).toContain('lines mm<sup');
-      expect(units).toContain('>−1</sup>');
+      expect(ws).toContain('aria-label="N cos θ = mg"');
+      expect(ws).toContain('aria-label="N = (880 × 9.81) / cos 25° = 9.53 × 10³ N"');
+      expect(ws).toContain('vertical acceleration is zero: ');
+      expect(ws).not.toContain('katex-error');
+
+      const eqs = renderMath('Using v = √(g r tan θ) and d sin θ = nλ with v = u + at.');
+      expect(eqs).toContain('aria-label="v = √(g r tan θ)"');
+      expect(eqs).toContain('aria-label="d sin θ = nλ"');
+      expect(eqs).toContain('aria-label="v = u + at"');
+      expect(eqs).toContain('class="mord sqrt"');
+
+      const subs = renderMath('Compare v_rms, E_p, V_s, f_0, λ_max, and E_k,max.');
+      for (const sym of ['v_rms', 'E_p', 'V_s', 'f_0', 'λ_max', 'E_k,max']) {
+        expect(subs).toContain(`aria-label="${sym}"`);
+      }
+      expect(subs).toContain('Compare ');
+      expect(subs).toContain(' and ');
 
       const carets = renderMath(
         'Discharge V₀e^(−t/RC), adiabatic P_A V_A^(5/3), and secant (r⁻²)_max.'
       );
-      expect(carets).toContain('>−t/RC</sup>');
-      expect(carets).toContain('>5/3</sup>');
-      expect(carets).toContain('>max</sub>');
+      expect(carets).toContain('aria-label="V₀e^(−t/RC)"');
+      expect(carets).toContain('aria-label="V_A^(5/3)"');
+      expect(carets).toContain('aria-label="(r⁻²)_max"');
+      expect(carets).not.toContain('katex-error');
+
+      const helium = renderMath('Ionised He⁺(Z = 2) emits.');
+      expect(helium).toMatch(/<span class="whitespace-nowrap">\(<span role="math" aria-label="Z = 2"/);
+
+      const doubleSub = renderMath('E_k_max');
+      expect(doubleSub).not.toContain('katex-error');
+    });
+
+    it('fixes Damien\'s stem: `25 °` -> `25°`, `a 880 kg` -> `an 880 kg`, and KaTeX quantities', () => {
+      const stem =
+        'Sensors on an iced banked chute corner (radius 215 m, banking 25 °) measure the perpendicular load of a 880 kg bobsleigh cruising with zero side-friction. Using g = 9.81 m s⁻², calculate the normal reaction.';
+      const html = renderMath(stem);
+      expect(html).toContain('aria-label="25°"');
+      expect(html).not.toContain('25 °');
+      expect(html).toContain('load of an ');
+      expect(html).toContain('aria-label="880 kg"');
+      expect(html).toContain('aria-label="215 m"');
+      expect(html).toContain('aria-label="g = 9.81 m s⁻²"');
+      expect(html).toContain('side-friction');
+      expect(html).not.toContain('katex-error');
+
+      expect(polishPhysicsProse('a 880 kg sled')).toBe('an 880 kg sled');
+      expect(polishPhysicsProse('A 11 V cell and a 18 Ω load')).toBe('An 11 V cell and an 18 Ω load');
+      expect(polishPhysicsProse('a 110 V supply, a 1.5 kg mass')).toBe('a 110 V supply, a 1.5 kg mass');
+      expect(polishPhysicsProse('a 8.0 N force and a 11,000 V line')).toBe(
+        'an 8.0 N force and an 11,000 V line'
+      );
+      expect(polishPhysicsProse('θ = 25 ° and 20 ° C')).toBe('θ = 25° and 20 °C');
     });
 
     it('never mangles normal English prose, hyphenated words, currency, or plain numbers', () => {
@@ -125,9 +169,80 @@ describe('SixthPhysics <MathText />, <SvgFigurePlate />, and <FormulaDrawer />',
       expect(html).toContain('A-Level');
       expect(html).toContain('cross-section');
       expect(html).toContain('mass-spring');
-      expect(html).toContain('160 kg');
-      expect(html).toContain('32.5 m');
+      expect(html).toContain('aria-label="160 kg"');
+      expect(html).toContain('aria-label="32.5 m"');
       expect(html).toContain('$50 and $100');
+
+      const plain = renderMath('Answer all 3 questions in Section A. I measured it as a class.');
+      expect(plain).not.toContain('class="katex"');
+      expect(plain).toContain('Answer all 3 questions in Section A. I measured it as a class.');
+
+      const parts = segmentPlainPhysics('(c) v = 2.0 m s⁻¹ (B)');
+      expect(parts[0]).toEqual({ kind: 'text', value: '(c) ' });
+      expect(parts[parts.length - 1]).toEqual({ kind: 'text', value: ' (B)' });
+    });
+
+    it('handles design-critic round 1 cases: elements, day units, uncertainties, trap prose, lone variables', () => {
+      const tex = (t: string) =>
+        segmentPlainPhysics(polishPhysicsProse(t)).map((g) =>
+          g.kind === 'text' ? g.value : `[[${g.latex}]]`
+        );
+      expect(tex('Ionised He⁺(Z = 2) emits.')).toEqual([
+        'Ionised ',
+        '[[\\mathrm{He}^{+}]]',
+        '(',
+        '[[Z = 2]]',
+        ') emits.',
+      ]);
+      expect(tex('t = 120 d')).toEqual(['[[t = 120\\ \\mathrm{d}]]']);
+      expect(tex('1.67(3) × 10⁻²⁷ kg')).toEqual(['[[1.67(3) \\times  10^{-27}\\ \\mathrm{kg}]]']);
+      expect(tex('g = 9.81 N kg⁻¹ (m s⁻²)')[0]).toContain('(\\mathrm{m}\\,\\mathrm{s}^{-2})');
+      expect(tex('The trap uses mg tan θ instead of mg / cos θ.')).toEqual([
+        'The trap uses ',
+        '[[mg \\tan  \\theta]]',
+        ' instead of ',
+        '[[mg / \\cos  \\theta]]',
+        '.',
+      ]);
+      expect(tex('Use 1/f = 1/u + 1/v where v is the image distance.')).toEqual([
+        'Use ',
+        '[[1/f = 1/u + 1/v]]',
+        ' where ',
+        '[[v]]',
+        ' is the image distance.',
+      ]);
+      expect(tex('across Sections 1–8 (g = 9.81 m s⁻²).')).toEqual([
+        'across Sections 1–8 (',
+        '[[g = 9.81\\ \\mathrm{m}\\,\\mathrm{s}^{-2}]]',
+        ').',
+      ]);
+      expect(tex('e.g. a lens; (c) part; I think a car')).toEqual(['e.g. a lens; (c) part; I think a car']);
+      expect(tex('coherent SI base units (kg m⁻³)?')).toEqual([
+        'coherent SI base units (',
+        '[[\\mathrm{kg}\\,\\mathrm{m}^{-3}]]',
+        ')?',
+      ]);
+      expect(tex('torque in N m, action in J s, ruling in mm⁻¹')).toEqual([
+        'torque in ',
+        '[[\\mathrm{N}\\,\\mathrm{m}]]',
+        ', action in ',
+        '[[\\mathrm{J}\\,\\mathrm{s}]]',
+        ', ruling in ',
+        '[[\\mathrm{mm}^{-1}]]',
+      ]);
+      expect(tex('speed v² and T⁴')).toEqual(['speed ', '[[v^{2}]]', ' and ', '[[T^{4}]]']);
+    });
+
+    it('keeps the legacy <sup>/<sub> renderer available via katexPhysics={false}', () => {
+      const legacy = renderToStaticMarkup(
+        React.createElement(MathText, {
+          text: 'Grating spacing d = 2.50 × 10⁻⁶ m and v_rms.',
+          katexPhysics: false,
+        })
+      );
+      expect(legacy).toContain('2.50 × 10<sup');
+      expect(legacy).toContain('>−6</sup>');
+      expect(legacy).toContain('v<sub');
     });
   });
 
@@ -154,6 +269,7 @@ describe('SixthPhysics <MathText />, <SvgFigurePlate />, and <FormulaDrawer />',
       expect(items).toHaveLength(summary.totalCompiledItems);
 
       let checkedStrings = 0;
+      let katexRuns = 0;
       const failures: string[] = [];
 
       for (const item of items) {
@@ -202,6 +318,7 @@ describe('SixthPhysics <MathText />, <SvgFigurePlate />, and <FormulaDrawer />',
           checkedStrings += 1;
 
           const html = renderMath(field.value);
+          katexRuns += (html.match(/class="katex"/g) ?? []).length;
           if (html.includes('katex-error')) {
             failures.push(`${item.id} (${field.label}): katex-error`);
           }
@@ -218,6 +335,8 @@ describe('SixthPhysics <MathText />, <SvgFigurePlate />, and <FormulaDrawer />',
       }
 
       expect(checkedStrings).toBeGreaterThan(40000);
+      // Quantities, equations, and symbols now flow through real KaTeX.
+      expect(katexRuns).toBeGreaterThan(100000);
       expect(failures).toEqual([]);
     });
   });
@@ -242,8 +361,8 @@ describe('SixthPhysics <MathText />, <SvgFigurePlate />, and <FormulaDrawer />',
           questionId: 'q-001',
         })
       );
-      expect(plateHtml).toContain('bg-white');
-      expect(plateHtml).toContain('border-[#E5E7EB]');
+      expect(plateHtml).toContain('background:#ffffff');
+      expect(plateHtml).toContain('border-[#E2E8F0]');
       expect(plateHtml).toContain('Expand diagram');
     });
   });

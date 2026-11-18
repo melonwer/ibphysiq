@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Filter, X } from 'lucide-react';
+import { Check, Filter, Grid } from 'lucide-react';
 import type {
   PublicSubtopicSummary,
   PublicTopicSummary,
@@ -36,18 +36,39 @@ const FORMAT_OPTIONS: Array<{ value: QuestionFormat | 'all'; label: string }> =
   [
     { value: 'all', label: 'All' },
     { value: 'mcq', label: 'MCQ' },
-    { value: 'structured', label: 'Structured' },
+    { value: 'structured', label: 'Written' },
   ];
 
 const DIFFICULTY_OPTIONS: Array<{
   value: QuestionDifficulty | 'all';
   label: string;
+  dotClass?: string;
 }> = [
   { value: 'all', label: 'All' },
-  { value: 'foundation', label: 'Foundation' },
-  { value: 'standard', label: 'Standard' },
-  { value: 'higher', label: 'Higher' },
+  { value: 'foundation', label: 'Easy', dotClass: 'bg-emerald-500' },
+  { value: 'standard', label: 'Medium', dotClass: 'bg-amber-500' },
+  { value: 'higher', label: 'Hard', dotClass: 'bg-rose-500' },
 ];
+
+/** Cheerful, distinct avatar colours so each topic is findable at a glance. */
+const TOPIC_SWATCHES = [
+  'bg-indigo-500 shadow-[0_2px_0_#3730a3]',
+  'bg-emerald-500 shadow-[0_2px_0_#047857]',
+  'bg-amber-500 shadow-[0_2px_0_#b45309]',
+  'bg-rose-500 shadow-[0_2px_0_#be123c]',
+  'bg-sky-500 shadow-[0_2px_0_#0369a1]',
+  'bg-violet-500 shadow-[0_2px_0_#6d28d9]',
+  'bg-teal-500 shadow-[0_2px_0_#0f766e]',
+  'bg-orange-500 shadow-[0_2px_0_#c2410c]',
+] as const;
+
+export function getTopicGlyph(compactCode: string): string {
+  const tokens = compactCode.trim().split(/\s+/);
+  const last = tokens[tokens.length - 1] ?? '';
+  if (/^AC\d+$/i.test(last)) return last.slice(2);
+  if (last.length <= 2) return last.toUpperCase();
+  return last.charAt(0).toUpperCase();
+}
 
 const STATUS_OPTIONS: Array<{ value: QuestionStatusFilter; label: string }> = [
   { value: 'all', label: 'All' },
@@ -235,160 +256,144 @@ export function TopicRail({
     : 'All topics';
   const activeFilterBadgeCount = countActiveNonDefaultFilters(filters);
 
+  const renderSegGroup = <T extends string>(
+    label: string,
+    ariaLabel: string,
+    options: Array<{ value: T; label: string; dotClass?: string }>,
+    activeValue: T,
+    onPick: (value: T) => void,
+    gridClass: string
+  ) => (
+    <div className="space-y-1.5">
+      <span className="block text-[12.5px] font-bold text-[var(--sp-muted)]">
+        {label}
+      </span>
+      <div
+        role="group"
+        aria-label={ariaLabel}
+        className={cn('sp-seg grid w-full', gridClass)}
+      >
+        {options.map((opt) => {
+          const active = activeValue === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onPick(opt.value)}
+              className="sp-seg-item inline-flex items-center justify-center gap-1.5 px-2 py-1.5 text-[12.5px] whitespace-nowrap"
+            >
+              {opt.dotClass && (
+                <span
+                  aria-hidden="true"
+                  className={cn('sp-dot h-[7px] w-[7px]', opt.dotClass)}
+                />
+              )}
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   const renderRailBody = (inMobileSheet: boolean) => (
     <div className="space-y-5">
       <section aria-label="Question filters" className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-semibold text-[var(--sp-ink)]">
+          <h2 className="text-[15px] font-extrabold text-[var(--sp-ink)]">
             Filter questions
           </h2>
           {hasActiveFilters && (
             <button
               type="button"
               onClick={handleResetFilters}
-              className="cursor-pointer text-xs font-medium text-[var(--sp-accent)] hover:underline"
+              className="cursor-pointer rounded-lg px-2 py-1 text-[12.5px] font-bold text-[var(--sp-accent)] transition-colors hover:bg-[var(--sp-accent-tint)]"
             >
               Reset
             </button>
           )}
         </div>
 
-        <div className="space-y-2.5">
-          <div className="space-y-1">
-            <span className="block text-xs font-medium text-[var(--sp-muted)]">
-              Format
-            </span>
-            <div
-              role="group"
-              aria-label="Filter by question format"
-              className="grid grid-cols-3 gap-1 rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] p-0.5"
-            >
-              {FORMAT_OPTIONS.map((opt) => {
-                const active = activeFormat === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => handlePatchFilters({ format: opt.value })}
-                    className={cn(
-                      'cursor-pointer rounded-md px-2 py-1 text-xs transition-colors',
-                      active
-                        ? 'bg-[var(--sp-surface)] font-semibold text-[var(--sp-ink)] shadow-2xs'
-                        : 'font-medium text-[var(--sp-muted)] hover:text-[var(--sp-ink)]'
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <span className="block text-xs font-medium text-[var(--sp-muted)]">
-              Difficulty
-            </span>
-            <div
-              role="group"
-              aria-label="Filter by difficulty"
-              className="flex flex-wrap gap-1"
-            >
-              {DIFFICULTY_OPTIONS.map((opt) => {
-                const active = activeDifficulty === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() =>
-                      handlePatchFilters({ difficulty: opt.value })
-                    }
-                    className={cn(
-                      'cursor-pointer rounded-md border px-2.5 py-1 text-xs transition-colors',
-                      active
-                        ? 'border-[var(--sp-accent)]/45 bg-blue-500/10 font-semibold text-[var(--sp-ink)] dark:bg-blue-500/15'
-                        : 'border-[var(--sp-border)] bg-[var(--sp-surface)] font-medium text-[var(--sp-muted)] hover:bg-[var(--sp-surface-subtle)] hover:text-[var(--sp-ink)]'
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <span className="block text-xs font-medium text-[var(--sp-muted)]">
-              Status
-            </span>
-            <div
-              role="group"
-              aria-label="Filter by attempt status"
-              className="flex flex-wrap gap-1"
-            >
-              {STATUS_OPTIONS.map((opt) => {
-                const active = activeStatus === opt.value;
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => handlePatchFilters({ status: opt.value })}
-                    className={cn(
-                      'cursor-pointer rounded-md border px-2.5 py-1 text-xs transition-colors',
-                      active
-                        ? 'border-[var(--sp-accent)]/45 bg-blue-500/10 font-semibold text-[var(--sp-ink)] dark:bg-blue-500/15'
-                        : 'border-[var(--sp-border)] bg-[var(--sp-surface)] font-medium text-[var(--sp-muted)] hover:bg-[var(--sp-surface-subtle)] hover:text-[var(--sp-ink)]'
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        <div className="space-y-3">
+          {renderSegGroup(
+            'Format',
+            'Filter by question format',
+            FORMAT_OPTIONS,
+            activeFormat,
+            (value) => handlePatchFilters({ format: value }),
+            'grid-cols-3'
+          )}
+          {renderSegGroup(
+            'Difficulty',
+            'Filter by difficulty',
+            DIFFICULTY_OPTIONS,
+            activeDifficulty,
+            (value) => handlePatchFilters({ difficulty: value }),
+            'grid-cols-4'
+          )}
+          {renderSegGroup(
+            'Status',
+            'Filter by attempt status',
+            STATUS_OPTIONS,
+            activeStatus,
+            (value) => handlePatchFilters({ status: value }),
+            'grid-cols-2'
+          )}
         </div>
       </section>
 
       <section
         aria-label={getSyllabusRailHeading(activeSyllabus)}
-        className="space-y-2 border-t border-[var(--sp-border)] pt-4"
+        className="space-y-2.5 border-t-2 border-[var(--sp-border)] pt-4"
       >
-        <div className="flex items-center justify-between px-1">
-          <h2 className="text-xs font-semibold text-[var(--sp-ink)]">
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-[15px] font-extrabold text-[var(--sp-ink)]">
             {getSyllabusRailHeading(activeSyllabus)}
           </h2>
           {typeof filteredQuestionCount === 'number' && (
-            <span className="font-mono text-[11px] tabular-nums text-[var(--sp-muted)]">
+            <span className="text-[12px] font-semibold tabular-nums text-[var(--sp-muted)]">
               {filteredQuestionCount.toLocaleString()} matching
             </span>
           )}
         </div>
 
-        <nav className="space-y-1">
-          <button
-            type="button"
-            aria-current={
-              !activeTopicId || activeTopicId === 'all' ? 'true' : undefined
-            }
-            onClick={() =>
-              handleSelectTopicAndSubtopic('all', 'all', inMobileSheet)
-            }
-            className={cn(
-              'flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
-              !activeTopicId || activeTopicId === 'all'
-                ? 'border-[var(--sp-accent)]/40 bg-blue-500/[0.08] font-semibold text-[var(--sp-ink)] dark:bg-blue-500/[0.14]'
-                : 'border-transparent text-[var(--sp-ink)] hover:bg-[var(--sp-surface-subtle)]'
-            )}
-          >
-            <span>All topics</span>
-            <span className="font-mono text-xs tabular-nums text-[var(--sp-muted)]">
-              {computedTotalCount.toLocaleString()}
-            </span>
-          </button>
+        <nav className="space-y-1.5">
+          {(() => {
+            const isAllActive = !activeTopicId || activeTopicId === 'all';
+            return (
+              <button
+                type="button"
+                aria-current={isAllActive ? 'true' : undefined}
+                onClick={() =>
+                  handleSelectTopicAndSubtopic('all', 'all', inMobileSheet)
+                }
+                className={cn(
+                  'flex w-full items-center justify-between gap-2.5 rounded-2xl px-2.5 py-2 text-left',
+                  isAllActive
+                    ? 'sp-key sp-key--sm sp-key--selected'
+                    : 'cursor-pointer border-2 border-transparent transition-colors hover:border-[var(--sp-border)] hover:bg-[var(--sp-surface-subtle)]'
+                )}
+              >
+                <span className="flex items-center gap-2.5">
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[var(--sp-ink)] text-[var(--sp-surface)] shadow-[0_2px_0_var(--sp-lip)]"
+                  >
+                    <Grid className="h-4 w-4" />
+                  </span>
+                  <span className="text-[14px] font-bold text-[var(--sp-ink)]">
+                    All topics
+                  </span>
+                </span>
+                <span className="text-[12.5px] font-semibold tabular-nums text-[var(--sp-muted)]">
+                  {computedTotalCount.toLocaleString()}
+                </span>
+              </button>
+            );
+          })()}
 
-          {topics.map((topic) => {
+          {topics.map((topic, topicIndex) => {
             const isSelectedTopic = activeTopicId === topic.id;
             const topicCount = resolveCountForLevel(topic, activeLevel);
             const stat = topicMastery?.[topic.id];
@@ -397,88 +402,91 @@ export function TopicRail({
               : 0;
             const compactCode = formatCompactTopicCode(topic.code);
             const compactTitle = formatCompactTopicTitle(topic.title);
+            const swatch =
+              TOPIC_SWATCHES[topicIndex % TOPIC_SWATCHES.length] ??
+              TOPIC_SWATCHES[0];
+            const isTopicRowActive =
+              isSelectedTopic &&
+              (!activeSubtopicId || activeSubtopicId === 'all');
 
             return (
-              <div key={topic.id} className="space-y-1">
+              <div key={topic.id} className="space-y-1.5">
                 <button
                   type="button"
-                  aria-current={
-                    isSelectedTopic &&
-                    (!activeSubtopicId || activeSubtopicId === 'all')
-                      ? 'true'
-                      : undefined
-                  }
+                  aria-current={isTopicRowActive ? 'true' : undefined}
                   onClick={() =>
                     handleSelectTopicAndSubtopic(
-                      isSelectedTopic &&
-                        (!activeSubtopicId || activeSubtopicId === 'all')
-                        ? 'all'
-                        : topic.id,
+                      isTopicRowActive ? 'all' : topic.id,
                       'all',
                       inMobileSheet && topic.subtopics.length === 0
                     )
                   }
                   className={cn(
-                    'group w-full cursor-pointer rounded-lg border px-3 py-2.5 text-left transition-colors',
+                    'group w-full rounded-2xl px-2.5 py-2.5 text-left',
                     isSelectedTopic
-                      ? 'border-[var(--sp-accent)]/40 bg-blue-500/[0.08] dark:bg-blue-500/[0.14]'
-                      : 'border-transparent hover:bg-[var(--sp-surface-subtle)]'
+                      ? 'sp-key sp-key--sm sp-key--selected'
+                      : 'cursor-pointer border-2 border-transparent transition-colors hover:border-[var(--sp-border)] hover:bg-[var(--sp-surface-subtle)]'
                   )}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-[11.5px] font-semibold text-[var(--sp-accent)]">
-                          {compactCode}
-                        </span>
-                        {topic.levelsCovered.length === 1 &&
-                          (topic.levelsCovered[0] === 'HL' ||
-                            topic.levelsCovered[0] === 'Y13') && (
-                            <span className="rounded bg-[var(--sp-surface-subtle)] px-1 py-0.5 font-mono text-[10px] font-medium text-[var(--sp-muted)]">
-                              {topic.levelsCovered[0]}
-                            </span>
-                          )}
-                      </div>
-                      <p
-                        className={cn(
-                          'mt-0.5 text-[13.5px] leading-snug text-[var(--sp-ink)]',
-                          isSelectedTopic ? 'font-semibold' : 'font-medium'
-                        )}
-                      >
-                        {compactTitle}
-                      </p>
-                    </div>
-
-                    <span className="mt-0.5 shrink-0 font-mono text-xs tabular-nums text-[var(--sp-muted)]">
-                      {topicCount.toLocaleString()}
+                  <div className="flex items-start gap-2.5">
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-[13px] font-extrabold text-white',
+                        swatch
+                      )}
+                    >
+                      {getTopicGlyph(compactCode)}
                     </span>
-                  </div>
 
-                  <div
-                    className="mt-2 flex items-center gap-2"
-                    aria-label={`${compactCode} mastery ${masteryPct}%`}
-                  >
-                    <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-[var(--sp-border)]">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className="flex items-center gap-1.5 text-[11.5px] font-bold text-[var(--sp-muted)]">
+                            {compactCode}
+                            {topic.levelsCovered.length === 1 &&
+                              (topic.levelsCovered[0] === 'HL' ||
+                                topic.levelsCovered[0] === 'Y13') && (
+                                <span className="rounded-md bg-[var(--sp-track)] px-1.5 py-px text-[10.5px] font-bold text-[var(--sp-ink)]">
+                                  {topic.levelsCovered[0]}
+                                </span>
+                              )}
+                          </span>
+                          <p className="text-[13.5px] leading-snug font-bold text-[var(--sp-ink)]">
+                            {compactTitle}
+                          </p>
+                        </div>
+                        <span className="shrink-0 pt-0.5 text-[12px] font-semibold tabular-nums text-[var(--sp-muted)]">
+                          {topicCount.toLocaleString()}
+                        </span>
+                      </div>
+
                       <div
-                        className={cn(
-                          'h-full rounded-full transition-all',
-                          masteryPct >= 75
-                            ? 'bg-emerald-600 dark:bg-emerald-400'
-                            : 'bg-[var(--sp-accent)]'
+                        className="mt-2 flex items-center gap-2"
+                        aria-label={`${compactCode} mastery ${masteryPct}%`}
+                      >
+                        <div className="sp-progress sp-progress--sm flex-1">
+                          <div
+                            className="sp-progress-fill"
+                            style={{
+                              width: `${masteryPct}%`,
+                              background:
+                                masteryPct >= 75 ? '#10B981' : undefined,
+                            }}
+                          />
+                        </div>
+                        {stat && stat.attemptedCount > 0 && (
+                          <span className="shrink-0 text-[11px] font-bold tabular-nums text-[var(--sp-muted)]">
+                            {masteryPct}%
+                          </span>
                         )}
-                        style={{ width: `${masteryPct}%` }}
-                      />
+                      </div>
                     </div>
-                    {stat && stat.attemptedCount > 0 && (
-                      <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-[var(--sp-muted)]">
-                        {masteryPct}%
-                      </span>
-                    )}
                   </div>
                 </button>
 
                 {isSelectedTopic && topic.subtopics.length > 0 && (
-                  <div className="ml-3 space-y-0.5 border-l border-[var(--sp-border)] pl-2.5">
+                  <div className="ml-[1.4rem] space-y-1 border-l-2 border-[var(--sp-border)] pl-3">
                     {topic.subtopics.map((sub) => {
                       const isSubActive = activeSubtopicId === sub.id;
                       const subCount = resolveCountForLevel(sub, activeLevel);
@@ -496,17 +504,17 @@ export function TopicRail({
                             )
                           }
                           className={cn(
-                            'flex w-full cursor-pointer items-start justify-between gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] leading-snug transition-colors',
+                            'flex w-full cursor-pointer items-start justify-between gap-2 rounded-xl border-2 px-2.5 py-1.5 text-left text-[13px] leading-snug transition-colors',
                             isSubActive
-                              ? 'bg-[var(--sp-surface-subtle)] font-semibold text-[var(--sp-ink)]'
-                              : 'text-[var(--sp-muted)] hover:bg-[var(--sp-surface-subtle)]/70 hover:text-[var(--sp-ink)]'
+                              ? 'border-[var(--sp-accent)] bg-[var(--sp-accent-tint)] font-bold text-[var(--sp-accent-ink)]'
+                              : 'border-transparent font-medium text-[var(--sp-muted)] hover:bg-[var(--sp-surface-subtle)] hover:text-[var(--sp-ink)]'
                           )}
                         >
                           <span className="min-w-0">
                             {sub.code ? `${sub.code} ` : ''}
                             {sub.title}
                           </span>
-                          <span className="shrink-0 font-mono text-[11px] tabular-nums">
+                          <span className="shrink-0 text-[11.5px] font-semibold tabular-nums">
                             {subCount.toLocaleString()}
                           </span>
                         </button>
@@ -532,22 +540,22 @@ export function TopicRail({
             className="fixed inset-0 z-50 flex lg:hidden"
           >
             <div
-              className="fixed inset-0 bg-black/55 backdrop-blur-[1px]"
+              className="fixed inset-0 bg-slate-950/55 backdrop-blur-[2px]"
               onClick={() => setMobileOpen(false)}
             />
-            <div className="relative z-10 flex h-full w-full max-w-[330px] flex-col border-r border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-ink)]">
-              <div className="flex items-center justify-between border-b border-[var(--sp-border)] px-4 py-3.5">
-                <span className="text-sm font-semibold text-[var(--sp-ink)]">
+            <div className="relative z-10 flex h-full w-full max-w-[340px] flex-col border-r-2 border-[var(--sp-border)] bg-[var(--sp-surface)] text-[var(--sp-ink)]">
+              <div className="flex items-center justify-between border-b-2 border-[var(--sp-border)] px-4 py-3">
+                <span className="text-[16px] font-extrabold text-[var(--sp-ink)]">
                   Topics &amp; filters
                 </span>
                 <button
                   type="button"
                   onClick={() => setMobileOpen(false)}
                   aria-label="Close topics and filters"
-                  className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-[var(--sp-border)] bg-[var(--sp-surface-subtle)] px-2.5 py-1 text-xs font-medium text-[var(--sp-ink)]"
+                  className="sp-key sp-key--primary sp-key--sm inline-flex h-9 items-center gap-1 rounded-xl px-3 text-[13px] font-extrabold"
                 >
                   <span>Done</span>
-                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  <Check className="h-4 w-4" strokeWidth={3} aria-hidden="true" />
                 </button>
               </div>
 
@@ -567,22 +575,22 @@ export function TopicRail({
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[var(--sp-border)] bg-[var(--sp-surface)] px-3.5 py-2 text-xs font-semibold text-[var(--sp-ink)]"
+            className="sp-key sp-key--neutral sp-key--sm inline-flex min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-[13.5px] font-bold"
           >
-            <Filter className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>Topics &amp; filters</span>
-            <span className="rounded bg-[var(--sp-surface-subtle)] px-1.5 py-0.5 font-mono text-[11px] font-medium text-[var(--sp-muted)]">
+            <Filter className="h-4 w-4 shrink-0 text-[var(--sp-accent)]" aria-hidden="true" />
+            <span className="shrink-0">Topics &amp; filters</span>
+            <span className="sp-chip sp-chip--accent min-w-0 truncate px-2 py-0 text-[12px]">
               {mobileTopicSummary}
             </span>
             {activeFilterBadgeCount > 0 && (
-              <span className="rounded-full bg-[var(--sp-accent)] px-1.5 py-0.5 font-mono text-[10px] font-semibold tabular-nums text-white">
+              <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-[var(--sp-accent)] px-1 text-[11px] font-extrabold tabular-nums text-white">
                 {activeFilterBadgeCount}
               </span>
             )}
           </button>
 
           {typeof filteredQuestionCount === 'number' && (
-            <span className="font-mono text-xs tabular-nums text-[var(--sp-muted)]">
+            <span className="shrink-0 text-[12.5px] font-semibold tabular-nums text-[var(--sp-muted)]">
               {filteredQuestionCount.toLocaleString()} questions
             </span>
           )}
@@ -592,11 +600,11 @@ export function TopicRail({
       <aside
         aria-label="Syllabus topics and filters"
         className={cn(
-          'hidden w-[284px] shrink-0 lg:block',
+          'sticky top-[calc(var(--sp-topnav-h,64px)_+_16px)] hidden w-[296px] shrink-0 self-start lg:block',
           className
         )}
       >
-        <div className="sticky top-[72px] max-h-[calc(100vh-88px)] overflow-y-auto rounded-2xl border border-[var(--sp-border)] bg-[var(--sp-surface)] p-4">
+        <div className="sp-card max-h-[calc(100vh_-_var(--sp-topnav-h,64px)_-_36px)] overflow-y-auto p-4">
           {renderRailBody(false)}
         </div>
       </aside>
